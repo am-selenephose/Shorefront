@@ -5,6 +5,7 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from .models import LinkMode
+from .domain import detect_berth_conflicts, score_port_call
 from .simulator import HarborSimulator
 
 sim = HarborSimulator()

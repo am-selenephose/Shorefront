@@ -1,0 +1,19 @@
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: portflow
+      POSTGRES_USER: portflow
+      POSTGRES_PASSWORD: portflow-dev-only
+    ports:
+      - "55432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U portflow -d portflow"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+    volumes:
+      - portflow_pg:/var/lib/postgresql/data
+
+volumes:
+  portflow_pg:

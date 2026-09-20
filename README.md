@@ -18,3 +18,12 @@ Private portfolio build, v0.1 foundation.
 
 ## Demo domain
 The initial demo uses a fictionalized Rotterdam-like port topology and fully synthetic operations data.
+
+
+## Engineering proof in v0.2
+
+- Mechanical berth-conflict detection
+- Dependency-order validation for port-call stages
+- Explainable risk scoring from delay + weather + berth conflict
+- GitHub Actions CI for API tests and frontend build/audit
+- Dockerized PostgreSQL development service reserved for canonical persistence
