@@ -13,3 +13,8 @@ coverage/
 apps/web/vite.config.js
 apps/web/vite.config.d.ts
 apps/web/pnpm-workspace.yaml
+
+.artifacts/
+*.db
+*.sqlite
+*.sqlite3
