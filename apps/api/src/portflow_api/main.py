@@ -41,6 +41,22 @@ def connectivity(req: ConnectivityRequest):
     sim.set_connectivity(req.mode)
     return sim.connectivity
 
+@app.get("/api/v1/berth-conflicts")
+def berth_conflicts():
+    return [c.__dict__ for c in detect_berth_conflicts(sim.port_calls)]
+
+
+@app.get("/api/v1/port-calls/{call_id}/risk")
+def port_call_risk(call_id: str):
+    call = next((c for c in sim.port_calls if c.id == call_id), None)
+    if call is None:
+        return {"found": False}
+    conflicts = detect_berth_conflicts(sim.port_calls)
+    conflicted_ids = {x.first_call_id for x in conflicts} | {x.second_call_id for x in conflicts}
+    level, score, reasons = score_port_call(call, sim.weather, call.id in conflicted_ids)
+    return {"found": True, "call_id": call.id, "risk": level, "score": score, "reasons": reasons}
+
+
 @app.websocket("/ws/harbor")
 async def harbor_ws(ws: WebSocket):
     await ws.accept()
