@@ -1,6 +1,9 @@
 export type Risk = 'low' | 'medium' | 'high' | 'critical'
 export type LinkMode = 'full' | 'degraded' | 'critical' | 'offline_edge'
 export type IncidentType = 'pilot_delay' | 'tug_unavailable' | 'berth_overrun' | 'wind_restriction' | 'connectivity_loss'
+export type ServiceKind = 'pilot' | 'tug' | 'berth' | 'crane' | 'cargo' | 'customs' | 'departure'
+export type ServiceState = 'ready' | 'assigned' | 'delayed' | 'blocked' | 'completed'
+export type ResourceStatus = 'available' | 'assigned' | 'delayed' | 'unavailable'
 
 export interface Coordinate { lat: number; lon: number }
 
@@ -76,6 +79,27 @@ export interface Event {
   incident_id?: string | null
 }
 
+export interface ServiceResource {
+  id: string
+  kind: ServiceKind
+  name: string
+  status: ResourceStatus
+  capacity: number
+  assigned_port_call_ids: string[]
+  available_from?: string | null
+}
+
+export interface ServiceStep {
+  id: string
+  port_call_id: string
+  kind: ServiceKind
+  label: string
+  planned_at: string
+  state: ServiceState
+  resource_id?: string | null
+  dependency_step_ids: string[]
+}
+
 export interface HarborState {
   generated_at: string
   port_name: string
@@ -102,6 +126,8 @@ export interface HarborState {
     last_transition_at: string
   }
   incidents: Incident[]
+  service_resources: ServiceResource[]
+  service_steps: ServiceStep[]
   events: Event[]
   metrics: Record<string, number>
   data_disclaimer: string

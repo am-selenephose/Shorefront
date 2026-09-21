@@ -4,7 +4,7 @@ PortFlow is a port-call operations control tower for live vessel, berth, weather
 
 ## Status
 
-Private portfolio build, v0.2 operational core.
+Private portfolio build, v0.3 resilient operations core.
 
 ## Product principles
 
@@ -126,6 +126,54 @@ GitHub Actions workflow is committed. The linked GitHub account currently has Ac
 - POST /api/v1/connectivity
 - POST /api/v1/demo/reset
 - WS /ws/harbor
+
+## v0.3 proof
+
+### Durable offline delivery
+
+- outbound operational events are durably queued while OFFLINE_EDGE
+- queue state is persisted separately from the local audit ledger
+- reconnect to FULL triggers replay through an explicit delivery adapter
+- each successful replay creates a durable ACK receipt
+- replay is idempotent: already acknowledged envelopes are not delivered twice
+- UI queue count reflects the actual durable spool, not a synthetic timer
+
+Runtime proof:
+
+- 2 events queued during offline incident flow
+- 2 events acknowledged on reconnect
+- 0 events pending after replay
+- max delivery attempts: 1
+
+### Service dependency graph
+
+Each scheduled port call now carries a canonical service chain:
+
+pilot -> tug -> berth -> crane -> cargo -> customs -> departure
+
+The graph has explicit resources and dependency edges. Current synthetic resources include:
+
+- Pilot Alpha / Pilot Bravo
+- Tug 14 / Tug 22
+- berth resources
+- terminal cranes
+- Customs Team 1
+
+Incidents change canonical service state:
+
+- pilot delay marks pilot delayed and propagates delay downstream
+- tug unavailable marks the assigned tug unavailable and blocks downstream services
+- berth conflict blocks the later vessel's berth access and downstream crane/cargo/customs/departure path
+- wind restriction blocks pilot/tug movement chains for affected inbound calls
+
+The API exposes an explainable dependency graph for each port call.
+
+### New APIs
+
+- GET /api/v1/replay/pending
+- POST /api/v1/replay
+- GET /api/v1/replay/receipts
+- GET /api/v1/port-calls/{call_id}/dependency-graph
 
 ## Next engineering milestone
 

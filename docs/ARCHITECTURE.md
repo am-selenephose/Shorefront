@@ -1,6 +1,6 @@
 # PortFlow architecture
 
-## v0.2
+## v0.3
 
 Synthetic operations and scenario injection feed a deterministic HarborSimulator.
 
@@ -75,3 +75,35 @@ Offline-edge mode currently accumulates queued event count. The next milestone a
 - schedule conflicts are mechanical interval overlaps
 - event history is append-only
 - incident effects remain in the audit trail after resolution
+
+
+## Durable outbound replay
+
+PortFlow separates two concepts:
+
+1. local operations ledger
+2. remote-delivery spool
+
+The local ledger records what happened regardless of connectivity.
+
+When the control-center link is OFFLINE_EDGE, each outbound event is also wrapped as a durable envelope keyed by its event id. Reconnect replays pending envelopes through a delivery adapter. Successful deliveries produce durable replay receipts.
+
+Event id uniqueness plus receipt lookup make replay idempotent for the demo transport path.
+
+## Service/resource graph
+
+Every modeled port call owns a service chain:
+
+pilot -> tug -> berth -> crane -> cargo -> customs -> departure
+
+ServiceStep nodes carry explicit dependency ids and optional resource ids. ServiceResource records track pilots, tugs, cranes, customs teams, and berth assignments.
+
+Incidents mutate resource/service state before risk and UI projection:
+
+- delayed
+- blocked
+- unavailable
+- assigned
+- ready
+
+Dependency-state propagation continues downstream until no graph state changes remain.

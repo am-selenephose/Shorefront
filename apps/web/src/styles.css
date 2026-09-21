@@ -67,3 +67,40 @@
   .scenario-grid{grid-template-columns:1fr}
   .event-feed-wide{grid-template-columns:1fr}
 }
+
+
+/* v0.3 service dependency + durable replay surfaces */
+.metrics-seven{grid-template-columns:repeat(7,1fr)}
+.service-chain{display:flex;align-items:flex-start;gap:0;margin-top:12px;overflow-x:auto;padding-bottom:2px}
+.service-node{min-width:72px;position:relative;padding-top:12px}
+.service-node .service-line{position:absolute;left:0;right:0;top:0;height:8px;display:flex;align-items:center}
+.service-node .service-line i{width:8px;height:8px;border-radius:50%;display:block;background:#557081;border:1px solid #7791a3;z-index:2}
+.service-node .service-line span{height:1px;background:#2a4050;display:block;flex:1}
+.service-node b{display:block;font:600 7px 'IBM Plex Mono';letter-spacing:.45px;color:#b9cedb}
+.service-node small{display:block;font-size:7px;color:#587286;margin-top:2px;white-space:nowrap;max-width:68px;overflow:hidden;text-overflow:ellipsis}
+.service-node.assigned .service-line i{background:#67c6e5;border-color:#a0e1f6}
+.service-node.ready .service-line i{background:#5d8d78;border-color:#80c69f}
+.service-node.delayed .service-line i{background:#d6a650;border-color:#f0c978;box-shadow:0 0 10px #e6b65144}
+.service-node.blocked .service-line i{background:#de665a;border-color:#ff968b;box-shadow:0 0 12px #ff756755}
+.service-node.completed .service-line i{background:#58c68b;border-color:#8be0ae}
+.service-node.delayed b{color:#e7c170}
+.service-node.blocked b{color:#ff9387}
+
+.side-ops-stack{display:grid;gap:10px;align-content:start}
+.resource-board{padding:4px 14px 10px}
+.resource-row{display:flex;align-items:center;justify-content:space-between;padding:9px 0;border-bottom:1px solid #142736}
+.resource-row:last-child{border-bottom:0}
+.resource-row b{display:block;font-size:9px}
+.resource-row div span{display:block;font-size:7px;color:#5b768a;margin-top:3px;text-transform:uppercase}
+.resource-status{font:600 7px 'IBM Plex Mono';text-transform:uppercase;border:1px solid #314c60;border-radius:3px;padding:4px 6px}
+.resource-status.available{color:#76d7a7;border-color:#2f6c4c}
+.resource-status.assigned{color:#7ed7f3;border-color:#37687d}
+.resource-status.delayed{color:#ecc16b;border-color:#6f592d}
+.resource-status.unavailable{color:#ff8b80;border-color:#713a36}
+
+@media(max-width:1500px){
+  .metrics-seven{grid-template-columns:repeat(4,1fr)}
+}
+@media(max-width:900px){
+  .metrics-seven{grid-template-columns:repeat(2,1fr)}
+}

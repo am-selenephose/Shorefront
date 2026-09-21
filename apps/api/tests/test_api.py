@@ -66,3 +66,39 @@ def test_incident_endpoint_propagates_and_persists():
 
         persisted = client.get("/api/v1/incidents?limit=20").json()
         assert any(i["id"] == body["id"] for i in persisted)
+
+
+def test_dependency_graph_endpoint():
+    with TestClient(app) as client:
+        client.post("/api/v1/demo/reset")
+        response = client.get("/api/v1/port-calls/pc-aurora/dependency-graph")
+        assert response.status_code == 200
+        data = response.json()
+        assert data["port_call_id"] == "pc-aurora"
+        assert len(data["nodes"]) == 7
+        assert len(data["edges"]) == 6
+
+
+def test_offline_replay_api_contract():
+    with TestClient(app) as client:
+        client.post("/api/v1/demo/reset")
+        client.post("/api/v1/connectivity", json={"mode": "offline_edge"})
+        client.post(
+            "/api/v1/incidents",
+            json={
+                "incident_type": "pilot_delay",
+                "target_port_call_id": "pc-aurora",
+                "impact_minutes": 25,
+            },
+        )
+        pending = client.get("/api/v1/replay/pending").json()
+        assert pending["pending"] >= 2
+
+        connected = client.post("/api/v1/connectivity", json={"mode": "full"})
+        assert connected.status_code == 200
+
+        pending_after = client.get("/api/v1/replay/pending").json()
+        assert pending_after["pending"] == 0
+
+        receipts = client.get("/api/v1/replay/receipts").json()
+        assert len(receipts) >= 2

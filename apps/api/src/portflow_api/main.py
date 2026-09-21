@@ -24,6 +24,9 @@ def build_simulator() -> HarborSimulator:
         event_sink=store.append_event,
         incident_sink=store.upsert_incident,
         snapshot_sink=store.save_snapshot,
+        spool_sink=store.queue_outbound_event,
+        replay_sink=lambda: len(store.replay_outbound_events(lambda event: True)),
+        pending_count=store.pending_outbound_count,
     )
 
 
@@ -45,7 +48,7 @@ async def lifespan(app: FastAPI):
     task.cancel()
 
 
-app = FastAPI(title="PortFlow API", version="0.2.0", lifespan=lifespan)
+app = FastAPI(title="PortFlow API", version="0.3.0", lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
@@ -70,7 +73,7 @@ def healthz():
     return {
         "ok": True,
         "service": "portflow-api",
-        "version": "0.2.0",
+        "version": "0.3.0",
         "persistence": True,
     }
 
@@ -116,6 +119,39 @@ def resolve_incident(incident_id: str):
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
+@app.get("/api/v1/replay/pending")
+def replay_pending():
+    return {
+        "pending": store.pending_outbound_count(),
+        "events": store.pending_outbound_events(limit=200),
+    }
+
+
+@app.get("/api/v1/replay/receipts")
+def replay_receipts(limit: int = 100):
+    return store.list_replay_receipts(limit=limit)
+
+
+@app.post("/api/v1/replay")
+def replay_now():
+    receipts = store.replay_outbound_events(lambda event: True)
+    sim._refresh_queued_count()
+    sim._persist()
+    return {
+        "replayed": len(receipts),
+        "pending": store.pending_outbound_count(),
+        "receipts": receipts,
+    }
+
+
+@app.get("/api/v1/port-calls/{call_id}/dependency-graph")
+def dependency_graph(call_id: str):
+    try:
+        return sim.dependency_graph(call_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
 @app.get("/api/v1/berth-conflicts")
 def berth_conflicts():
     return [conflict.__dict__ for conflict in detect_berth_conflicts(sim.port_calls)]
@@ -140,6 +176,9 @@ def reset_demo():
         event_sink=store.append_event,
         incident_sink=store.upsert_incident,
         snapshot_sink=store.save_snapshot,
+        spool_sink=store.queue_outbound_event,
+        replay_sink=lambda: len(store.replay_outbound_events(lambda event: True)),
+        pending_count=store.pending_outbound_count,
     )
     return sim.overview()
 

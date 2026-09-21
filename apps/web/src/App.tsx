@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { BerthTimeline } from './BerthTimeline'
 import { HarborMap } from './HarborMap'
 import { IncidentControls } from './IncidentControls'
+import { ResourceBoard, ServiceChain } from './ServiceChain'
 import type { HarborState, IncidentType, LinkMode, PortCall } from './types'
 import './styles.css'
 
@@ -49,17 +50,7 @@ function PortCallCard({ call, state }: { call: PortCall; state: HarborState }) {
         <span>Exposure <b>{usd(call.estimated_cost_exposure_usd)}</b></span>
       </div>
 
-      <div className="stage-strip">
-        {call.stages.map(stage => {
-          const completed = Boolean(stage.actual_at) || stage.state === 'completed'
-          return (
-            <div className="stage" key={stage.code}>
-              <i className={completed ? 'done' : ''} />
-              <span>{stage.label}</span>
-            </div>
-          )
-        })}
-      </div>
+      <ServiceChain call={call} state={state} />
     </div>
   )
 }
@@ -181,6 +172,7 @@ export default function App() {
           <a href="#berth-schedule">Berth Schedule</a>
           <a href="#port-calls">Port Calls</a>
           <a href="#incidents">Incidents</a>
+          <a href="#resources">Resources</a>
           <a href="#ledger">Operations Ledger</a>
         </nav>
 
@@ -205,12 +197,17 @@ export default function App() {
           </div>
         </header>
 
-        <section className="metrics metrics-six" id="overview">
+        <section className="metrics metrics-seven" id="overview">
           <Metric label="VESSELS IN PICTURE" value={state.metrics.vessels_in_port_picture} />
           <Metric label="BERTHS OCCUPIED" value={String(state.metrics.berths_occupied) + '/' + String(state.metrics.berths_total)} />
           <Metric label="PORT CALLS AT RISK" value={state.metrics.port_calls_at_risk} />
           <Metric label="ACTIVE INCIDENTS" value={state.metrics.active_incidents || 0} />
           <Metric label="BERTH CONFLICTS" value={state.metrics.berth_conflicts || 0} />
+          <Metric
+            label="SERVICE BLOCKS"
+            value={state.metrics.blocked_services || 0}
+            detail={(state.metrics.delayed_services || 0) + ' delayed'}
+          />
           <Metric label="MODELED EXPOSURE" value={usd(exposure)} />
         </section>
 
@@ -319,13 +316,26 @@ export default function App() {
             </div>
           </div>
 
-          <div className="panel" id="incidents">
-            <IncidentControls
-              state={state}
-              busy={busy}
-              onInject={injectIncident}
-              onReset={resetDemo}
-            />
+          <div className="side-ops-stack">
+            <div className="panel" id="incidents">
+              <IncidentControls
+                state={state}
+                busy={busy}
+                onInject={injectIncident}
+                onReset={resetDemo}
+              />
+            </div>
+
+            <div className="panel" id="resources">
+              <div className="panel-title">
+                <div>
+                  <span>SERVICE RESOURCES</span>
+                  <b>Pilots, tugs, cranes, customs</b>
+                </div>
+                <small>{state.metrics.blocked_services || 0} blocked</small>
+              </div>
+              <ResourceBoard state={state} />
+            </div>
           </div>
         </section>
 

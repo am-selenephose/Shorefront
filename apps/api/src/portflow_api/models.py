@@ -47,6 +47,31 @@ class IncidentStatus(StrEnum):
     RESOLVED = "resolved"
 
 
+class ServiceKind(StrEnum):
+    PILOT = "pilot"
+    TUG = "tug"
+    BERTH = "berth"
+    CRANE = "crane"
+    CARGO = "cargo"
+    CUSTOMS = "customs"
+    DEPARTURE = "departure"
+
+
+class ServiceState(StrEnum):
+    READY = "ready"
+    ASSIGNED = "assigned"
+    DELAYED = "delayed"
+    BLOCKED = "blocked"
+    COMPLETED = "completed"
+
+
+class ResourceStatus(StrEnum):
+    AVAILABLE = "available"
+    ASSIGNED = "assigned"
+    DELAYED = "delayed"
+    UNAVAILABLE = "unavailable"
+
+
 class Coordinate(BaseModel):
     lat: float
     lon: float
@@ -131,6 +156,37 @@ class Incident(BaseModel):
     resolved_at: datetime | None = None
 
 
+
+
+class ServiceResource(BaseModel):
+    id: str
+    kind: ServiceKind
+    name: str
+    status: ResourceStatus = ResourceStatus.AVAILABLE
+    capacity: int = 1
+    assigned_port_call_ids: list[str] = Field(default_factory=list)
+    available_from: datetime | None = None
+
+
+class ServiceStep(BaseModel):
+    id: str
+    port_call_id: str
+    kind: ServiceKind
+    label: str
+    planned_at: datetime
+    state: ServiceState = ServiceState.READY
+    resource_id: str | None = None
+    dependency_step_ids: list[str] = Field(default_factory=list)
+
+
+class ReplayReceipt(BaseModel):
+    envelope_id: str
+    event_id: str
+    replayed_at: datetime
+    delivery_status: str
+    attempts: int
+
+
 class OperationsEvent(BaseModel):
     id: str
     occurred_at: datetime
@@ -154,6 +210,8 @@ class HarborOverview(BaseModel):
     weather: WeatherState
     connectivity: ConnectivityState
     incidents: list[Incident] = Field(default_factory=list)
+    service_resources: list[ServiceResource] = Field(default_factory=list)
+    service_steps: list[ServiceStep] = Field(default_factory=list)
     events: list[OperationsEvent]
     metrics: dict[str, float | int]
     data_disclaimer: str
