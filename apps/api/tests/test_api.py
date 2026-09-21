@@ -109,8 +109,34 @@ def test_dependency_graph_endpoint():
         assert response.status_code == 200
         data = response.json()
         assert data["port_call_id"] == "pc-aurora"
-        assert len(data["nodes"]) == 7
-        assert len(data["edges"]) == 6
+        assert len(data["nodes"]) == 11
+        assert len(data["edges"]) == 16
+
+        nodes = {node["kind"]: node for node in data["nodes"]}
+        assert set(nodes) == {
+            "pilot",
+            "tug",
+            "berth",
+            "crane",
+            "cargo",
+            "bunker",
+            "stores",
+            "documents",
+            "customs",
+            "gate",
+            "departure",
+        }
+        assert set(nodes["customs"]["dependency_step_ids"]) == {
+            "svc-pc-aurora-cargo",
+            "svc-pc-aurora-documents",
+        }
+        assert set(nodes["departure"]["dependency_step_ids"]) == {
+            "svc-pc-aurora-cargo",
+            "svc-pc-aurora-bunker",
+            "svc-pc-aurora-stores",
+            "svc-pc-aurora-customs",
+            "svc-pc-aurora-gate",
+        }
 
 
 def test_offline_replay_api_contract():
@@ -252,7 +278,13 @@ def test_scenario_catalog_and_deterministic_berth_fixture():
         catalog = client.get("/api/v1/scenarios")
         assert catalog.status_code == 200
         ids = {row["id"] for row in catalog.json()}
-        assert {"berth-crunch", "tug-loss", "edge-pilot-delay", "wind-hold"} <= ids
+        assert {
+            "berth-crunch",
+            "tug-loss",
+            "bunker-loss",
+            "edge-pilot-delay",
+            "wind-hold",
+        } <= ids
 
         first = client.post("/api/v1/scenarios/berth-crunch/run")
         assert first.status_code == 200
@@ -348,3 +380,33 @@ def test_stale_adapter_ingest_returns_409():
         )
         assert response.status_code == 409
         assert "stale" in response.json()["detail"].lower()
+
+
+def test_bunker_loss_scenario_blocks_departure_and_returns_recovery_options():
+    with TestClient(app) as client:
+        response = client.post("/api/v1/scenarios/bunker-loss/run")
+        assert response.status_code == 200
+        payload = response.json()
+
+        harbor = payload["harbor"]
+        incident = harbor["incidents"][0]
+        assert incident["incident_type"] == "bunker_unavailable"
+        assert incident["target_resource_id"] == "bunker-barge-4"
+
+        graph = client.get(
+            "/api/v1/port-calls/pc-aurora/dependency-graph"
+        ).json()
+        nodes = {node["kind"]: node for node in graph["nodes"]}
+        assert nodes["bunker"]["state"] == "blocked"
+        assert nodes["departure"]["state"] == "blocked"
+
+        bunker_proposals = [
+            proposal for proposal in payload["recovery_proposals"]
+            if any(
+                action.get("service_kind") == "bunker"
+                for action in proposal["actions"]
+            )
+        ]
+        assert len(bunker_proposals) >= 2
+        assert bunker_proposals[0]["projected_blocked_services"] == 0
+        assert bunker_proposals[0]["disruption_score"] < bunker_proposals[1]["disruption_score"]

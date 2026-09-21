@@ -1,6 +1,6 @@
 # PortFlow architecture
 
-## v0.8
+## v0.9
 
 Synthetic operations and scenario injection feed a deterministic HarborSimulator.
 
@@ -92,11 +92,22 @@ Event id uniqueness plus receipt lookup make replay idempotent for the demo tran
 
 ## Service/resource graph
 
-Every modeled port call owns a service chain:
+Every modeled port call owns a branched service dependency graph.
 
-pilot -> tug -> berth -> crane -> cargo -> customs -> departure
+The graph is a deterministic decision-support model, not a normative port procedure. The exact edge set is synthetic and must be configured for the target port/terminal/authority workflow in a production deployment.
 
-ServiceStep nodes carry explicit dependency ids and optional resource ids. ServiceResource records track pilots, tugs, cranes, customs teams, and berth assignments.
+Canonical demo graph:
+
+    pilot -> tug -> berth
+    berth -> crane -> cargo
+    berth -> bunker
+    berth -> stores
+    berth -> documents
+    cargo + documents -> customs
+    cargo + customs -> gate
+    cargo + bunker + stores + customs + gate -> departure
+
+ServiceStep nodes carry explicit dependency ids and optional resource ids. ServiceResource records track pilots, tugs, berths, cranes, bunker barges, stores teams, document desks, customs teams, and gate teams.
 
 Incidents mutate resource/service state before risk and UI projection:
 
@@ -108,6 +119,25 @@ Incidents mutate resource/service state before risk and UI projection:
 
 Dependency-state propagation continues downstream until no graph state changes remain.
 
+
+## Standards / local-process boundary
+
+PortFlow distinguishes standardized port-call information exchange from local operational sequencing.
+
+Standards-backed boundary:
+
+- IMO FAL covers arrival, stay, and departure formalities and documentary requirements.
+- Maritime Single Window requirements govern electronic exchange with public authorities.
+- IMO port-call operational-data guidance supports port- and trade-agnostic data exchange so local processes can be implemented consistently.
+- Port Call Optimisation practice relies on continuously updated data from the actual data owners.
+
+Local-model boundary:
+
+- the ordering and dependency of bunker, stores, documents, customs, gate, cargo, and departure can differ by terminal, port, trade, vessel, authority, and contract;
+- PortFlow's v0.9 edge set is therefore a canonical demo fixture;
+- production use requires a port-specific dependency map before those edges are treated as operational rules.
+
+A Rotterdam-specific implementation pattern supports including bunker completion and cargo completion in departure planning, but PortFlow does not generalize that local practice into a universal legal dependency.
 
 ## Recovery decision support
 
@@ -185,7 +215,7 @@ Recovery resource feasibility includes:
 - existing service assignments
 - separation windows
 
-The current synthetic tug model compares an immediately busier resource against a later-free resource and ranks the resulting compound plans by projected operational disruption.
+The current synthetic resource model supports compound recovery for shared tug and bunker workloads. It compares alternative resources using availability, capacity, existing assignments, and service-specific separation windows, then ranks the resulting plans by projected operational disruption.
 
 Resource availability and capacity are part of the recovery state fingerprint, so a plan becomes stale when those constraints change.
 
@@ -287,10 +317,11 @@ The Scenario Lab consumes GET /api/v1/scenarios and executes fixture ids through
 
 Playwright starts isolated API and Vite processes for browser verification.
 
-The recovery-authority E2E covers:
+The Chromium E2E suite covers:
 
+recovery authority:
 scenario fixture
-  -> live React state
+  -> React state
   -> recovery proposal
   -> unauthenticated UI authority boundary
   -> bearer identity verification
@@ -299,7 +330,22 @@ scenario fixture
   -> durable identity receipt
   -> browser reload/session restoration
 
-The test uses system Chromium rather than a mocked DOM environment.
+data provenance:
+synthetic AIS
+  -> authenticated recorded-fixture ingest
+  -> entity/source provenance update
+  -> stale adapter remains blocked
+  -> browser reload preserves recorded-source projection
+
+service DAG / shared recovery:
+bunker-loss fixture
+  -> Bunker Barge 4 unavailable
+  -> Aurora + Glory bunker/departure blockage
+  -> topological dependency UI
+  -> authenticated compound recovery
+  -> both affected departures unblocked
+
+The suite uses system Chromium rather than a mocked DOM environment.
 
 ## Development transport configuration
 
@@ -471,3 +517,36 @@ source_id != synthetic-weather
   -> metocean values remain adapter-owned
 
 This prevents externally sourced values from being silently modified while retaining a recorded/live provenance label.
+
+
+## v0.9 service-DAG migration boundary
+
+Older persisted snapshots may contain the previous seven-kind service graph.
+
+On simulator restore, PortFlow verifies the canonical service-kind set independently for every port call. If any persisted call graph lacks v0.9 service kinds, service steps are reconstructed from the persisted port-call state.
+
+This migration prevents an old snapshot from silently projecting an incomplete dependency model after an application upgrade.
+
+The canonical v0.9 graph contains eleven service kinds:
+
+- pilot
+- tug
+- berth
+- crane
+- cargo
+- bunker
+- stores
+- documents
+- customs
+- gate
+- departure
+
+## Dependency-truth projection
+
+A branched backend DAG must not be rendered as a fake linear chain.
+
+The React service projection derives topological depth from ServiceStep.dependency_step_ids and groups nodes by dependency stage.
+
+Each non-root node also displays its actual upstream service kinds.
+
+This is a projection of canonical dependency metadata, not a second frontend-owned dependency model.

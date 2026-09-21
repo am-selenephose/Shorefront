@@ -112,7 +112,27 @@ class HarborSimulator:
             for resource in self._make_service_resources():
                 if resource.id not in existing_ids:
                     self.service_resources.append(resource)
-        if not self.service_steps:
+        expected_service_kinds = {
+            ServiceKind.PILOT,
+            ServiceKind.TUG,
+            ServiceKind.BERTH,
+            ServiceKind.CRANE,
+            ServiceKind.CARGO,
+            ServiceKind.BUNKER,
+            ServiceKind.STORES,
+            ServiceKind.DOCUMENTS,
+            ServiceKind.CUSTOMS,
+            ServiceKind.GATE,
+            ServiceKind.DEPARTURE,
+        }
+        service_kinds_by_call: dict[str, set[ServiceKind]] = {}
+        for step in self.service_steps:
+            service_kinds_by_call.setdefault(step.port_call_id, set()).add(step.kind)
+        service_graph_complete = bool(self.service_steps) and all(
+            expected_service_kinds.issubset(service_kinds_by_call.get(call.id, set()))
+            for call in self.port_calls
+        )
+        if not service_graph_complete:
             self.service_steps = self._make_service_steps()
 
         self._refresh_queued_count()
@@ -575,6 +595,37 @@ class HarborSimulator:
                 assigned_port_call_ids=[],
             ),
             ServiceResource(
+                id="bunker-barge-4", kind=ServiceKind.BUNKER, name="Bunker Barge 4",
+                status=ResourceStatus.ASSIGNED, capacity=1,
+                assigned_port_call_ids=["pc-aurora", "pc-glory"],
+            ),
+            ServiceResource(
+                id="bunker-barge-9", kind=ServiceKind.BUNKER, name="Bunker Barge 9",
+                status=ResourceStatus.ASSIGNED, capacity=1,
+                assigned_port_call_ids=["pc-lima", "pc-nova"],
+            ),
+            ServiceResource(
+                id="bunker-barge-12", kind=ServiceKind.BUNKER, name="Bunker Barge 12",
+                status=ResourceStatus.AVAILABLE, capacity=1,
+                assigned_port_call_ids=[],
+                available_from=self._started + timedelta(minutes=100),
+            ),
+            ServiceResource(
+                id="stores-team-1", kind=ServiceKind.STORES, name="Stores Team 1",
+                status=ResourceStatus.ASSIGNED, capacity=4,
+                assigned_port_call_ids=["pc-aurora", "pc-lima", "pc-glory", "pc-nova"],
+            ),
+            ServiceResource(
+                id="docs-desk-1", kind=ServiceKind.DOCUMENTS, name="Docs Desk 1",
+                status=ResourceStatus.ASSIGNED, capacity=4,
+                assigned_port_call_ids=["pc-aurora", "pc-lima", "pc-glory", "pc-nova"],
+            ),
+            ServiceResource(
+                id="gate-team-1", kind=ServiceKind.GATE, name="Gate Team 1",
+                status=ResourceStatus.ASSIGNED, capacity=4,
+                assigned_port_call_ids=["pc-aurora", "pc-lima", "pc-glory", "pc-nova"],
+            ),
+            ServiceResource(
                 id="customs-team-1", kind=ServiceKind.CUSTOMS, name="Customs Team 1",
                 status=ResourceStatus.ASSIGNED, capacity=4,
                 assigned_port_call_ids=["pc-aurora", "pc-lima", "pc-glory", "pc-nova"],
@@ -594,31 +645,90 @@ class HarborSimulator:
 
     def _make_service_steps(self) -> list[ServiceStep]:
         steps: list[ServiceStep] = []
+
         for call in self.port_calls:
-            specs = [
-                (ServiceKind.PILOT, "Pilot boarding", self._stage_time(call, "pilot", call.arrival_eta), None),
-                (ServiceKind.TUG, "Tug rendezvous", self._stage_time(call, "tug", call.arrival_eta), None),
-                (ServiceKind.BERTH, "Berth access", self._stage_time(call, "berth", call.arrival_eta), call.berth_id),
-                (ServiceKind.CRANE, "Crane allocation", self._stage_time(call, "cargo", call.arrival_eta), None),
-                (ServiceKind.CARGO, "Cargo operation", self._stage_time(call, "cargo", call.arrival_eta)+timedelta(minutes=10), None),
-                (ServiceKind.CUSTOMS, "Customs release", call.departure_eta-timedelta(minutes=60), None),
-                (ServiceKind.DEPARTURE, "Departure clearance", call.departure_eta, None),
-            ]
-            previous_id: str | None = None
-            for kind, label, planned_at, fixed_resource in specs:
-                step_id = f"svc-{call.id}-{kind.value}"
-                resource_id = fixed_resource if fixed_resource else self._resource_for(call, kind)
+            times = {
+                ServiceKind.PILOT: self._stage_time(call, "pilot", call.arrival_eta),
+                ServiceKind.TUG: self._stage_time(call, "tug", call.arrival_eta),
+                ServiceKind.BERTH: self._stage_time(call, "berth", call.arrival_eta),
+                ServiceKind.CRANE: self._stage_time(call, "cargo", call.arrival_eta),
+                ServiceKind.CARGO: self._stage_time(call, "cargo", call.arrival_eta) + timedelta(minutes=10),
+                ServiceKind.BUNKER: self._stage_time(call, "services", call.arrival_eta) + timedelta(minutes=5),
+                ServiceKind.STORES: self._stage_time(call, "services", call.arrival_eta) + timedelta(minutes=15),
+                ServiceKind.DOCUMENTS: call.departure_eta - timedelta(minutes=120),
+                ServiceKind.CUSTOMS: call.departure_eta - timedelta(minutes=60),
+                ServiceKind.GATE: call.departure_eta - timedelta(minutes=35),
+                ServiceKind.DEPARTURE: call.departure_eta,
+            }
+
+            labels = {
+                ServiceKind.PILOT: "Pilot boarding",
+                ServiceKind.TUG: "Tug rendezvous",
+                ServiceKind.BERTH: "Berth access",
+                ServiceKind.CRANE: "Crane allocation",
+                ServiceKind.CARGO: "Cargo operation",
+                ServiceKind.BUNKER: "Bunker service",
+                ServiceKind.STORES: "Stores delivery",
+                ServiceKind.DOCUMENTS: "Port-call documents",
+                ServiceKind.CUSTOMS: "Customs release",
+                ServiceKind.GATE: "Landside gate clearance",
+                ServiceKind.DEPARTURE: "Departure clearance",
+            }
+
+            fixed_resources = {
+                ServiceKind.BERTH: call.berth_id,
+            }
+
+            dependencies = {
+                ServiceKind.PILOT: [],
+                ServiceKind.TUG: [ServiceKind.PILOT],
+                ServiceKind.BERTH: [ServiceKind.TUG],
+                ServiceKind.CRANE: [ServiceKind.BERTH],
+                ServiceKind.CARGO: [ServiceKind.CRANE],
+                ServiceKind.BUNKER: [ServiceKind.BERTH],
+                ServiceKind.STORES: [ServiceKind.BERTH],
+                ServiceKind.DOCUMENTS: [ServiceKind.BERTH],
+                ServiceKind.CUSTOMS: [ServiceKind.CARGO, ServiceKind.DOCUMENTS],
+                ServiceKind.GATE: [ServiceKind.CARGO, ServiceKind.CUSTOMS],
+                ServiceKind.DEPARTURE: [
+                    ServiceKind.CARGO,
+                    ServiceKind.BUNKER,
+                    ServiceKind.STORES,
+                    ServiceKind.CUSTOMS,
+                    ServiceKind.GATE,
+                ],
+            }
+
+            for kind in (
+                ServiceKind.PILOT,
+                ServiceKind.TUG,
+                ServiceKind.BERTH,
+                ServiceKind.CRANE,
+                ServiceKind.CARGO,
+                ServiceKind.BUNKER,
+                ServiceKind.STORES,
+                ServiceKind.DOCUMENTS,
+                ServiceKind.CUSTOMS,
+                ServiceKind.GATE,
+                ServiceKind.DEPARTURE,
+            ):
+                resource_id = fixed_resources.get(kind) or self._resource_for(call, kind)
+                dependency_ids = [
+                    f"svc-{call.id}-{dependency.value}"
+                    for dependency in dependencies[kind]
+                ]
+
                 steps.append(ServiceStep(
-                    id=step_id,
+                    id=f"svc-{call.id}-{kind.value}",
                     port_call_id=call.id,
                     kind=kind,
-                    label=label,
-                    planned_at=planned_at,
+                    label=labels[kind],
+                    planned_at=times[kind],
                     state=ServiceState.ASSIGNED if resource_id else ServiceState.READY,
                     resource_id=resource_id,
-                    dependency_step_ids=[previous_id] if previous_id else [],
+                    dependency_step_ids=dependency_ids,
                 ))
-                previous_id = step_id
+
         return steps
 
     def _sync_service_times(self) -> None:
@@ -627,6 +737,7 @@ class HarborSimulator:
             call = by_call.get(step.port_call_id)
             if not call:
                 continue
+
             if step.kind == ServiceKind.PILOT:
                 step.planned_at = self._stage_time(call, "pilot", call.arrival_eta)
             elif step.kind == ServiceKind.TUG:
@@ -637,8 +748,16 @@ class HarborSimulator:
                 step.planned_at = self._stage_time(call, "cargo", call.arrival_eta)
             elif step.kind == ServiceKind.CARGO:
                 step.planned_at = self._stage_time(call, "cargo", call.arrival_eta) + timedelta(minutes=10)
+            elif step.kind == ServiceKind.BUNKER:
+                step.planned_at = self._stage_time(call, "services", call.arrival_eta) + timedelta(minutes=5)
+            elif step.kind == ServiceKind.STORES:
+                step.planned_at = self._stage_time(call, "services", call.arrival_eta) + timedelta(minutes=15)
+            elif step.kind == ServiceKind.DOCUMENTS:
+                step.planned_at = call.departure_eta - timedelta(minutes=120)
             elif step.kind == ServiceKind.CUSTOMS:
                 step.planned_at = call.departure_eta - timedelta(minutes=60)
+            elif step.kind == ServiceKind.GATE:
+                step.planned_at = call.departure_eta - timedelta(minutes=35)
             elif step.kind == ServiceKind.DEPARTURE:
                 step.planned_at = call.departure_eta
 
@@ -661,7 +780,15 @@ class HarborSimulator:
             if incident.incident_type == IncidentType.PILOT_DELAY and incident.target_port_call_id:
                 self._mark_step(incident.target_port_call_id, ServiceKind.PILOT, ServiceState.DELAYED)
                 self._mark_resource_for_call(incident.target_port_call_id, ServiceKind.PILOT, ResourceStatus.DELAYED)
-            elif incident.incident_type == IncidentType.TUG_UNAVAILABLE:
+            elif incident.incident_type in {
+                IncidentType.TUG_UNAVAILABLE,
+                IncidentType.BUNKER_UNAVAILABLE,
+            }:
+                affected_kind = (
+                    ServiceKind.TUG
+                    if incident.incident_type == IncidentType.TUG_UNAVAILABLE
+                    else ServiceKind.BUNKER
+                )
                 if incident.target_resource_id:
                     resource = next(
                         (item for item in self.service_resources if item.id == incident.target_resource_id),
@@ -670,13 +797,20 @@ class HarborSimulator:
                     if resource:
                         resource.status = ResourceStatus.UNAVAILABLE
                     for step in self.service_steps:
-                        if step.kind == ServiceKind.TUG and step.resource_id == incident.target_resource_id:
+                        if (
+                            step.kind == affected_kind
+                            and step.resource_id == incident.target_resource_id
+                        ):
                             step.state = ServiceState.BLOCKED
                 elif incident.target_port_call_id:
-                    self._mark_step(incident.target_port_call_id, ServiceKind.TUG, ServiceState.BLOCKED)
+                    self._mark_step(
+                        incident.target_port_call_id,
+                        affected_kind,
+                        ServiceState.BLOCKED,
+                    )
                     self._mark_resource_for_call(
                         incident.target_port_call_id,
-                        ServiceKind.TUG,
+                        affected_kind,
                         ResourceStatus.UNAVAILABLE,
                     )
             elif incident.incident_type == IncidentType.WIND_RESTRICTION:
@@ -947,7 +1081,11 @@ class HarborSimulator:
                 ServiceKind.BERTH: "berth",
                 ServiceKind.CRANE: "cargo",
                 ServiceKind.CARGO: "cargo",
+                ServiceKind.BUNKER: "services",
+                ServiceKind.STORES: "services",
+                ServiceKind.DOCUMENTS: "services",
                 ServiceKind.CUSTOMS: "departure",
+                ServiceKind.GATE: "departure",
                 ServiceKind.DEPARTURE: "departure",
             }
             stage_code = stage_by_kind.get(action.service_kind or ServiceKind.BERTH, "berth")
@@ -1081,7 +1219,7 @@ class HarborSimulator:
             assumptions=[
                 "Delay exposure is modeled at USD 720 per delay minute for this synthetic demo.",
                 "Disruption score adds 240 points per berth conflict and 60 per blocked service.",
-                "Pilot/tug feasibility respects resource available_from, capacity, and a synthetic 45-minute operating window.",
+                "Resource feasibility respects available_from, capacity, and service-specific operating windows.",
                 "Proposal output is decision support and requires explicit operator approval.",
             ],
             requires_approval=True,
@@ -1093,16 +1231,23 @@ class HarborSimulator:
     ) -> list[RecoveryProposal]:
         proposals: list[RecoveryProposal] = []
 
-        # Resource recovery for unavailable tugs.
+        # Compound recovery for unavailable shared service resources.
+        resource_failure_kinds = {
+            IncidentType.TUG_UNAVAILABLE: (ServiceKind.TUG, 45),
+            IncidentType.BUNKER_UNAVAILABLE: (ServiceKind.BUNKER, 60),
+        }
+
         for incident in self.incidents:
+            recovery_spec = resource_failure_kinds.get(incident.incident_type)
             if (
                 incident.status != IncidentStatus.ACTIVE
-                or incident.incident_type != IncidentType.TUG_UNAVAILABLE
+                or recovery_spec is None
                 or not incident.target_port_call_id
                 or not incident.target_resource_id
             ):
                 continue
 
+            affected_kind, separation_minutes = recovery_spec
             target_call_id = incident.target_port_call_id
             if call_id and target_call_id != call_id:
                 continue
@@ -1110,7 +1255,7 @@ class HarborSimulator:
             affected_steps = sorted(
                 [
                     step for step in self.service_steps
-                    if step.kind == ServiceKind.TUG
+                    if step.kind == affected_kind
                     and step.resource_id == incident.target_resource_id
                 ],
                 key=lambda item: item.planned_at,
@@ -1120,7 +1265,7 @@ class HarborSimulator:
 
             alternatives = [
                 resource for resource in self.service_resources
-                if resource.kind == ServiceKind.TUG
+                if resource.kind == affected_kind
                 and resource.id != incident.target_resource_id
                 and resource.status != ResourceStatus.UNAVAILABLE
             ]
@@ -1129,8 +1274,14 @@ class HarborSimulator:
                 working = HarborSimulator(initial=self.overview())
                 actions: list[RecoveryAction] = []
                 rationale = [
-                    f"{incident.target_resource_id} is unavailable for {len(affected_steps)} modeled tug assignment(s).",
-                    f"Move the affected workload to {resource.name} instead of recovering only one vessel.",
+                    (
+                        f"{incident.target_resource_id} is unavailable for "
+                        f"{len(affected_steps)} modeled {affected_kind.value} assignment(s)."
+                    ),
+                    (
+                        f"Move the affected {affected_kind.value} workload to "
+                        f"{resource.name} instead of recovering only one vessel."
+                    ),
                 ]
 
                 for affected_step in affected_steps:
@@ -1138,7 +1289,7 @@ class HarborSimulator:
                         (
                             step for step in working.service_steps
                             if step.port_call_id == affected_step.port_call_id
-                            and step.kind == ServiceKind.TUG
+                            and step.kind == affected_kind
                         ),
                         None,
                     )
@@ -1148,7 +1299,7 @@ class HarborSimulator:
                     reassign = RecoveryAction(
                         action_type=RecoveryActionType.REASSIGN_RESOURCE,
                         port_call_id=affected_step.port_call_id,
-                        service_kind=ServiceKind.TUG,
+                        service_kind=affected_kind,
                         from_resource_id=working_step.resource_id,
                         to_resource_id=resource.id,
                     )
@@ -1157,39 +1308,57 @@ class HarborSimulator:
 
                     shift = working._resource_shift_needed(
                         affected_step.port_call_id,
-                        ServiceKind.TUG,
+                        affected_kind,
                         resource.id,
+                        separation_minutes=separation_minutes,
                     )
                     if shift:
-                        if resource.available_from and working_step.planned_at < resource.available_from:
+                        if (
+                            resource.available_from
+                            and working_step.planned_at < resource.available_from
+                        ):
                             rationale.append(
-                                f"{resource.name} becomes available at {resource.available_from.isoformat()}."
+                                (
+                                    f"{resource.name} becomes available at "
+                                    f"{resource.available_from.isoformat()}."
+                                )
                             )
                         shift_action = RecoveryAction(
                             action_type=RecoveryActionType.SHIFT_WINDOW,
                             port_call_id=affected_step.port_call_id,
-                            service_kind=ServiceKind.TUG,
+                            service_kind=affected_kind,
                             shift_minutes=shift,
                         )
                         working._apply_recovery_actions([shift_action])
                         actions.append(shift_action)
                         rationale.append(
-                            f"Shift {affected_step.port_call_id} by {shift} min to preserve the synthetic 45-minute tug separation."
+                            (
+                                f"Shift {affected_step.port_call_id} by {shift} min "
+                                f"to preserve the synthetic {separation_minutes}-minute "
+                                f"{affected_kind.value} separation."
+                            )
                         )
                     else:
                         rationale.append(
-                            f"{affected_step.port_call_id} fits {resource.name}'s current synthetic operating window."
+                            (
+                                f"{affected_step.port_call_id} fits {resource.name}'s "
+                                "current synthetic operating window."
+                            )
                         )
 
-                proposals.append(
-                    self._project_recovery(
-                        title=f"Recover {incident.target_resource_id} workload with {resource.name}",
-                        target_call_id=target_call_id,
-                        actions=actions,
-                        rationale=rationale,
-                        incident_id=incident.id,
+                if actions:
+                    proposals.append(
+                        self._project_recovery(
+                            title=(
+                                f"Recover {incident.target_resource_id} workload "
+                                f"with {resource.name}"
+                            ),
+                            target_call_id=target_call_id,
+                            actions=actions,
+                            rationale=rationale,
+                            incident_id=incident.id,
+                        )
                     )
-                )
 
         # Berth conflict recovery.
         for conflict in detect_berth_conflicts(self.port_calls):
@@ -1476,6 +1645,27 @@ class HarborSimulator:
             severity = RiskLevel.HIGH
             title = "Assigned tug unavailable"
             details = f"{call.id} maneuvering and berth sequence shifted by {impact} min."
+            berth_id = call.berth_id
+
+        elif incident_type == IncidentType.BUNKER_UNAVAILABLE:
+            call = self._find_call(target_port_call_id, "pc-aurora")
+            bunker_step = next(
+                (
+                    step for step in self.service_steps
+                    if step.port_call_id == call.id
+                    and step.kind == ServiceKind.BUNKER
+                ),
+                None,
+            )
+            target_resource_id = bunker_step.resource_id if bunker_step else None
+            impact = impact_minutes or 45
+            shift_call_from_stage(call, "services", impact)
+            severity = RiskLevel.HIGH
+            title = "Assigned bunker barge unavailable"
+            details = (
+                f"{call.id} bunker service and dependent departure sequence "
+                f"shifted by {impact} min."
+            )
             berth_id = call.berth_id
 
         elif incident_type == IncidentType.BERTH_OVERRUN:

@@ -89,4 +89,76 @@ test('operator ingests healthy recorded AIS while stale adapter stays blocked', 
   expect(aisSource.mode).toBe('recorded')
   expect(aisSource.health).toBe('healthy')
   expect(state.data_disclaimer.toLowerCase()).toContain('recorded fixture')
+
+  await page.reload()
+  await expect(page.getByText('E2E Operator').first()).toBeVisible()
+  await expect(page.locator('[data-source-id="recorded-ais"]')).toBeVisible()
+  await expect(
+    page.locator('[data-adapter-id="stale-weather-fixture"]').getByRole('button', { name: 'Stale blocked' }),
+  ).toBeDisabled()
+})
+
+
+test('bunker loss renders the branched DAG and operator recovery clears shared blockage', async ({ page, request }) => {
+  const reset = await request.post('/api/v1/demo/reset')
+  expect(reset.ok()).toBeTruthy()
+
+  await page.goto('/')
+
+  const scenarioButton = page.getByRole('button', { name: /Bunker Barge 4 Unavailable/i })
+  await expect(scenarioButton).toBeVisible()
+  await scenarioButton.click()
+
+  await expect(page.locator('#incidents').getByText('Assigned bunker barge unavailable')).toBeVisible()
+
+  const auroraDag = page.locator('[data-service-dag="pc-aurora"]')
+  const gloryDag = page.locator('[data-service-dag="pc-glory"]')
+  await expect(auroraDag).toBeVisible()
+  await expect(gloryDag).toBeVisible()
+
+  await expect(
+    auroraDag.locator('[data-service-kind="customs"] em'),
+  ).toHaveText('FROM CARGO + DOCS')
+  await expect(
+    auroraDag.locator('[data-service-kind="departure"] em'),
+  ).toHaveText('FROM CARGO + BUNKER + STORES + CUSTOMS + GATE')
+
+  await expect(auroraDag.locator('[data-service-kind="bunker"]')).toHaveClass(/blocked/)
+  await expect(auroraDag.locator('[data-service-kind="departure"]')).toHaveClass(/blocked/)
+  await expect(gloryDag.locator('[data-service-kind="bunker"]')).toHaveClass(/blocked/)
+  await expect(gloryDag.locator('[data-service-kind="departure"]')).toHaveClass(/blocked/)
+
+  const preferredRecovery = page
+    .locator('article.recovery-card')
+    .filter({ hasText: 'Bunker Barge 12' })
+    .first()
+  await expect(preferredRecovery).toBeVisible()
+  await expect(
+    preferredRecovery.getByRole('button', { name: 'Authenticate to apply' }),
+  ).toBeDisabled()
+
+  await page.getByLabel('Operator access token').fill(operatorToken)
+  await page.getByRole('button', { name: 'Verify' }).click()
+  await expect(page.getByText('E2E Operator').first()).toBeVisible()
+
+  const approve = preferredRecovery.getByRole('button', { name: 'Approve & apply' })
+  await expect(approve).toBeEnabled()
+  await approve.click()
+
+  await expect(page.getByText(/RECENT OPERATOR RECEIPTS · 1/)).toBeVisible()
+  await expect(auroraDag.locator('[data-service-kind="bunker"]')).not.toHaveClass(/blocked/)
+  await expect(auroraDag.locator('[data-service-kind="departure"]')).not.toHaveClass(/blocked/)
+  await expect(gloryDag.locator('[data-service-kind="bunker"]')).not.toHaveClass(/blocked/)
+  await expect(gloryDag.locator('[data-service-kind="departure"]')).not.toHaveClass(/blocked/)
+
+  for (const callId of ['pc-aurora', 'pc-glory']) {
+    const graphResponse = await request.get('/api/v1/port-calls/' + callId + '/dependency-graph')
+    expect(graphResponse.ok()).toBeTruthy()
+    const graph = await graphResponse.json()
+    const nodes = Object.fromEntries(
+      graph.nodes.map((node: { kind: string; state: string }) => [node.kind, node]),
+    )
+    expect(nodes.bunker.state).not.toBe('blocked')
+    expect(nodes.departure.state).not.toBe('blocked')
+  }
 })

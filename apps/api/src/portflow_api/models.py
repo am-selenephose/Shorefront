@@ -37,6 +37,7 @@ class LinkMode(StrEnum):
 class IncidentType(StrEnum):
     PILOT_DELAY = "pilot_delay"
     TUG_UNAVAILABLE = "tug_unavailable"
+    BUNKER_UNAVAILABLE = "bunker_unavailable"
     BERTH_OVERRUN = "berth_overrun"
     WIND_RESTRICTION = "wind_restriction"
     CONNECTIVITY_LOSS = "connectivity_loss"
@@ -53,7 +54,11 @@ class ServiceKind(StrEnum):
     BERTH = "berth"
     CRANE = "crane"
     CARGO = "cargo"
+    BUNKER = "bunker"
+    STORES = "stores"
+    DOCUMENTS = "documents"
     CUSTOMS = "customs"
+    GATE = "gate"
     DEPARTURE = "departure"
 
 

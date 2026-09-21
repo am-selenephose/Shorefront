@@ -1,10 +1,10 @@
 # PortFlow
 
-PortFlow is a port-call operations control tower for live vessel, berth, weather, incident, delay, connectivity, and schedule state.
+PortFlow is a port-call operations control tower for continuously updated vessel, berth, weather, incident, delay, connectivity, and schedule state.
 
 ## Status
 
-Private portfolio build, v0.8 external-data provenance + live-adapter boundary.
+Private portfolio build, v0.9 branched service-dependency DAG + compound shared-resource recovery.
 
 ## Product principles
 
@@ -797,16 +797,140 @@ Current gates:
 - live HTTP adapter boundary is implemented but no live provider is claimed by default
 - production compose passes optional live adapter URL/provider configuration into the API container
 
+## v0.9 proof
+
+### Branched port-service dependency DAG
+
+PortFlow no longer presents the port-service model as a single linear chain.
+
+This graph is a deterministic portfolio / decision-support abstraction, not a regulatory or universally mandated port workflow. IMO FAL standards govern facilitation, declarations, electronic exchange, and Maritime Single Window processes; they do not prescribe this exact service ordering. Local ports, terminals, harbour masters, customs authorities, and service providers may execute or release these activities in different sequences or in parallel.
+
+The canonical demo dependency graph is now:
+
+    pilot -> tug -> berth
+    berth -> crane -> cargo
+    berth -> bunker
+    berth -> stores
+    berth -> documents
+    cargo + documents -> customs
+    cargo + customs -> gate
+    cargo + bunker + stores + customs + gate -> departure
+
+Each ServiceStep still carries explicit dependency_step_ids. The graph can therefore express parallel post-berth work and multi-parent release conditions instead of pretending every activity is sequential.
+
+New modeled service kinds:
+
+- bunker
+- stores
+- documents
+- gate
+
+New canonical resources include:
+
+- Bunker Barge 4
+- Bunker Barge 9
+- Bunker Barge 12
+- Stores Team 1
+- Docs Desk 1
+- Gate Team 1
+
+### Standards boundary
+
+The v0.9 service graph intentionally separates two kinds of truth:
+
+- standards-backed coordination facts: port calls involve arrival/stay/departure formalities, electronic authority exchange, berth/nautical planning, and continuously updated operational data;
+- demo-model assumptions: the exact dependency edges between cargo, documents, customs, gate, bunker, stores, and departure.
+
+IMO FAL and Maritime Single Window requirements standardize information exchange and formalities. IMO operational port-call guidance is port/trade agnostic and is intended to support local process implementation rather than impose one global terminal workflow.
+
+Port of Rotterdam Port Call Optimisation material shows a concrete local pattern in which terminal cargo end-time and bunker end-time are shared into departure planning. PortFlow uses that as evidence that cargo and bunker completion can legitimately constrain departure planning, while still labeling the exact v0.9 dependency structure as synthetic.
+
+For a production deployment, these dependency edges must be mapped to the target port/terminal operating model and competent-authority rules before the graph is treated as operational policy.
+
+### Shared-resource incident propagation
+
+The new bunker_unavailable incident is resource-bound rather than vessel-only.
+
+If Bunker Barge 4 becomes unavailable, every modeled bunker step assigned to that resource is blocked. Dependency propagation then blocks each affected departure that still requires the bunker service.
+
+The deterministic bunker-loss scenario therefore proves one physical resource failure can affect more than one port call through the service graph.
+
+### Compound shared-workload recovery
+
+Recovery generation now handles both tug and bunker shared-resource failures through the same constrained resource-recovery path.
+
+Candidate feasibility considers:
+
+- resource kind
+- current assignments
+- capacity
+- available_from
+- service-specific separation windows
+- downstream delay
+- blocked services
+- current berth conflicts
+
+For the canonical bunker-loss fixture, the engine evaluates the entire workload formerly assigned to Bunker Barge 4 rather than repairing only the selected vessel.
+
+Current synthetic fixture example:
+
+- Bunker Barge 12: 48 modeled total delay minutes, 0 blocked services, disruption score 63
+- Bunker Barge 9: 94 modeled total delay minutes, 0 blocked services, disruption score 109
+
+These values are deterministic portfolio-model outputs for the canonical fixture, not a universal port-optimization formula.
+
+The proposal remains decision support only. Operator/supervisor approval is still required before canonical state changes.
+
+### Snapshot service-graph migration
+
+A persisted v0.8 snapshot may contain the former seven service kinds.
+
+On restore, PortFlow validates the canonical service-kind set for every port call. If any call is incomplete, it reconstructs the canonical v0.9 service DAG while retaining the persisted operational entities and state used to build it.
+
+Regression coverage proves a v0.8-style service graph restores with all eleven v0.9 service kinds.
+
+### Dependency-truth UI
+
+The service UI no longer draws a fake linear connector through a branched graph.
+
+The React projection computes topological dependency depth from dependency_step_ids and renders service nodes in dependency columns.
+
+Each non-root node names its actual upstream dependencies, so the visible console remains consistent with the backend DAG.
+
+### Expanded real-browser proof
+
+The Chromium suite now covers three end-to-end paths:
+
+1. incident -> authenticated recovery -> durable receipt -> reload/session restore
+2. recorded AIS ingest -> source/provenance UI -> API truth -> page reload persistence, with stale adapter still blocked
+3. bunker-loss scenario -> branched DAG UI -> shared blockage across Aurora and Glory -> authenticated compound recovery -> both departures unblocked
+
+### v0.9 verification
+
+Current v0.9 verification gates:
+
+- 56 backend/domain/API/storage/recovery/security/scenario/adapter tests pass
+- 3 real Chromium Playwright E2Es pass
+- production TypeScript/Vite build passes
+- production npm audit reports 0 vulnerabilities
+- Python compile passes
+- git diff hygiene passes
+- current API and Nginx/web Docker images build from the working source
+- isolated PostgreSQL-backed runtime restart preserves the active bunker incident and 11-node service DAG state
+- recorded/live AIS and weather ownership remains protected from synthetic tick overwrite
+- stale adapter ingest remains rejected
+- recovery approval remains identity/role gated
+- no live external provider is claimed unless deployment configuration actually supplies one
+
 ## Next engineering milestone
 
-v0.9 should focus on richer port-service dependencies and optimization:
+v0.10 should focus on deeper resource calendars, adapter resilience, and deployment:
 
-- bunker and stores service resources
-- gate / landside dependencies
-- richer customs/document dependencies
-- multi-resource and multi-call recovery optimization
-- explicit resource calendars beyond tug separation windows
+- explicit resource calendars beyond synthetic separation windows
+- richer crane/cargo multi-resource capacity constraints
+- cross-resource recovery optimization across multiple incident classes
 - adapter freshness impact on decision confidence
 - adapter retry/backoff and cached-last-good policy
+- last-success / consecutive-error feed health state
 - optional OIDC-compatible production identity adapter
 - hosted portfolio deployment with a real public demo

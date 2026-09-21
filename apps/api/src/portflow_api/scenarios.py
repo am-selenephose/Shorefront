@@ -37,6 +37,22 @@ SCENARIOS: tuple[ScenarioFixture, ...] = (
         ],
     ),
     ScenarioFixture(
+        id="bunker-loss",
+        title="Bunker Barge 4 Unavailable",
+        description=(
+            "Bunker Barge 4 fails while serving the Aurora / Glory workload "
+            "and forces compound service recovery before departure."
+        ),
+        actions=[
+            ScenarioAction(
+                action_type=ScenarioActionType.INCIDENT,
+                incident_type=IncidentType.BUNKER_UNAVAILABLE,
+                target_port_call_id="pc-aurora",
+                impact_minutes=45,
+            )
+        ],
+    ),
+    ScenarioFixture(
         id="edge-pilot-delay",
         title="Offline Edge + Pilot Delay",
         description="The control link drops to offline-edge mode before a 25-minute Aurora pilot delay is recorded locally.",

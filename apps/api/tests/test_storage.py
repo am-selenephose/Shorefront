@@ -2,7 +2,7 @@ from pathlib import Path
 
 from portflow_api.adapters import HttpJsonAdapter, get_adapter_snapshot
 from portflow_api.domain import detect_berth_conflicts
-from portflow_api.models import DataDomain, IncidentType, LinkMode, OperatorRole
+from portflow_api.models import DataDomain, IncidentType, LinkMode, OperatorRole, ServiceKind
 from portflow_api.simulator import HarborSimulator
 from portflow_api.storage import OperationsStore
 
@@ -574,3 +574,162 @@ def test_background_tick_does_not_synthetically_overwrite_recorded_weather():
 
     assert sim.weather == before
     assert sim.weather.source_id == "recorded-weather"
+
+
+def test_bunker_failure_blocks_shared_resource_workload_and_departure(tmp_path):
+    store = make_store(tmp_path)
+    sim = HarborSimulator(
+        event_sink=store.append_event,
+        incident_sink=store.upsert_incident,
+        snapshot_sink=store.save_snapshot,
+        recovery_receipt_sink=store.save_recovery_receipt,
+    )
+
+    incident = sim.inject_incident(
+        IncidentType.BUNKER_UNAVAILABLE,
+        "pc-aurora",
+        45,
+    )
+    assert incident.target_resource_id == "bunker-barge-4"
+
+    resource = next(
+        item for item in sim.service_resources
+        if item.id == "bunker-barge-4"
+    )
+    assert resource.status.value == "unavailable"
+
+    for call_id in ("pc-aurora", "pc-glory"):
+        graph = sim.dependency_graph(call_id)
+        nodes = {node["kind"]: node for node in graph["nodes"]}
+        assert nodes["bunker"]["state"] == "blocked"
+        assert nodes["departure"]["state"] == "blocked"
+
+
+def test_bunker_recovery_ranks_delayed_spare_above_busy_barge_and_unblocks(tmp_path):
+    store = make_store(tmp_path)
+    sim = HarborSimulator(
+        event_sink=store.append_event,
+        incident_sink=store.upsert_incident,
+        snapshot_sink=store.save_snapshot,
+        recovery_receipt_sink=store.save_recovery_receipt,
+    )
+
+    sim.inject_incident(
+        IncidentType.BUNKER_UNAVAILABLE,
+        "pc-aurora",
+        45,
+    )
+    proposals = [
+        proposal
+        for proposal in sim.generate_recovery_proposals(call_id="pc-aurora")
+        if any(
+            action.service_kind == ServiceKind.BUNKER
+            for action in proposal.actions
+        )
+    ]
+
+    assert len(proposals) >= 2
+    assert "Bunker Barge 12" in proposals[0].title
+    assert "Bunker Barge 9" in proposals[1].title
+    assert proposals[0].disruption_score < proposals[1].disruption_score
+    assert proposals[0].projected_total_delay_minutes < proposals[1].projected_total_delay_minutes
+    assert proposals[0].projected_blocked_services == 0
+
+    reassignments = [
+        action
+        for action in proposals[0].actions
+        if action.action_type.value == "reassign_resource"
+        and action.service_kind == ServiceKind.BUNKER
+    ]
+    assert {action.port_call_id for action in reassignments} == {
+        "pc-aurora",
+        "pc-glory",
+    }
+
+    receipt = sim.apply_recovery_proposal(
+        proposals[0].id,
+        approved_by="ops-bunker",
+        approved_role=OperatorRole.OPERATOR,
+        approved_display_name="Bunker Ops",
+    )
+    assert receipt.resulting_blocked_services == 0
+
+    for call_id in ("pc-aurora", "pc-glory"):
+        graph = sim.dependency_graph(call_id)
+        nodes = {node["kind"]: node for node in graph["nodes"]}
+        assert nodes["bunker"]["state"] != "blocked"
+        assert nodes["departure"]["state"] != "blocked"
+
+
+def test_v08_snapshot_service_graph_migrates_to_v09_dag(tmp_path):
+    store = make_store(tmp_path)
+    original = HarborSimulator(snapshot_sink=store.save_snapshot)
+    snapshot = original.overview()
+
+    old_kinds = {
+        ServiceKind.PILOT,
+        ServiceKind.TUG,
+        ServiceKind.BERTH,
+        ServiceKind.CRANE,
+        ServiceKind.CARGO,
+        ServiceKind.CUSTOMS,
+        ServiceKind.DEPARTURE,
+    }
+    snapshot.service_steps = [
+        step for step in snapshot.service_steps
+        if step.kind in old_kinds
+    ]
+
+    restored = HarborSimulator(initial=snapshot)
+    kinds = {
+        step.kind
+        for step in restored.service_steps
+        if step.port_call_id == "pc-aurora"
+    }
+    assert {
+        ServiceKind.BUNKER,
+        ServiceKind.STORES,
+        ServiceKind.DOCUMENTS,
+        ServiceKind.GATE,
+    } <= kinds
+    assert len(kinds) == 11
+
+
+def test_partially_upgraded_snapshot_rebuilds_every_service_graph(tmp_path):
+    store = make_store(tmp_path)
+    original = HarborSimulator(snapshot_sink=store.save_snapshot)
+    snapshot = original.overview()
+
+    v09_only = {
+        ServiceKind.BUNKER,
+        ServiceKind.STORES,
+        ServiceKind.DOCUMENTS,
+        ServiceKind.GATE,
+    }
+    snapshot.service_steps = [
+        step
+        for step in snapshot.service_steps
+        if step.port_call_id == "pc-aurora" or step.kind not in v09_only
+    ]
+
+    restored = HarborSimulator(initial=snapshot)
+
+    for call in restored.port_calls:
+        kinds = {
+            step.kind
+            for step in restored.service_steps
+            if step.port_call_id == call.id
+        }
+        assert {
+            ServiceKind.PILOT,
+            ServiceKind.TUG,
+            ServiceKind.BERTH,
+            ServiceKind.CRANE,
+            ServiceKind.CARGO,
+            ServiceKind.BUNKER,
+            ServiceKind.STORES,
+            ServiceKind.DOCUMENTS,
+            ServiceKind.CUSTOMS,
+            ServiceKind.GATE,
+            ServiceKind.DEPARTURE,
+        } == kinds
