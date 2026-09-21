@@ -1,6 +1,6 @@
 # PortFlow architecture
 
-## v0.9
+## v0.10
 
 Synthetic operations and scenario injection feed a deterministic HarborSimulator.
 
@@ -206,18 +206,23 @@ The fingerprint intentionally excludes continuously changing vessel map position
 If relevant operational state changes before approval, proposal regeneration produces a different id. The old id is rejected as stale/unavailable.
 
 
-## Resource availability and capacity
+## Resource availability, calendars, and capacity
 
 Recovery resource feasibility includes:
 
 - available_from
+- explicit unavailable calendar windows
 - capacity
 - existing service assignments
-- separation windows
+- service-specific separation windows
 
-The current synthetic resource model supports compound recovery for shared tug and bunker workloads. It compares alternative resources using availability, capacity, existing assignments, and service-specific separation windows, then ranks the resulting plans by projected operational disruption.
+ResourceUnavailableWindow records carry start_at, end_at, and reason. The model rejects non-positive windows.
 
-Resource availability and capacity are part of the recovery state fingerprint, so a plan becomes stale when those constraints change.
+The feasibility solver treats a calendar outage as a hard constraint. A candidate falling inside an outage advances to the end of the window, then re-enters capacity/separation evaluation until the time is feasible.
+
+The current synthetic resource model supports compound recovery for shared tug and bunker workloads. It compares alternative resources using availability, calendar windows, capacity, existing assignments, and service-specific separation windows, then ranks the resulting plans by projected operational disruption.
+
+Resource availability, calendar windows, and capacity are part of the recovery state fingerprint, so a plan becomes stale when those constraints change.
 
 ## Deployment boundary
 
@@ -550,3 +555,20 @@ The React service projection derives topological depth from ServiceStep.dependen
 Each non-root node also displays its actual upstream service kinds.
 
 This is a projection of canonical dependency metadata, not a second frontend-owned dependency model.
+
+
+## v0.10 calendar projection boundary
+
+Calendar constraints are canonical backend state.
+
+The browser does not calculate recovery feasibility from the displayed calendar. It only projects the resource's unavailable_windows metadata.
+
+Authority remains:
+
+backend calendar + operational state
+  -> deterministic feasibility / projection
+  -> ranked recovery proposal
+  -> operator approval
+  -> canonical mutation + receipt
+
+The Resource Board currently displays the first modeled outage interval for operator awareness. Future versions can expose richer calendars without moving scheduling authority into the frontend.

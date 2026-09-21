@@ -95,6 +95,7 @@
 .resource-row:last-child{border-bottom:0}
 .resource-row b{display:block;font-size:9px}
 .resource-row div span{display:block;font-size:7px;color:#5b768a;margin-top:3px;text-transform:uppercase}
+.resource-calendar{display:block;font:600 7px 'IBM Plex Mono';color:#b18463;margin-top:4px;text-transform:uppercase}
 .resource-status{font:600 7px 'IBM Plex Mono';text-transform:uppercase;border:1px solid #314c60;border-radius:3px;padding:4px 6px}
 .resource-status.available{color:#76d7a7;border-color:#2f6c4c}
 .resource-status.assigned{color:#7ed7f3;border-color:#37687d}

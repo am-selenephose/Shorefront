@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from enum import StrEnum
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 class VesselStatus(StrEnum):
@@ -248,6 +248,18 @@ class Incident(BaseModel):
 
 
 
+class ResourceUnavailableWindow(BaseModel):
+    start_at: datetime
+    end_at: datetime
+    reason: str = "unavailable"
+
+    @model_validator(mode="after")
+    def validate_window(self):
+        if self.end_at <= self.start_at:
+            raise ValueError("Resource unavailable window end_at must be after start_at")
+        return self
+
+
 class ServiceResource(BaseModel):
     id: str
     kind: ServiceKind
@@ -256,6 +268,7 @@ class ServiceResource(BaseModel):
     capacity: int = 1
     assigned_port_call_ids: list[str] = Field(default_factory=list)
     available_from: datetime | None = None
+    unavailable_windows: list[ResourceUnavailableWindow] = Field(default_factory=list)
 
 
 class ServiceStep(BaseModel):

@@ -15,7 +15,7 @@ from .models import (
     Coordinate, DataDomain, DataSourceMode, DataSourceProvenance, HarborOverview,
     Incident, IncidentStatus, IncidentType, LinkMode, OperationsEvent,
     PortCall, PortCallStage, RecoveryAction, RecoveryActionType,
-    RecoveryApplicationReceipt, RecoveryProposal, ResourceStatus, RiskLevel,
+    RecoveryApplicationReceipt, RecoveryProposal, ResourceStatus, ResourceUnavailableWindow, RiskLevel,
     OperatorRole, ServiceKind, ServiceResource, ServiceState, ServiceStep, Vessel, VesselStatus,
     WeatherState,
 )
@@ -609,6 +609,13 @@ class HarborSimulator:
                 status=ResourceStatus.AVAILABLE, capacity=1,
                 assigned_port_call_ids=[],
                 available_from=self._started + timedelta(minutes=100),
+                unavailable_windows=[
+                    ResourceUnavailableWindow(
+                        start_at=self._started + timedelta(hours=4),
+                        end_at=self._started + timedelta(hours=5),
+                        reason="planned maintenance",
+                    )
+                ],
             ),
             ServiceResource(
                 id="stores-team-1", kind=ServiceKind.STORES, name="Stores Team 1",
@@ -948,6 +955,10 @@ class HarborSimulator:
         if resource.available_from and proposed < resource.available_from:
             proposed = resource.available_from
 
+        unavailable_windows = sorted(
+            resource.unavailable_windows,
+            key=lambda item: item.start_at,
+        )
         separation = timedelta(minutes=separation_minutes)
         other_steps = sorted(
             [
@@ -960,8 +971,24 @@ class HarborSimulator:
         )
 
         # Capacity is modeled as the number of concurrent assignments permitted
-        # inside the synthetic separation window.
-        for _ in range(max(1, len(other_steps) + 2)):
+        # inside the synthetic separation window. Explicit calendar outages are
+        # hard constraints: a service cannot be scheduled inside one.
+        iteration_budget = max(
+            2,
+            len(other_steps) + len(unavailable_windows) + 4,
+        )
+        for _ in range(iteration_budget):
+            blocking_window = next(
+                (
+                    window for window in unavailable_windows
+                    if window.start_at <= proposed < window.end_at
+                ),
+                None,
+            )
+            if blocking_window is not None:
+                proposed = blocking_window.end_at
+                continue
+
             conflicts = [
                 step for step in other_steps
                 if abs((proposed - step.planned_at).total_seconds()) < separation.total_seconds()
@@ -1157,6 +1184,17 @@ class HarborSimulator:
                     "status": resource.status.value,
                     "capacity": resource.capacity,
                     "available_from": resource.available_from.isoformat() if resource.available_from else None,
+                    "unavailable_windows": [
+                        {
+                            "start_at": window.start_at.isoformat(),
+                            "end_at": window.end_at.isoformat(),
+                            "reason": window.reason,
+                        }
+                        for window in sorted(
+                            resource.unavailable_windows,
+                            key=lambda item: (item.start_at, item.end_at, item.reason),
+                        )
+                    ],
                     "assigned_port_call_ids": sorted(resource.assigned_port_call_ids),
                 }
                 for resource in sorted(self.service_resources, key=lambda item: item.id)
@@ -1219,7 +1257,7 @@ class HarborSimulator:
             assumptions=[
                 "Delay exposure is modeled at USD 720 per delay minute for this synthetic demo.",
                 "Disruption score adds 240 points per berth conflict and 60 per blocked service.",
-                "Resource feasibility respects available_from, capacity, and service-specific operating windows.",
+                "Resource feasibility respects available_from, explicit unavailable calendar windows, capacity, and service-specific separation windows.",
                 "Proposal output is decision support and requires explicit operator approval.",
             ],
             requires_approval=True,

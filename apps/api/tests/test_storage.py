@@ -1,8 +1,9 @@
+from datetime import timedelta
 from pathlib import Path
 
 from portflow_api.adapters import HttpJsonAdapter, get_adapter_snapshot
 from portflow_api.domain import detect_berth_conflicts
-from portflow_api.models import DataDomain, IncidentType, LinkMode, OperatorRole, ServiceKind
+from portflow_api.models import DataDomain, IncidentType, LinkMode, OperatorRole, ResourceUnavailableWindow, ServiceKind
 from portflow_api.simulator import HarborSimulator
 from portflow_api.storage import OperationsStore
 
@@ -733,3 +734,91 @@ def test_partially_upgraded_snapshot_rebuilds_every_service_graph(tmp_path):
             ServiceKind.GATE,
             ServiceKind.DEPARTURE,
         } == kinds
+
+
+def test_resource_shift_respects_explicit_unavailable_calendar_window():
+    sim = HarborSimulator()
+    resource = next(
+        item for item in sim.service_resources
+        if item.id == "bunker-barge-12"
+    )
+    target = next(
+        step for step in sim.service_steps
+        if step.port_call_id == "pc-glory" and step.kind == ServiceKind.BUNKER
+    )
+
+    resource.unavailable_windows = [
+        ResourceUnavailableWindow(
+            start_at=sim._started + timedelta(minutes=95),
+            end_at=sim._started + timedelta(minutes=140),
+            reason="planned maintenance",
+        )
+    ]
+
+    shift = sim._resource_shift_needed(
+        target.port_call_id,
+        ServiceKind.BUNKER,
+        resource.id,
+        separation_minutes=60,
+    )
+
+    assert target.planned_at == sim._started + timedelta(minutes=97)
+    assert shift == 43
+
+
+def test_resource_calendar_change_invalidates_recovery_fingerprint():
+    sim = HarborSimulator()
+    sim.inject_incident(
+        IncidentType.BUNKER_UNAVAILABLE,
+        "pc-aurora",
+        45,
+    )
+    before = sim.generate_recovery_proposals(call_id="pc-aurora")[0].state_fingerprint
+
+    resource = next(
+        item for item in sim.service_resources
+        if item.id == "bunker-barge-12"
+    )
+    resource.unavailable_windows = [
+        ResourceUnavailableWindow(
+            start_at=sim._started + timedelta(minutes=95),
+            end_at=sim._started + timedelta(minutes=140),
+            reason="planned maintenance",
+        )
+    ]
+
+    after = sim.generate_recovery_proposals(call_id="pc-aurora")[0].state_fingerprint
+    assert after != before
+
+
+def test_resource_calendar_can_change_recovery_ranking():
+    sim = HarborSimulator()
+    resource = next(
+        item for item in sim.service_resources
+        if item.id == "bunker-barge-12"
+    )
+    resource.unavailable_windows = [
+        ResourceUnavailableWindow(
+            start_at=sim._started + timedelta(minutes=95),
+            end_at=sim._started + timedelta(minutes=300),
+            reason="extended maintenance",
+        )
+    ]
+
+    sim.inject_incident(
+        IncidentType.BUNKER_UNAVAILABLE,
+        "pc-aurora",
+        45,
+    )
+    proposals = [
+        proposal
+        for proposal in sim.generate_recovery_proposals(call_id="pc-aurora")
+        if any(
+            action.service_kind == ServiceKind.BUNKER
+            for action in proposal.actions
+        )
+    ]
+
+    assert "Bunker Barge 9" in proposals[0].title
+    assert "Bunker Barge 12" in proposals[1].title
+    assert proposals[0].disruption_score < proposals[1].disruption_score

@@ -115,6 +115,9 @@ test('bunker loss renders the branched DAG and operator recovery clears shared b
   const gloryDag = page.locator('[data-service-dag="pc-glory"]')
   await expect(auroraDag).toBeVisible()
   await expect(gloryDag).toBeVisible()
+  const bunker12 = page.locator('.resource-row').filter({ hasText: 'Bunker Barge 12' })
+  await expect(bunker12).toContainText('planned maintenance')
+  await expect(bunker12).toContainText('BLOCKED')
 
   await expect(
     auroraDag.locator('[data-service-kind="customs"] em'),

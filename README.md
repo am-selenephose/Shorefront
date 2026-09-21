@@ -4,7 +4,7 @@ PortFlow is a port-call operations control tower for continuously updated vessel
 
 ## Status
 
-Private portfolio build, v0.9 branched service-dependency DAG + compound shared-resource recovery.
+Private portfolio build, v0.10 explicit resource calendars + calendar-aware recovery ranking.
 
 ## Product principles
 
@@ -922,11 +922,81 @@ Current v0.9 verification gates:
 - recovery approval remains identity/role gated
 - no live external provider is claimed unless deployment configuration actually supplies one
 
+## v0.10 proof
+
+### Explicit resource calendars
+
+ServiceResource now supports explicit unavailable windows in addition to the existing available_from lower bound.
+
+Each unavailable window carries:
+
+- start_at
+- end_at
+- reason
+
+Invalid windows whose end is not after start are rejected by the model.
+
+This closes a scheduling gap that available_from cannot represent: a resource may be generally available, become unavailable for maintenance or shift coverage, and then return to service later.
+
+### Calendar-aware feasibility
+
+Recovery feasibility now treats resource calendar outages as hard constraints.
+
+The scheduling loop considers, in order:
+
+- available_from
+- explicit unavailable windows
+- capacity
+- existing assignments
+- service-specific separation windows
+
+If a proposed service time falls inside an unavailable window, the candidate is advanced to the end of that window before capacity/separation constraints are evaluated again.
+
+Calendar state is included in the recovery state fingerprint. A proposal therefore becomes stale when a relevant resource calendar changes before approval.
+
+### Decision impact, not metadata only
+
+Regression coverage proves the calendar can change recovery ranking.
+
+In the canonical bunker-loss fixture, Bunker Barge 12 remains the preferred recovery resource under its normal future maintenance calendar:
+
+- 48 modeled total delay minutes
+- 0 blocked services
+- disruption score 63
+
+A test then moves Bunker Barge 12 into an extended maintenance outage covering the recovery window.
+
+The optimizer responds by ranking Bunker Barge 9 ahead of Bunker Barge 12.
+
+This proves the calendar is part of the decision model rather than display-only metadata.
+
+### Resource Board calendar visibility
+
+The operations console now exposes the first modeled unavailable interval for each resource directly in the Resource Board.
+
+The canonical Bunker Barge 12 fixture shows a future planned-maintenance interval while preserving the existing bunker-loss recovery ranking because that outage begins after the current recovery window.
+
+The real-browser bunker E2E verifies the maintenance constraint is visible alongside the branched service DAG and recovery workflow.
+
+### v0.10 verification
+
+Current gates:
+
+- 59 backend/domain/API/storage/recovery/security/scenario/adapter/calendar tests pass
+- 3 real Chromium Playwright E2Es pass
+- production TypeScript/Vite build passes
+- production npm audit reports 0 vulnerabilities
+- Python compile passes
+- canonical bunker recovery remains Bunker Barge 12 at 48 minutes / 0 blocked / disruption score 63 when its future outage does not overlap the recovery window
+- an overlapping extended outage flips the preferred recovery candidate to Bunker Barge 9
+- calendar changes invalidate recovery state fingerprints
+- the Resource Board visibly labels the planned-maintenance interval
+- v0.9 provenance, authority, DAG, and PostgreSQL persistence guarantees remain covered by regression tests
+
 ## Next engineering milestone
 
-v0.10 should focus on deeper resource calendars, adapter resilience, and deployment:
+v0.11 should focus on adapter resilience, deeper capacity modeling, and deployment:
 
-- explicit resource calendars beyond synthetic separation windows
 - richer crane/cargo multi-resource capacity constraints
 - cross-resource recovery optimization across multiple incident classes
 - adapter freshness impact on decision confidence

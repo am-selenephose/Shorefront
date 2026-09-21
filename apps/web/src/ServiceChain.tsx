@@ -95,6 +95,14 @@ export function ServiceChain({ call, state }: { call: PortCall; state: HarborSta
   )
 }
 
+function clock(value: string) {
+  return new Intl.DateTimeFormat('en', {
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).format(new Date(value))
+}
+
 export function ResourceBoard({ state }: { state: HarborState }) {
   return (
     <div className="resource-board">
@@ -105,13 +113,16 @@ export function ResourceBoard({ state }: { state: HarborState }) {
             <span>
               {resource.kind} · cap {resource.capacity}
               {resource.available_from
-                ? ' · free ' + new Intl.DateTimeFormat('en', {
-                    hour: '2-digit',
-                    minute: '2-digit',
-                    hour12: false,
-                  }).format(new Date(resource.available_from))
+                ? ' · free ' + clock(resource.available_from)
                 : ''}
             </span>
+            {resource.unavailable_windows?.[0] && (
+              <small className="resource-calendar">
+                BLOCKED {clock(resource.unavailable_windows[0].start_at)}
+                {'–'}{clock(resource.unavailable_windows[0].end_at)}
+                {' · '}{resource.unavailable_windows[0].reason}
+              </small>
+            )}
           </div>
           <span className={'resource-status ' + resource.status}>{resource.status}</span>
         </div>

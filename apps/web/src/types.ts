@@ -113,6 +113,12 @@ export interface Event {
   source_id?: string | null
 }
 
+export interface ResourceUnavailableWindow {
+  start_at: string
+  end_at: string
+  reason: string
+}
+
 export interface ServiceResource {
   id: string
   kind: ServiceKind
@@ -121,6 +127,7 @@ export interface ServiceResource {
   capacity: number
   assigned_port_call_ids: string[]
   available_from?: string | null
+  unavailable_windows: ResourceUnavailableWindow[]
 }
 
 export interface ServiceStep {
