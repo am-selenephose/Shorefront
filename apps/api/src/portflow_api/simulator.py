@@ -11,7 +11,8 @@ from uuid import uuid4
 
 from .domain import detect_berth_conflicts, extend_departure, score_port_call, shift_call_from_stage
 from .models import (
-    Berth, BerthStatus, ConnectivityState, Coordinate, HarborOverview,
+    AdapterHealth, AdapterSnapshot, Berth, BerthStatus, ConnectivityState,
+    Coordinate, DataDomain, DataSourceMode, DataSourceProvenance, HarborOverview,
     Incident, IncidentStatus, IncidentType, LinkMode, OperationsEvent,
     PortCall, PortCallStage, RecoveryAction, RecoveryActionType,
     RecoveryApplicationReceipt, RecoveryProposal, ResourceStatus, RiskLevel,
@@ -80,6 +81,7 @@ class HarborSimulator:
             last_transition_at=self._started,
         )
         self.incidents: list[Incident] = []
+        self.data_sources = self._default_data_sources()
         self.service_resources = self._make_service_resources()
         self.service_steps = self._make_service_steps()
         self.events: list[OperationsEvent] = []
@@ -97,6 +99,7 @@ class HarborSimulator:
         self.weather = deepcopy(state.weather)
         self.connectivity = deepcopy(state.connectivity)
         self.incidents = deepcopy(state.incidents)
+        self.data_sources = deepcopy(state.data_sources) or self._default_data_sources()
         self.service_resources = deepcopy(state.service_resources)
         self.service_steps = deepcopy(state.service_steps)
         self.events = deepcopy(state.events)
@@ -115,6 +118,317 @@ class HarborSimulator:
         self._refresh_queued_count()
         self._recalculate_services()
         self._recalculate_risks()
+
+
+    def _default_data_sources(self) -> list[DataSourceProvenance]:
+        now = self._started
+        return [
+            DataSourceProvenance(
+                source_id="synthetic-ais",
+                domain=DataDomain.AIS,
+                mode=DataSourceMode.SYNTHETIC,
+                provider="PortFlow synthetic harbor generator",
+                observed_at=now,
+                received_at=now,
+                freshness_seconds=0,
+                stale_after_seconds=10_000_000,
+                stale=False,
+                health=AdapterHealth.HEALTHY,
+                record_count=len(getattr(self, "vessels", [])),
+                detail="Synthetic vessel positions for the portfolio demo.",
+            ),
+            DataSourceProvenance(
+                source_id="synthetic-weather",
+                domain=DataDomain.WEATHER_TIDE,
+                mode=DataSourceMode.SYNTHETIC,
+                provider="PortFlow synthetic metocean generator",
+                observed_at=now,
+                received_at=now,
+                freshness_seconds=0,
+                stale_after_seconds=10_000_000,
+                stale=False,
+                health=AdapterHealth.HEALTHY,
+                record_count=1,
+                detail="Synthetic weather and tide state for the portfolio demo.",
+            ),
+            DataSourceProvenance(
+                source_id="synthetic-berth-plan",
+                domain=DataDomain.BERTH_PLAN,
+                mode=DataSourceMode.SYNTHETIC,
+                provider="PortFlow synthetic berth-plan generator",
+                observed_at=now,
+                received_at=now,
+                freshness_seconds=0,
+                stale_after_seconds=10_000_000,
+                stale=False,
+                health=AdapterHealth.HEALTHY,
+                record_count=len(getattr(self, "port_calls", [])),
+                detail="Synthetic berth allocations and port-call timing.",
+            ),
+        ]
+
+    def _refresh_data_source_freshness(self) -> None:
+        now = datetime.now(timezone.utc).replace(microsecond=0)
+        for source in self.data_sources:
+            if source.mode == DataSourceMode.SYNTHETIC:
+                source.freshness_seconds = 0
+                source.stale = False
+                source.health = AdapterHealth.HEALTHY
+                continue
+
+            age = max(0, int((now - source.observed_at).total_seconds()))
+            source.freshness_seconds = age
+            source.stale = age > source.stale_after_seconds
+
+            if source.stale and source.health in {
+                AdapterHealth.HEALTHY,
+                AdapterHealth.DEGRADED,
+            }:
+                source.health = AdapterHealth.STALE
+            elif not source.stale and source.health == AdapterHealth.STALE:
+                source.health = AdapterHealth.HEALTHY
+
+    def _active_source_ids(self) -> set[str]:
+        return (
+            {vessel.source_id for vessel in self.vessels}
+            | {berth.source_id for berth in self.berths}
+            | {call.source_id for call in self.port_calls}
+            | {self.weather.source_id}
+        )
+
+    def _prune_data_sources(self) -> None:
+        active_ids = self._active_source_ids()
+        self.data_sources = [
+            source for source in self.data_sources
+            if source.source_id in active_ids
+        ]
+
+    def _upsert_data_source(self, provenance: DataSourceProvenance) -> None:
+        self.data_sources = [
+            item for item in self.data_sources
+            if item.source_id != provenance.source_id
+        ]
+        self.data_sources.append(deepcopy(provenance))
+        self._prune_data_sources()
+        self.data_sources.sort(key=lambda item: (item.domain.value, item.source_id))
+
+    def _validated_adapter_records(self, snapshot: AdapterSnapshot) -> list[dict]:
+        domain = snapshot.provenance.domain
+        normalized: list[dict] = []
+
+        try:
+            if domain == DataDomain.AIS:
+                for record in snapshot.records:
+                    vessel_id = str(record["vessel_id"]).strip()
+                    if not vessel_id:
+                        raise ValueError("AIS vessel_id must be non-empty")
+
+                    lat = float(record["lat"])
+                    lon = float(record["lon"])
+                    speed = float(record["speed_knots"]) if record.get("speed_knots") is not None else None
+                    heading = float(record["heading_deg"]) if record.get("heading_deg") is not None else None
+                    eta_offset = int(record["eta_offset_minutes"]) if record.get("eta_offset_minutes") is not None else None
+
+                    if not -90 <= lat <= 90:
+                        raise ValueError("AIS latitude out of range")
+                    if not -180 <= lon <= 180:
+                        raise ValueError("AIS longitude out of range")
+                    if speed is not None and speed < 0:
+                        raise ValueError("AIS speed cannot be negative")
+                    if heading is not None and not 0 <= heading < 360:
+                        raise ValueError("AIS heading out of range")
+
+                    normalized.append(dict(
+                        vessel_id=vessel_id,
+                        lat=lat,
+                        lon=lon,
+                        speed_knots=speed,
+                        heading_deg=heading,
+                        eta_offset_minutes=eta_offset,
+                    ))
+
+            elif domain == DataDomain.WEATHER_TIDE:
+                if not snapshot.records:
+                    raise ValueError("Weather adapter snapshot contains no records")
+
+                record = snapshot.records[0]
+                normalized_record = dict(
+                    wind_knots=float(record["wind_knots"]),
+                    gust_knots=float(record["gust_knots"]),
+                    visibility_km=float(record["visibility_km"]),
+                    wave_height_m=float(record["wave_height_m"]),
+                    tide_m=float(record["tide_m"]),
+                )
+                if normalized_record["wind_knots"] < 0 or normalized_record["gust_knots"] < 0:
+                    raise ValueError("Weather wind values cannot be negative")
+                if normalized_record["visibility_km"] < 0:
+                    raise ValueError("Weather visibility cannot be negative")
+                if normalized_record["wave_height_m"] < 0:
+                    raise ValueError("Wave height cannot be negative")
+                normalized.append(normalized_record)
+
+            elif domain == DataDomain.BERTH_PLAN:
+                known_berths = {berth.id for berth in self.berths}
+                known_calls = {call.id for call in self.port_calls}
+
+                for record in snapshot.records:
+                    port_call_id = str(record["port_call_id"]).strip()
+                    berth_id = str(record["berth_id"]).strip()
+                    arrival_offset = int(record["arrival_offset_minutes"])
+                    departure_offset = int(record["departure_offset_minutes"])
+
+                    if not port_call_id or not berth_id:
+                        raise ValueError("Berth-plan identifiers must be non-empty")
+                    if departure_offset <= arrival_offset:
+                        raise ValueError("Berth-plan departure must be after arrival")
+                    if port_call_id in known_calls and berth_id not in known_berths:
+                        raise ValueError("Berth-plan references an unknown berth")
+
+                    normalized.append(dict(
+                        port_call_id=port_call_id,
+                        berth_id=berth_id,
+                        arrival_offset_minutes=arrival_offset,
+                        departure_offset_minutes=departure_offset,
+                    ))
+
+            else:
+                raise ValueError("Unsupported adapter domain: " + domain.value)
+
+        except (KeyError, TypeError, ValueError) as exc:
+            if isinstance(exc, ValueError) and str(exc).startswith("Unsupported adapter domain"):
+                raise
+            raise ValueError(
+                "Invalid " + domain.value + " adapter payload: " + str(exc)
+            ) from exc
+
+        return normalized
+
+    def ingest_adapter_snapshot(
+        self,
+        snapshot: AdapterSnapshot,
+        ingested_by: str | None = None,
+        ingested_role: OperatorRole | None = None,
+    ) -> int:
+        provenance = snapshot.provenance
+        if provenance.stale or provenance.health in {
+            AdapterHealth.STALE,
+            AdapterHealth.OFFLINE,
+            AdapterHealth.ERROR,
+            AdapterHealth.UNCONFIGURED,
+        }:
+            raise ValueError(
+                f"Adapter {snapshot.adapter_id} is not ingestible: {provenance.health.value}"
+            )
+
+        records = self._validated_adapter_records(snapshot)
+        applied = 0
+
+        if provenance.domain == DataDomain.AIS:
+            by_id = {vessel.id: vessel for vessel in self.vessels}
+            for record in records:
+                vessel = by_id.get(str(record.get("vessel_id", "")))
+                if vessel is None:
+                    continue
+                vessel.position.lat = float(record["lat"])
+                vessel.position.lon = float(record["lon"])
+                if record.get("speed_knots") is not None:
+                    vessel.speed_knots = float(record["speed_knots"])
+                if record.get("heading_deg") is not None:
+                    vessel.heading_deg = float(record["heading_deg"])
+                if record.get("eta_offset_minutes") is not None:
+                    vessel.eta = self._started + timedelta(
+                        minutes=int(record["eta_offset_minutes"])
+                    )
+                vessel.source_id = provenance.source_id
+                applied += 1
+
+        elif provenance.domain == DataDomain.WEATHER_TIDE:
+            if not records:
+                raise ValueError("Weather adapter snapshot contains no records")
+            record = records[0]
+            self.weather.wind_knots = float(record["wind_knots"])
+            self.weather.gust_knots = float(record["gust_knots"])
+            self.weather.visibility_km = float(record["visibility_km"])
+            self.weather.wave_height_m = float(record["wave_height_m"])
+            self.weather.tide_m = float(record["tide_m"])
+            self.weather.observed_at = provenance.observed_at
+            self.weather.source_id = provenance.source_id
+            applied = 1
+            self._recalculate_risks()
+
+        elif provenance.domain == DataDomain.BERTH_PLAN:
+            calls = {call.id: call for call in self.port_calls}
+            vessels = {vessel.id: vessel for vessel in self.vessels}
+            berths = {berth.id: berth for berth in self.berths}
+            for record in records:
+                call = calls.get(str(record.get("port_call_id", "")))
+                if call is None:
+                    continue
+
+                old_arrival = call.arrival_eta
+                new_arrival = self._started + timedelta(
+                    minutes=int(record["arrival_offset_minutes"])
+                )
+                new_departure = self._started + timedelta(
+                    minutes=int(record["departure_offset_minutes"])
+                )
+                delta = new_arrival - old_arrival
+
+                call.arrival_eta = new_arrival
+                call.departure_eta = new_departure
+                call.berth_id = str(record["berth_id"])
+                call.source_id = provenance.source_id
+
+                berth = berths.get(call.berth_id)
+                if berth is not None:
+                    berth.source_id = provenance.source_id
+
+                for stage in call.stages:
+                    stage.planned_at = stage.planned_at + delta
+
+                vessel = vessels.get(call.vessel_id)
+                if vessel is not None:
+                    vessel.assigned_berth_id = call.berth_id
+
+                berth_step = next(
+                    (
+                        step for step in self.service_steps
+                        if step.port_call_id == call.id and step.kind == ServiceKind.BERTH
+                    ),
+                    None,
+                )
+                if berth_step:
+                    berth_step.resource_id = call.berth_id
+
+                applied += 1
+
+            self._recalculate_services()
+            self._recalculate_risks()
+
+        else:
+            raise ValueError(f"Unsupported adapter domain: {provenance.domain.value}")
+
+        if applied == 0:
+            raise ValueError(
+                f"Adapter {snapshot.adapter_id} contained no records matching modeled harbor entities"
+            )
+
+        self._upsert_data_source(provenance)
+        self._emit(
+            "data_adapter",
+            RiskLevel.LOW,
+            f"Adapter ingested: {snapshot.adapter_id}",
+            (
+                f"{applied} {provenance.domain.value} record(s) ingested from "
+                f"{provenance.mode.value} source {provenance.provider}; "
+                f"freshness {provenance.freshness_seconds}s."
+            ),
+            actor_id=ingested_by,
+            actor_role=ingested_role,
+            source_id=provenance.source_id,
+        )
+        self._persist()
+        return applied
 
     def _make_vessels(self) -> list[Vessel]:
         now = self._started
@@ -1265,6 +1579,8 @@ class HarborSimulator:
         now = datetime.now(timezone.utc).replace(microsecond=0)
 
         for vessel in self.vessels:
+            if vessel.source_id != "synthetic-ais":
+                continue
             if vessel.status in {
                 VesselStatus.INBOUND,
                 VesselStatus.MANEUVERING,
@@ -1275,24 +1591,25 @@ class HarborSimulator:
                 vessel.position.lat += math.cos(rad) * distance
                 vessel.position.lon += math.sin(rad) * distance
 
-        wind_incident = any(
-            incident.status == IncidentStatus.ACTIVE
-            and incident.incident_type == IncidentType.WIND_RESTRICTION
-            for incident in self.incidents
-        )
-        self.weather.observed_at = now
-        if not wind_incident:
-            self.weather.wind_knots = round(18 + 4 * math.sin(self.tick_count / 7), 1)
-            self.weather.gust_knots = round(self.weather.wind_knots + 7.5, 1)
-            self.weather.restriction_active = self.weather.gust_knots >= 33
-            self.weather.restriction_reason = (
-                "High-wind pilot/tug restriction"
-                if self.weather.restriction_active
-                else None
+        if self.weather.source_id == "synthetic-weather":
+            wind_incident = any(
+                incident.status == IncidentStatus.ACTIVE
+                and incident.incident_type == IncidentType.WIND_RESTRICTION
+                for incident in self.incidents
             )
+            self.weather.observed_at = now
+            if not wind_incident:
+                self.weather.wind_knots = round(18 + 4 * math.sin(self.tick_count / 7), 1)
+                self.weather.gust_knots = round(self.weather.wind_knots + 7.5, 1)
+                self.weather.restriction_active = self.weather.gust_knots >= 33
+                self.weather.restriction_reason = (
+                    "High-wind pilot/tug restriction"
+                    if self.weather.restriction_active
+                    else None
+                )
 
-        self.weather.wave_height_m = round(1.1 + 0.3 * math.sin(self.tick_count / 5), 1)
-        self.weather.tide_m = round(0.8 + 0.5 * math.sin(self.tick_count / 14), 2)
+            self.weather.wave_height_m = round(1.1 + 0.3 * math.sin(self.tick_count / 5), 1)
+            self.weather.tide_m = round(0.8 + 0.5 * math.sin(self.tick_count / 14), 2)
 
         self._refresh_queued_count()
         self._recalculate_risks()
@@ -1313,7 +1630,30 @@ class HarborSimulator:
         if self.tick_count % 3 == 0:
             self._persist()
 
+    def _data_disclaimer(self) -> str:
+        modes = {source.mode for source in self.data_sources}
+        if DataSourceMode.LIVE in modes and DataSourceMode.RECORDED in modes:
+            return (
+                "Demonstration only. Current harbor state includes explicitly labeled live adapter data "
+                "and recorded fixture replays alongside synthetic operational data."
+            )
+        if DataSourceMode.LIVE in modes:
+            return (
+                "Demonstration only. Current harbor state includes explicitly labeled live adapter data "
+                "alongside synthetic operational data."
+            )
+        if DataSourceMode.RECORDED in modes:
+            return (
+                "Demonstration only. No live external feeds are active. Current harbor state includes "
+                "explicitly labeled recorded fixture replays alongside synthetic operational data."
+            )
+        return (
+            "Demonstration only. No live external feeds are active. Vessel, port-call, weather, risk, "
+            "incident, service, and operational data are synthetic."
+        )
+
     def overview(self) -> HarborOverview:
+        self._refresh_data_source_freshness()
         occupied = sum(1 for berth in self.berths if berth.status == BerthStatus.OCCUPIED)
         at_risk = sum(
             1 for call in self.port_calls
@@ -1345,6 +1685,7 @@ class HarborSimulator:
             service_resources=deepcopy(self.service_resources),
             service_steps=deepcopy(self.service_steps),
             events=deepcopy(self.events),
+            data_sources=deepcopy(self.data_sources),
             metrics={
                 "vessels_in_port_picture": len(self.vessels),
                 "berths_occupied": occupied,
@@ -1359,9 +1700,9 @@ class HarborSimulator:
                 "blocked_services": blocked_services,
                 "delayed_services": delayed_services,
                 "queued_events": self.connectivity.queued_events,
+                "stale_data_sources": sum(
+                    1 for source in self.data_sources if source.stale
+                ),
             },
-            data_disclaimer=(
-                "Demonstration only. Vessel, port-call, risk, incident, service, "
-                "and operational data are synthetic."
-            ),
+            data_disclaimer=self._data_disclaimer(),
         )

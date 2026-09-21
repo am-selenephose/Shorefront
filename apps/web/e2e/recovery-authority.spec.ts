@@ -44,3 +44,49 @@ test('incident to authenticated recovery receipt survives reload', async ({ page
   await expect(page.getByText('E2E Operator').first()).toBeVisible()
   await expect(page.getByText(/RECENT OPERATOR RECEIPTS · 1/)).toBeVisible()
 })
+
+
+test('operator ingests healthy recorded AIS while stale adapter stays blocked', async ({ page, request }) => {
+  const reset = await request.post('/api/v1/demo/reset')
+  expect(reset.ok()).toBeTruthy()
+
+  await page.goto('/')
+
+  const initialSource = page.locator('[data-source-id="synthetic-ais"]')
+  await expect(initialSource).toBeVisible()
+  await expect(initialSource.locator('.source-mode.synthetic')).toHaveText('synthetic')
+
+  const staleAdapter = page.locator('[data-adapter-id="stale-weather-fixture"]')
+  await expect(staleAdapter).toBeVisible()
+  await expect(staleAdapter.getByRole('button', { name: 'Stale blocked' })).toBeDisabled()
+
+  const aisAdapter = page.locator('[data-adapter-id="recorded-ais"]')
+  await expect(aisAdapter.getByRole('button', { name: 'Authenticate' })).toBeDisabled()
+
+  await page.getByLabel('Operator access token').fill(operatorToken)
+  await page.getByRole('button', { name: 'Verify' }).click()
+  await expect(page.getByText('E2E Operator').first()).toBeVisible()
+
+  const ingest = aisAdapter.getByRole('button', { name: 'Ingest fixture' })
+  await expect(ingest).toBeEnabled()
+  await ingest.click()
+
+  const recordedSource = page.locator('[data-source-id="recorded-ais"]')
+  await expect(recordedSource).toBeVisible()
+  await expect(recordedSource.locator('.source-mode.recorded')).toHaveText('recorded')
+  await expect(recordedSource.getByText('PortFlow recorded AIS fixture')).toBeVisible()
+
+  const harbor = await request.get('/api/v1/harbor')
+  expect(harbor.ok()).toBeTruthy()
+  const state = await harbor.json()
+  const aurora = state.vessels.find((vessel: { id: string }) => vessel.id === 'v-aurora')
+  expect(aurora.source_id).toBe('recorded-ais')
+
+  const aisSource = state.data_sources.find(
+    (source: { source_id: string }) => source.source_id === 'recorded-ais',
+  )
+  expect(aisSource.source_id).toBe('recorded-ais')
+  expect(aisSource.mode).toBe('recorded')
+  expect(aisSource.health).toBe('healthy')
+  expect(state.data_disclaimer.toLowerCase()).toContain('recorded fixture')
+})

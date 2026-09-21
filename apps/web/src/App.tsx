@@ -1,9 +1,11 @@
 import { lazy, Suspense, useEffect, useMemo, useState } from 'react'
 import { BerthTimeline } from './BerthTimeline'
+import { DataSourcesPanel } from './DataSourcesPanel'
 import { IncidentControls } from './IncidentControls'
 import { RecoveryPanel } from './RecoveryPanel'
 import { ResourceBoard, ServiceChain } from './ServiceChain'
 import type {
+  AdapterSnapshot,
   HarborState,
   LinkMode,
   OperatorIdentity,
@@ -102,6 +104,7 @@ export default function App() {
   const [operatorToken, setOperatorToken] = useState(storedOperatorToken)
   const [operatorIdentity, setOperatorIdentity] = useState<OperatorIdentity | null>(null)
   const [scenarios, setScenarios] = useState<ScenarioFixture[]>([])
+  const [adapters, setAdapters] = useState<AdapterSnapshot[]>([])
   const [recoveryProposals, setRecoveryProposals] = useState<RecoveryProposal[]>([])
   const [recoveryReceipts, setRecoveryReceipts] = useState<RecoveryReceipt[]>([])
 
@@ -129,6 +132,11 @@ export default function App() {
       .then(response => response.json())
       .then(setScenarios)
       .catch(() => setScenarios([]))
+
+    fetch('/api/v1/adapters')
+      .then(response => response.json())
+      .then(setAdapters)
+      .catch(() => setAdapters([]))
 
     connect()
 
@@ -294,6 +302,36 @@ export default function App() {
     })
   }
 
+  async function refreshAdapters() {
+    const response = await fetch('/api/v1/adapters')
+    if (response.ok) setAdapters(await response.json())
+  }
+
+  async function ingestAdapter(adapterId: string) {
+    await runAction(async () => {
+      if (!operatorToken || !operatorIdentity) {
+        throw new Error('Authenticate an operator or supervisor before ingesting a recorded feed.')
+      }
+      if (!['operator', 'supervisor'].includes(operatorIdentity.role)) {
+        throw new Error('Current session is read-only and cannot ingest operational data.')
+      }
+
+      const response = await fetch('/api/v1/adapters/' + adapterId + '/ingest', {
+        method: 'POST',
+        headers: { Authorization: 'Bearer ' + operatorToken },
+      })
+      if (!response.ok) {
+        if (response.status === 401) disconnectOperator()
+        throw new Error(await response.text())
+      }
+
+      const payload = await response.json()
+      setState(payload.harbor)
+      await refreshAdapters()
+      await loadRecovery(operatorToken)
+    })
+  }
+
   async function applyRecovery(proposalId: string) {
     await runAction(async () => {
       if (!operatorToken || !operatorIdentity) {
@@ -355,6 +393,7 @@ export default function App() {
           <a href="#port-calls">Port Calls</a>
           <a href="#incidents">Incidents</a>
           <a href="#resources">Resources</a>
+          <a href="#data-feeds">Data Feeds</a>
           <a href="#recovery">Recovery Plans</a>
           <a href="#ledger">Operations Ledger</a>
         </nav>
@@ -528,6 +567,16 @@ export default function App() {
               <ResourceBoard state={state} />
             </div>
           </div>
+        </section>
+
+        <section className="panel data-feeds-shell" id="data-feeds">
+          <DataSourcesPanel
+            current={state.data_sources || []}
+            adapters={adapters}
+            identity={operatorIdentity}
+            busy={busy}
+            onIngest={ingestAdapter}
+          />
         </section>
 
         <section className="panel recovery-shell" id="recovery">

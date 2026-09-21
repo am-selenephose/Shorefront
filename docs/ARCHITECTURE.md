@@ -1,6 +1,6 @@
 # PortFlow architecture
 
-## v0.7
+## v0.8
 
 Synthetic operations and scenario injection feed a deterministic HarborSimulator.
 
@@ -308,3 +308,166 @@ Vite uses PORTFLOW_API_TARGET when present and defaults to http://127.0.0.1:8100
 The WebSocket target is derived from the same backend target.
 
 This preserves one backend source for both REST and live harbor stream during isolated development and E2E runs.
+
+
+## External data provenance boundary
+
+Operational state no longer assumes all data has the same origin.
+
+Entity source binding:
+
+Vessel.source_id
+Berth.source_id
+PortCall.source_id
+WeatherState.source_id
+        |
+        v
+DataSourceProvenance
+
+DataSourceProvenance carries source mode, provider, observation/receipt timestamps, freshness, stale threshold, health, and record count.
+
+HarborOverview carries the active source set.
+
+## Adapter contract
+
+All adapters converge on:
+
+ExternalDataAdapter.snapshot()
+        |
+        v
+AdapterSnapshot
+  - adapter_id
+  - provenance
+  - records
+
+Current implementations:
+
+- RecordedFixtureAdapter
+- HttpJsonAdapter
+
+Recorded fixtures support deterministic offline verification.
+
+HttpJsonAdapter supports environment-configured live JSON endpoints and never appears unless a URL is configured.
+
+## Live transport boundary
+
+Live URLs are deployment configuration.
+
+There is no API accepting an arbitrary user-provided URL.
+
+Policy:
+
+- HTTPS for deployed providers
+- HTTP only for loopback development
+- bounded request timeout
+- JSON-object response contract
+- observed_at required
+- records array required
+- stale observation -> STALE
+- transport/shape failure -> ERROR
+
+Only healthy, fresh snapshots may cross the ingest boundary.
+
+## Ingest transaction boundary
+
+Ingestion is logically split:
+
+adapter fetch / replay
+  -> provenance health check
+  -> validate all records
+  -> normalize all records
+  -> apply records
+  -> bind source ids
+  -> update active source provenance
+  -> durable audit event
+  -> persist HarborOverview
+
+Validation happens before mutation.
+
+This prevents a multi-record payload from partially changing harbor state when a later record is malformed.
+
+## Adapter authority and audit
+
+Preview is read-only.
+
+Manual fixture/live snapshot ingest is an operational state mutation and therefore uses the same authenticated operator/supervisor role boundary as recovery execution.
+
+The durable adapter-ingest event records:
+
+- actor_id
+- actor_role
+- source_id
+
+A viewer can inspect state but cannot trigger ingest.
+
+## Freshness semantics
+
+Current source freshness is recalculated from observed_at when HarborOverview is generated.
+
+For non-synthetic sources:
+
+freshness_seconds = now - observed_at
+
+freshness_seconds > stale_after_seconds
+  -> stale=true
+  -> health=STALE
+
+Stale source state remains visible so operators can understand what the current model was based on, but stale snapshots cannot be newly ingested.
+
+## Source-truth UI
+
+The Data Feeds panel renders both:
+
+1. current source provenance actually backing harbor state
+2. available adapter snapshots that could be ingested
+
+Synthetic, recorded, and live are visually distinct.
+
+The interface never labels a recorded fixture as live.
+
+
+## Multi-source domain semantics
+
+A data domain is not assumed to have one provider for every entity.
+
+Example after recorded AIS fixture ingest:
+
+- v-aurora -> recorded-ais
+- v-glory -> recorded-ais
+- remaining modeled vessels -> synthetic-ais
+
+Both recorded-ais and synthetic-ais remain in HarborOverview.data_sources because both actively back entities.
+
+Data source pruning is reference-based:
+
+active source ids =
+  vessel source ids
+  + berth source ids
+  + port-call source ids
+  + weather source id
+
+A newly ingested source is removed from the active source list if no modeled entity actually references it.
+
+An adapter snapshot that applies zero records is rejected rather than being presented as the current domain source.
+
+## External-source ownership versus simulation tick
+
+Synthetic background motion/weather generation only owns synthetic-source state.
+
+Vessel movement tick:
+
+source_id == synthetic-ais
+  -> synthetic movement allowed
+
+source_id != synthetic-ais
+  -> position remains adapter-owned until next adapter observation
+
+Weather tick:
+
+source_id == synthetic-weather
+  -> synthetic metocean evolution allowed
+
+source_id != synthetic-weather
+  -> metocean values remain adapter-owned
+
+This prevents externally sourced values from being silently modified while retaining a recorded/live provenance label.

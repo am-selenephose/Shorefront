@@ -7,6 +7,7 @@ from fastapi import Depends, FastAPI, HTTPException, WebSocket, WebSocketDisconn
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
+from .adapters import get_adapter_snapshot, list_adapter_snapshots
 from .domain import detect_berth_conflicts, score_port_call
 from .models import IncidentType, LinkMode, OperatorIdentity
 from .simulator import HarborSimulator
@@ -52,7 +53,7 @@ async def lifespan(app: FastAPI):
     task.cancel()
 
 
-app = FastAPI(title="PortFlow API", version="0.7.0", lifespan=lifespan)
+app = FastAPI(title="PortFlow API", version="0.8.0", lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
@@ -77,7 +78,7 @@ def healthz():
     return {
         "ok": True,
         "service": "portflow-api",
-        "version": "0.7.0",
+        "version": "0.8.0",
         "persistence": True,
         "authorization_configured": bool(configured_approvers()),
     }
@@ -86,6 +87,49 @@ def healthz():
 @app.get("/api/v1/auth/me")
 def auth_me(identity: OperatorIdentity = Depends(current_operator)):
     return identity
+
+
+@app.get("/api/v1/adapters")
+def adapters():
+    return list_adapter_snapshots()
+
+
+@app.get("/api/v1/adapters/{adapter_id}/preview")
+def adapter_preview(adapter_id: str):
+    snapshot = get_adapter_snapshot(adapter_id)
+    if snapshot is None:
+        raise HTTPException(status_code=404, detail=f"Unknown adapter: {adapter_id}")
+    return snapshot
+
+
+@app.post("/api/v1/adapters/{adapter_id}/ingest")
+def adapter_ingest(
+    adapter_id: str,
+    identity: OperatorIdentity = Depends(recovery_approver),
+):
+    snapshot = get_adapter_snapshot(adapter_id)
+    if snapshot is None:
+        raise HTTPException(status_code=404, detail=f"Unknown adapter: {adapter_id}")
+
+    try:
+        applied = sim.ingest_adapter_snapshot(
+            snapshot,
+            ingested_by=identity.operator_id,
+            ingested_role=identity.role,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+    return {
+        "adapter": snapshot.provenance,
+        "applied_records": applied,
+        "ingested_by": {
+            "operator_id": identity.operator_id,
+            "display_name": identity.display_name,
+            "role": identity.role,
+        },
+        "harbor": sim.overview(),
+    }
 
 
 @app.get("/api/v1/scenarios")

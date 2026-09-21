@@ -286,3 +286,65 @@ def test_unknown_scenario_returns_404():
     with TestClient(app) as client:
         response = client.post("/api/v1/scenarios/not-real/run")
         assert response.status_code == 404
+
+
+def test_adapter_catalog_exposes_provenance_and_stale_fixture():
+    with TestClient(app) as client:
+        response = client.get("/api/v1/adapters")
+        assert response.status_code == 200
+        rows = response.json()
+        by_id = {row["adapter_id"]: row for row in rows}
+
+        assert {"recorded-ais", "recorded-weather", "recorded-berth-plan", "stale-weather-fixture"} <= set(by_id)
+        assert by_id["recorded-ais"]["provenance"]["mode"] == "recorded"
+        assert by_id["recorded-ais"]["provenance"]["health"] == "healthy"
+        assert by_id["stale-weather-fixture"]["provenance"]["stale"] is True
+        assert by_id["stale-weather-fixture"]["provenance"]["health"] == "stale"
+
+
+def test_adapter_ingest_requires_operator_and_updates_harbor_source():
+    with TestClient(app) as client:
+        client.post("/api/v1/demo/reset")
+
+        anonymous = client.post("/api/v1/adapters/recorded-ais/ingest")
+        assert anonymous.status_code == 401
+
+        viewer = client.post(
+            "/api/v1/adapters/recorded-ais/ingest",
+            headers=auth_headers(VIEWER_TOKEN),
+        )
+        assert viewer.status_code == 403
+
+        operator = client.post(
+            "/api/v1/adapters/recorded-ais/ingest",
+            headers=auth_headers(OPERATOR_TOKEN),
+        )
+        assert operator.status_code == 200
+        payload = operator.json()
+        assert payload["applied_records"] == 2
+        assert payload["adapter"]["mode"] == "recorded"
+        assert payload["ingested_by"]["operator_id"] == "operator-17"
+
+        harbor = client.get("/api/v1/harbor").json()
+        aurora = next(vessel for vessel in harbor["vessels"] if vessel["id"] == "v-aurora")
+        assert aurora["source_id"] == "recorded-ais"
+        ais_source = next(source for source in harbor["data_sources"] if source["source_id"] == "recorded-ais")
+        assert ais_source["source_id"] == "recorded-ais"
+        assert "recorded fixture" in harbor["data_disclaimer"].lower()
+
+        ledger = client.get("/api/v1/events?limit=20").json()
+        adapter_event = next(event for event in ledger if event["category"] == "data_adapter")
+        assert adapter_event["actor_id"] == "operator-17"
+        assert adapter_event["actor_role"] == "operator"
+        assert adapter_event["source_id"] == "recorded-ais"
+
+
+def test_stale_adapter_ingest_returns_409():
+    with TestClient(app) as client:
+        client.post("/api/v1/demo/reset")
+        response = client.post(
+            "/api/v1/adapters/stale-weather-fixture/ingest",
+            headers=auth_headers(SUPERVISOR_TOKEN),
+        )
+        assert response.status_code == 409
+        assert "stale" in response.json()["detail"].lower()

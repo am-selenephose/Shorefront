@@ -1,7 +1,8 @@
 from pathlib import Path
 
+from portflow_api.adapters import HttpJsonAdapter, get_adapter_snapshot
 from portflow_api.domain import detect_berth_conflicts
-from portflow_api.models import IncidentType, LinkMode, OperatorRole
+from portflow_api.models import DataDomain, IncidentType, LinkMode, OperatorRole
 from portflow_api.simulator import HarborSimulator
 from portflow_api.storage import OperationsStore
 
@@ -367,3 +368,209 @@ def test_domain_rejects_viewer_recovery_approval(tmp_path):
 
     assert detect_berth_conflicts(sim.port_calls) == conflicts_before
     assert store.list_recovery_receipts(limit=10) == []
+
+
+def test_recorded_ais_ingest_updates_source_and_survives_restart(tmp_path):
+    store = make_store(tmp_path)
+    sim = HarborSimulator(
+        event_sink=store.append_event,
+        incident_sink=store.upsert_incident,
+        snapshot_sink=store.save_snapshot,
+    )
+
+    snapshot = get_adapter_snapshot("recorded-ais")
+    assert snapshot is not None
+    applied = sim.ingest_adapter_snapshot(snapshot)
+    assert applied == 2
+
+    aurora = next(v for v in sim.vessels if v.id == "v-aurora")
+    assert aurora.source_id == "recorded-ais"
+    assert aurora.position.lat == 51.982
+    assert aurora.position.lon == 3.995
+
+    source = next(item for item in sim.data_sources if item.source_id == "recorded-ais")
+    assert source.mode.value == "recorded"
+    assert source.provider == "PortFlow recorded AIS fixture"
+    assert source.stale is False
+
+    restored = HarborSimulator(initial=store.load_snapshot())
+    restored_aurora = next(v for v in restored.vessels if v.id == "v-aurora")
+    assert restored_aurora.source_id == "recorded-ais"
+    restored_source = next(item for item in restored.data_sources if item.domain.value == "ais")
+    assert restored_source.source_id == "recorded-ais"
+
+
+def test_recorded_weather_ingest_replaces_weather_provenance(tmp_path):
+    store = make_store(tmp_path)
+    sim = HarborSimulator(snapshot_sink=store.save_snapshot)
+
+    snapshot = get_adapter_snapshot("recorded-weather")
+    assert snapshot is not None
+    assert sim.ingest_adapter_snapshot(snapshot) == 1
+
+    assert sim.weather.source_id == "recorded-weather"
+    assert sim.weather.wind_knots == 23.0
+    assert sim.weather.gust_knots == 31.0
+    source = next(item for item in sim.data_sources if item.domain.value == "weather_tide")
+    assert source.freshness_seconds == 42
+    assert source.health.value == "healthy"
+
+
+def test_recorded_berth_plan_ingest_is_idempotent_against_absolute_offsets(tmp_path):
+    store = make_store(tmp_path)
+    sim = HarborSimulator(snapshot_sink=store.save_snapshot)
+
+    snapshot = get_adapter_snapshot("recorded-berth-plan")
+    assert snapshot is not None
+    first = sim.ingest_adapter_snapshot(snapshot)
+    nova_first = next(call for call in sim.port_calls if call.id == "pc-nova")
+    first_arrival = nova_first.arrival_eta
+
+    second = sim.ingest_adapter_snapshot(snapshot)
+    nova_second = next(call for call in sim.port_calls if call.id == "pc-nova")
+
+    assert first == 2
+    assert second == 2
+    assert nova_second.arrival_eta == first_arrival
+    assert nova_second.source_id == "recorded-berth-plan"
+
+
+def test_stale_adapter_preview_is_rejected_for_ingest(tmp_path):
+    store = make_store(tmp_path)
+    sim = HarborSimulator(snapshot_sink=store.save_snapshot)
+
+    snapshot = get_adapter_snapshot("stale-weather-fixture")
+    assert snapshot is not None
+    assert snapshot.provenance.stale is True
+    assert snapshot.provenance.health.value == "stale"
+
+    before = sim.weather.model_copy(deep=True)
+    try:
+        sim.ingest_adapter_snapshot(snapshot)
+    except ValueError as exc:
+        assert "not ingestible" in str(exc).lower()
+        assert "stale" in str(exc).lower()
+    else:
+        raise AssertionError("Stale adapter snapshot must not be ingested")
+
+    assert sim.weather == before
+
+
+def test_recorded_source_freshness_ages_into_stale_health(tmp_path):
+    store = make_store(tmp_path)
+    sim = HarborSimulator(snapshot_sink=store.save_snapshot)
+
+    snapshot = get_adapter_snapshot("recorded-weather")
+    assert snapshot is not None
+    sim.ingest_adapter_snapshot(snapshot)
+
+    source = next(item for item in sim.data_sources if item.domain.value == "weather_tide")
+    source.observed_at = source.observed_at - __import__("datetime").timedelta(seconds=600)
+
+    overview = sim.overview()
+    aged = next(item for item in overview.data_sources if item.domain.value == "weather_tide")
+
+    assert aged.freshness_seconds > aged.stale_after_seconds
+    assert aged.stale is True
+    assert aged.health.value == "stale"
+    assert overview.metrics["stale_data_sources"] == 1
+
+
+def test_invalid_adapter_payload_is_rejected_before_any_partial_mutation(tmp_path):
+    store = make_store(tmp_path)
+    sim = HarborSimulator(snapshot_sink=store.save_snapshot)
+
+    snapshot = get_adapter_snapshot("recorded-ais")
+    assert snapshot is not None
+    snapshot.records.append({
+        "vessel_id": "v-lima",
+        "lat": 999,
+        "lon": 4.0,
+        "speed_knots": 1.0,
+        "heading_deg": 90.0,
+    })
+
+    before = {
+        vessel.id: vessel.model_copy(deep=True)
+        for vessel in sim.vessels
+    }
+
+    try:
+        sim.ingest_adapter_snapshot(snapshot)
+    except ValueError as exc:
+        assert "invalid ais adapter payload" in str(exc).lower()
+    else:
+        raise AssertionError("Malformed adapter payload must be rejected")
+
+    for vessel in sim.vessels:
+        assert vessel == before[vessel.id]
+
+    ais_source = next(source for source in sim.data_sources if source.domain.value == "ais")
+    assert ais_source.source_id == "synthetic-ais"
+
+
+def test_live_adapter_ingest_changes_disclaimer_truthfully(tmp_path):
+    from datetime import datetime, timezone
+
+    store = make_store(tmp_path)
+    sim = HarborSimulator(snapshot_sink=store.save_snapshot)
+    now = datetime.now(timezone.utc).replace(microsecond=0)
+
+    adapter = HttpJsonAdapter(
+        adapter_id="live-weather-test",
+        domain=DataDomain.WEATHER_TIDE,
+        provider="Test Live Weather",
+        url="https://example.invalid/weather",
+        stale_after_seconds=300,
+        loader=lambda url, timeout: {
+            "observed_at": now.isoformat(),
+            "records": [{
+                "wind_knots": 20.0,
+                "gust_knots": 25.0,
+                "visibility_km": 9.0,
+                "wave_height_m": 1.1,
+                "tide_m": 0.7,
+            }],
+        },
+    )
+
+    snapshot = adapter.snapshot(now=now)
+    assert snapshot.provenance.mode.value == "live"
+    assert snapshot.provenance.health.value == "healthy"
+
+    sim.ingest_adapter_snapshot(snapshot)
+    overview = sim.overview()
+
+    assert overview.weather.source_id == "live-weather-test"
+    assert "live adapter data" in overview.data_disclaimer.lower()
+    assert "all data are synthetic" not in overview.data_disclaimer.lower()
+
+
+def test_background_tick_does_not_synthetically_move_recorded_ais():
+    sim = HarborSimulator()
+    snapshot = get_adapter_snapshot("recorded-ais")
+    assert snapshot is not None
+    sim.ingest_adapter_snapshot(snapshot)
+
+    aurora = next(v for v in sim.vessels if v.id == "v-aurora")
+    seaway = next(v for v in sim.vessels if v.id == "v-seaway")
+    aurora_before = aurora.position.model_copy(deep=True)
+    seaway_before = seaway.position.model_copy(deep=True)
+
+    sim.tick()
+
+    assert aurora.position == aurora_before
+    assert seaway.position != seaway_before
+
+
+def test_background_tick_does_not_synthetically_overwrite_recorded_weather():
+    sim = HarborSimulator()
+    snapshot = get_adapter_snapshot("recorded-weather")
+    assert snapshot is not None
+    sim.ingest_adapter_snapshot(snapshot)
+
+    before = sim.weather.model_copy(deep=True)
+    sim.tick()
+
+    assert sim.weather == before
+    assert sim.weather.source_id == "recorded-weather"

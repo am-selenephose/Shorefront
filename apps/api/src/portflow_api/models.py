@@ -89,6 +89,48 @@ class ScenarioActionType(StrEnum):
     CONNECTIVITY = "connectivity"
 
 
+class DataSourceMode(StrEnum):
+    SYNTHETIC = "synthetic"
+    RECORDED = "recorded"
+    LIVE = "live"
+
+
+class DataDomain(StrEnum):
+    AIS = "ais"
+    WEATHER_TIDE = "weather_tide"
+    BERTH_PLAN = "berth_plan"
+
+
+class AdapterHealth(StrEnum):
+    HEALTHY = "healthy"
+    DEGRADED = "degraded"
+    STALE = "stale"
+    OFFLINE = "offline"
+    UNCONFIGURED = "unconfigured"
+    ERROR = "error"
+
+
+class DataSourceProvenance(BaseModel):
+    source_id: str
+    domain: DataDomain
+    mode: DataSourceMode
+    provider: str
+    observed_at: datetime
+    received_at: datetime
+    freshness_seconds: int = 0
+    stale_after_seconds: int = 300
+    stale: bool = False
+    health: AdapterHealth = AdapterHealth.HEALTHY
+    record_count: int = 0
+    detail: str | None = None
+
+
+class AdapterSnapshot(BaseModel):
+    adapter_id: str
+    provenance: DataSourceProvenance
+    records: list[dict] = Field(default_factory=list)
+
+
 class OperatorIdentity(BaseModel):
     operator_id: str
     display_name: str
@@ -117,6 +159,7 @@ class Coordinate(BaseModel):
 
 class Vessel(BaseModel):
     id: str
+    source_id: str = "synthetic-ais"
     name: str
     imo: str
     vessel_type: str
@@ -131,6 +174,7 @@ class Vessel(BaseModel):
 
 class Berth(BaseModel):
     id: str
+    source_id: str = "synthetic-berth-plan"
     name: str
     terminal: str
     status: BerthStatus
@@ -150,6 +194,7 @@ class PortCallStage(BaseModel):
 
 class PortCall(BaseModel):
     id: str
+    source_id: str = "synthetic-berth-plan"
     vessel_id: str
     berth_id: str
     arrival_eta: datetime
@@ -161,6 +206,7 @@ class PortCall(BaseModel):
 
 
 class WeatherState(BaseModel):
+    source_id: str = "synthetic-weather"
     observed_at: datetime
     wind_knots: float
     gust_knots: float
@@ -283,6 +329,9 @@ class OperationsEvent(BaseModel):
     berth_id: str | None = None
     port_call_id: str | None = None
     incident_id: str | None = None
+    actor_id: str | None = None
+    actor_role: OperatorRole | None = None
+    source_id: str | None = None
 
 
 class HarborOverview(BaseModel):
@@ -298,5 +347,6 @@ class HarborOverview(BaseModel):
     service_resources: list[ServiceResource] = Field(default_factory=list)
     service_steps: list[ServiceStep] = Field(default_factory=list)
     events: list[OperationsEvent]
+    data_sources: list[DataSourceProvenance] = Field(default_factory=list)
     metrics: dict[str, float | int]
     data_disclaimer: str

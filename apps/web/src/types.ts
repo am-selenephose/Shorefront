@@ -6,6 +6,9 @@ export type ServiceState = 'ready' | 'assigned' | 'delayed' | 'blocked' | 'compl
 export type ResourceStatus = 'available' | 'assigned' | 'delayed' | 'unavailable'
 export type RecoveryActionType = 'reassign_resource' | 'move_berth' | 'shift_window'
 export type OperatorRole = 'viewer' | 'operator' | 'supervisor'
+export type DataSourceMode = 'synthetic' | 'recorded' | 'live'
+export type DataDomain = 'ais' | 'weather_tide' | 'berth_plan'
+export type AdapterHealth = 'healthy' | 'degraded' | 'stale' | 'offline' | 'unconfigured' | 'error'
 
 
 
@@ -34,6 +37,7 @@ export interface Coordinate { lat: number; lon: number }
 
 export interface Vessel {
   id: string
+  source_id: string
   name: string
   imo: string
   vessel_type: string
@@ -48,6 +52,7 @@ export interface Vessel {
 
 export interface Berth {
   id: string
+  source_id: string
   name: string
   terminal: string
   status: string
@@ -67,6 +72,7 @@ export interface Stage {
 
 export interface PortCall {
   id: string
+  source_id: string
   vessel_id: string
   berth_id: string
   arrival_eta: string
@@ -102,6 +108,9 @@ export interface Event {
   berth_id?: string | null
   port_call_id?: string | null
   incident_id?: string | null
+  actor_id?: string | null
+  actor_role?: OperatorRole | null
+  source_id?: string | null
 }
 
 export interface ServiceResource {
@@ -125,6 +134,28 @@ export interface ServiceStep {
   dependency_step_ids: string[]
 }
 
+
+export interface DataSourceProvenance {
+  source_id: string
+  domain: DataDomain
+  mode: DataSourceMode
+  provider: string
+  observed_at: string
+  received_at: string
+  freshness_seconds: number
+  stale_after_seconds: number
+  stale: boolean
+  health: AdapterHealth
+  record_count: number
+  detail?: string | null
+}
+
+export interface AdapterSnapshot {
+  adapter_id: string
+  provenance: DataSourceProvenance
+  records: Array<Record<string, unknown>>
+}
+
 export interface HarborState {
   generated_at: string
   port_name: string
@@ -133,6 +164,7 @@ export interface HarborState {
   berths: Berth[]
   port_calls: PortCall[]
   weather: {
+    source_id: string
     observed_at: string
     wind_knots: number
     gust_knots: number
@@ -154,6 +186,7 @@ export interface HarborState {
   service_resources: ServiceResource[]
   service_steps: ServiceStep[]
   events: Event[]
+  data_sources: DataSourceProvenance[]
   metrics: Record<string, number>
   data_disclaimer: string
 }

@@ -4,7 +4,7 @@ PortFlow is a port-call operations control tower for live vessel, berth, weather
 
 ## Status
 
-Private portfolio build, v0.7 deterministic scenario + browser-verified operations core.
+Private portfolio build, v0.8 external-data provenance + live-adapter boundary.
 
 ## Product principles
 
@@ -127,6 +127,9 @@ GitHub Actions workflow is committed. The linked GitHub account currently has Ac
 
 ## API highlights
 
+- GET /api/v1/adapters
+- GET /api/v1/adapters/{adapter_id}/preview
+- POST /api/v1/adapters/{adapter_id}/ingest
 - GET /api/v1/scenarios
 - POST /api/v1/scenarios/{scenario_id}/run
 - GET /api/v1/auth/me
@@ -468,7 +471,7 @@ The v0.6 auth/recovery UI was rendered in the real incident state as part of vis
 
 Current verification:
 
-- 35 backend/domain/API/storage/recovery/security/scenario tests pass
+- 32 backend/domain/API/storage/recovery/security tests pass
 - production TypeScript/Vite build passes
 - production npm audit reports 0 vulnerabilities
 - FastAPI /healthz reports v0.6.0 and authorization_configured=true when approvers are present
@@ -568,16 +571,242 @@ Current gates:
 - API image size: about 113 MB
 - web/Nginx image size: about 21 MB
 
+## v0.8 proof
+
+### Explicit external-data provenance
+
+PortFlow now carries data origin as part of the operational model rather than only in documentation.
+
+Each active source records:
+
+- source_id
+- domain: ais / weather_tide / berth_plan
+- mode: synthetic / recorded / live
+- provider
+- observed_at
+- received_at
+- freshness_seconds
+- stale_after_seconds
+- stale
+- health
+- record_count
+- detail
+
+Vessel, berth, port-call, and weather models carry source_id references back to that provenance record.
+
+HarborOverview exposes the current active sources in data_sources.
+
+A domain may have more than one active source at once. For example, recorded-ais currently updates two modeled vessels while the remaining vessels continue to reference synthetic-ais. PortFlow preserves both source records instead of falsely labeling the entire AIS picture as recorded.
+
+### Dynamic freshness and stale-state handling
+
+Recorded/live freshness is recalculated from observed_at when the harbor overview is produced.
+
+A source automatically becomes stale when its current age exceeds stale_after_seconds.
+
+The harbor metrics include stale_data_sources.
+
+Stale, offline, error, or unconfigured adapter snapshots are not ingestible.
+
+The UI shows source mode, current freshness, stale threshold, health, provider, and source id.
+
+### Recorded fixture adapters
+
+v0.8 ships deterministic recorded-feed adapters for safe offline/demo verification:
+
+- recorded-ais
+- recorded-weather
+- recorded-berth-plan
+- stale-weather-fixture
+
+The stale weather fixture is intentionally older than its freshness threshold and exists to prove stale-data rejection.
+
+These are explicitly labeled recorded fixtures. They are not represented as live providers.
+
+### Adapter APIs
+
+Read-only discovery / preview:
+
+- GET /api/v1/adapters
+- GET /api/v1/adapters/{adapter_id}/preview
+
+Operational ingest:
+
+- POST /api/v1/adapters/{adapter_id}/ingest
+
+The ingest authority boundary is server-side:
+
+- anonymous ingest -> 401
+- viewer ingest -> 403
+- operator / supervisor ingest -> allowed
+- stale adapter ingest -> 409
+
+Manual ingest writes a durable operations-ledger event with:
+
+- actor_id
+- actor_role
+- source_id
+
+### Validate-first, apply-second ingest
+
+Adapter payloads are normalized and validated before any harbor object is mutated.
+
+Current validation includes:
+
+AIS:
+
+- non-empty vessel id
+- latitude range
+- longitude range
+- non-negative speed
+- heading range
+
+Weather / tide:
+
+- required numeric weather/tide fields
+- non-negative wind, visibility, and wave-height constraints
+
+Berth plan:
+
+- non-empty port-call / berth identifiers
+- departure after arrival
+- known berth requirement for modeled port calls
+
+Regression coverage proves that a payload containing a valid first record and invalid second record is rejected without partially updating the first vessel.
+
+### Recorded data actually changes the model
+
+Recorded AIS replay changes the modeled vessel positions/speed/heading/ETA and binds affected vessels to source_id=recorded-ais.
+
+Recorded weather replay replaces metocean state and source provenance.
+
+Recorded berth-plan replay applies absolute modeled timing/berth values, binds port calls and referenced berths to recorded provenance, and is idempotent against repeated ingestion.
+
+Source provenance survives snapshot persistence / simulator restart.
+
+Externally sourced vessel positions and metocean values are protected from the background synthetic generator. Once a vessel or weather state is bound to recorded/live provenance, synthetic tick() updates do not silently overwrite it. Synthetic entities continue to evolve normally.
+
+### Live HTTP JSON adapter boundary
+
+PortFlow now implements an environment-configured HTTP JSON live adapter using the same AdapterSnapshot contract.
+
+No live adapter exists by default.
+
+A live adapter appears only when its deployment URL is configured.
+
+Supported optional deployment variables:
+
+- PORTFLOW_AIS_URL / PORTFLOW_AIS_PROVIDER
+- PORTFLOW_WEATHER_URL / PORTFLOW_WEATHER_PROVIDER
+- PORTFLOW_BERTH_PLAN_URL / PORTFLOW_BERTH_PLAN_PROVIDER
+
+The live endpoint contract is:
+
+    {
+      "observed_at": "2026-09-21T02:00:00+00:00",
+      "records": [
+        { "... domain-specific normalized fields ..." }
+      ]
+    }
+
+Transport policy:
+
+- deployed URLs must use HTTPS
+- plain HTTP is accepted only for localhost / loopback development
+- fetch timeout is bounded
+- loader/network/shape failures become adapter health=error instead of pretending the feed is healthy
+- an old observed_at becomes health=stale
+- URLs are deployment configuration, not user-supplied API parameters
+
+The live adapter contract is regression-tested with fresh, stale, failed-loader, and environment-registry cases.
+
+### Truthful mixed-source disclaimer
+
+The harbor disclaimer is derived from actual active source modes.
+
+It distinguishes:
+
+- synthetic-only state
+- synthetic + recorded fixture state
+- synthetic + live adapter state
+- synthetic + recorded + live state
+
+Regression coverage prevents live adapter data from being mislabeled as fully synthetic.
+
+### Data Feeds operations UI
+
+A new Data Feeds panel exposes:
+
+CURRENT HARBOR SOURCES:
+
+- domain
+- provider
+- source mode
+- freshness
+- record count
+- health
+- source id
+
+AVAILABLE ADAPTERS:
+
+- adapter provider/domain
+- freshness and stale threshold
+- health
+- ingest authority state
+
+Unauthenticated and viewer sessions cannot ingest.
+
+Operator/supervisor sessions can ingest healthy adapters.
+
+Stale adapters render as Stale blocked.
+
+The header says NO LIVE FEEDS CONFIGURED unless a real environment-configured live adapter is actually present.
+
+### Real-browser adapter E2E
+
+The Playwright suite now has two Chromium E2Es.
+
+The new adapter path proves:
+
+1. demo reset
+2. initial AIS source is synthetic
+3. intentionally stale adapter is visibly blocked
+4. recorded AIS adapter requires authentication
+5. operator authenticates
+6. healthy recorded AIS fixture is ingested
+7. current AIS source switches to recorded
+8. recorded provider is visible in the UI
+9. v-aurora source_id becomes recorded-ais in the API state
+10. data_sources reports mode=recorded and health=healthy
+11. the disclaimer explicitly identifies recorded fixture data
+
+### v0.8 verification
+
+Current gates:
+
+- 51 backend/domain/API/storage/recovery/security/scenario/adapter tests pass
+- 2 real Chromium Playwright E2Es pass
+- production TypeScript/Vite build passes
+- production npm audit reports 0 vulnerabilities
+- recorded adapter ingest survives persistence/restart
+- stale sources age dynamically and are blocked from ingest
+- malformed payloads are rejected atomically
+- partial-domain provenance remains multi-source instead of being flattened
+- background synthetic ticks cannot overwrite recorded/live AIS or weather state
+- manual ingest carries actor/source audit metadata
+- live HTTP adapter boundary is implemented but no live provider is claimed by default
+- production compose passes optional live adapter URL/provider configuration into the API container
+
 ## Next engineering milestone
 
-v0.8 should focus on external-data adapter boundaries and richer operational modeling:
+v0.9 should focus on richer port-service dependencies and optimization:
 
-- AIS adapter interface with explicit synthetic/live provenance
-- weather/tide adapter interface
-- port-call / berth-plan adapter interface
-- adapter health and freshness metadata
-- deterministic recorded-feed fixtures for offline testing
-- bunker, stores, gate, and additional customs dependencies
-- richer multi-resource / multi-call optimization
-- optional OIDC-compatible production authentication adapter
-- hosted portfolio deployment
+- bunker and stores service resources
+- gate / landside dependencies
+- richer customs/document dependencies
+- multi-resource and multi-call recovery optimization
+- explicit resource calendars beyond tug separation windows
+- adapter freshness impact on decision confidence
+- adapter retry/backoff and cached-last-good policy
+- optional OIDC-compatible production identity adapter
+- hosted portfolio deployment with a real public demo
