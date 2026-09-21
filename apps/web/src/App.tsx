@@ -1,6 +1,5 @@
-import { useEffect, useMemo, useState } from 'react'
+import { lazy, Suspense, useEffect, useMemo, useState } from 'react'
 import { BerthTimeline } from './BerthTimeline'
-import { HarborMap } from './HarborMap'
 import { IncidentControls } from './IncidentControls'
 import { RecoveryPanel } from './RecoveryPanel'
 import { ResourceBoard, ServiceChain } from './ServiceChain'
@@ -13,6 +12,10 @@ import type {
   RecoveryReceipt,
 } from './types'
 import './styles.css'
+
+const HarborMap = lazy(() =>
+  import('./HarborMap').then(module => ({ default: module.HarborMap })),
+)
 
 
 const fmtTime = (value: string) =>
@@ -319,7 +322,9 @@ export default function App() {
               <small>vessels · berths · movement</small>
             </div>
 
-            <HarborMap state={state} />
+            <Suspense fallback={<div className="harbor-map map-loading">Loading geospatial layer...</div>}>
+              <HarborMap state={state} />
+            </Suspense>
 
             <div className="map-overlay">
               <div><span>WIND</span><b>{state.weather.wind_knots} kt</b></div>

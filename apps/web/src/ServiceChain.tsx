@@ -43,7 +43,16 @@ export function ResourceBoard({ state }: { state: HarborState }) {
         <div className="resource-row" key={resource.id}>
           <div>
             <b>{resource.name}</b>
-            <span>{resource.kind} · cap {resource.capacity}</span>
+            <span>
+              {resource.kind} · cap {resource.capacity}
+              {resource.available_from
+                ? ' · free ' + new Intl.DateTimeFormat('en', {
+                    hour: '2-digit',
+                    minute: '2-digit',
+                    hour12: false,
+                  }).format(new Date(resource.available_from))
+                : ''}
+            </span>
           </div>
           <span className={'resource-status ' + resource.status}>{resource.status}</span>
         </div>

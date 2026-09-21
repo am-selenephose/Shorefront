@@ -4,7 +4,7 @@ PortFlow is a port-call operations control tower for live vessel, berth, weather
 
 ## Status
 
-Private portfolio build, v0.4 recovery decision-support core.
+Private portfolio build, v0.5 constrained recovery + deployable operations core.
 
 ## Product principles
 
@@ -96,6 +96,18 @@ Loss of transport does not imply loss of local operational state. Offline-edge m
 
 Open http://localhost:5173.
 
+### Production-shaped container stack
+
+The production-shaped stack runs Postgres, FastAPI, and Nginx/React behind one web origin.
+
+    cp .env.example .env
+    # set a strong PORTFLOW_DB_PASSWORD in .env
+    sudo docker compose -f docker-compose.prod.yml up -d --build
+
+Default external HTTP port is 8088 and can be changed with PORTFLOW_HTTP_PORT.
+
+The production compose intentionally requires PORTFLOW_DB_PASSWORD instead of shipping a fallback password.
+
 ## Verification
 
     cd apps/api
@@ -107,7 +119,7 @@ Open http://localhost:5173.
 
 Current local verification target:
 
-- 25 backend/domain/API/storage/recovery tests
+- 26 backend/domain/API/storage/recovery tests
 - production web build
 - zero production npm vulnerabilities
 
@@ -254,7 +266,7 @@ The recovery engine generates a compound plan that moves the affected Tug 14 wor
 
 Runtime proof:
 
-- global blocked services: -> 0
+- global blocked services: incident-blocked chain -> 0
 - pc-aurora tug state: assigned
 - pc-aurora tug resource: tug-22
 - downstream departure chain: unblocked
@@ -265,17 +277,93 @@ Runtime proof:
 - POST /api/v1/recovery/proposals/{proposal_id}/apply
 - GET /api/v1/recovery/receipts
 
+## v0.5 proof
+
+### Availability- and capacity-aware resource recovery
+
+Recovery feasibility now considers:
+
+- resource available_from
+- resource capacity
+- existing service assignments
+- synthetic 45-minute pilot/tug separation windows
+
+A third synthetic tug, Tug 31, is available 20 minutes after the initial demo epoch with no pre-existing workload.
+
+For the same Tug 14 failure, the engine currently compares:
+
+Tug 31 plan:
+
+- wait 20 minutes for Tug 31 availability
+- move the Tug 14 workload to Tug 31
+- projected total delay: 60 minutes
+- blocked services after recovery: 0
+- disruption score: 75
+
+Tug 22 plan:
+
+- use an already-worked Tug 22 schedule
+- shift the Aurora tug window 39 minutes to preserve separation
+- projected total delay: 79 minutes
+- blocked services after recovery: 0
+- disruption score: 94
+
+The lower-disruption Tug 31 plan ranks first. This behavior is regression-tested.
+
+### Recovery-state binding
+
+Proposal ids include a recovery-relevant state fingerprint.
+
+Changing schedule timing, active incidents, resource assignments/status, resource availability/capacity, or movement restrictions changes the fingerprint and invalidates old proposal ids.
+
+Live vessel-map movement and generated timestamps are deliberately excluded so harmless display ticks do not stale an approval.
+
+### Frontend loading
+
+The MapLibre harbor layer is lazy-loaded.
+
+Measured production build:
+
+- initial application JS: about 242 KB minified
+- HarborMap/MapLibre path: about 1.01 MB minified, loaded separately
+- production npm vulnerabilities: 0
+
+This replaces the previous roughly 1.25 MB synchronous initial JavaScript path.
+
+### Deployable stack
+
+Added:
+
+- FastAPI production Dockerfile
+- React multi-stage Node -> Nginx Dockerfile
+- Nginx REST + WebSocket reverse proxy
+- external /healthz proxy
+- docker-compose.prod.yml
+- required database secret
+- .env.example
+- Postgres persistent volume
+- API/web health checks
+
+Both images were built from the repository Dockerfiles.
+
+End-to-end stack proof:
+
+Postgres healthy -> API healthy -> Nginx web -> /api/v1/harbor
+
+The stack returned the PortFlow UI, six synthetic vessels, four port calls, service-resource state, and the explicit synthetic-data disclaimer through the web proxy.
+
+On the current Raptor host, Docker build-stage DNS required manual verification with --network=host. That is a host Docker DNS issue, not an application dependency or Dockerfile requirement.
+
 ## Next engineering milestone
 
-v0.5 will focus on production-shaped execution and richer optimization:
+v0.6 should focus on operator identity and external-data boundaries:
 
-- explicit resource availability calendars and capacity windows
-- multi-call recovery optimization instead of only local candidate ranking
-- additional service resources such as bunker, stores, gate/customs dependencies
+- authenticated operator roles for recovery approval
+- approval receipts bound to operator identity and role
 - deterministic scenario fixture packs
-- Playwright browser E2E tests
-- split frontend bundles / lazy-loaded map path
-- API and web containers
-- deployable environment configuration
-- authentication / role boundaries for operator approval
-- real adapter interfaces for AIS, weather/tide, and port-call data without presenting synthetic data as live
+- browser E2E tests
+- richer multi-resource / multi-call optimization
+- bunker, stores, gate, and additional customs dependencies
+- adapter interfaces for AIS, weather/tide, and port-call feeds
+- explicit live-vs-synthetic data provenance at adapter boundaries
+- deployment configuration for a real hosted demo

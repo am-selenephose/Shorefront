@@ -1,6 +1,6 @@
 # PortFlow architecture
 
-## v0.4
+## v0.5
 
 Synthetic operations and scenario injection feed a deterministic HarborSimulator.
 
@@ -174,3 +174,34 @@ A proposal id includes a hash of a recovery-relevant state fingerprint covering:
 The fingerprint intentionally excludes continuously changing vessel map position and generated timestamps, so a proposal does not become stale merely because the live display ticked.
 
 If relevant operational state changes before approval, proposal regeneration produces a different id. The old id is rejected as stale/unavailable.
+
+
+## Resource availability and capacity
+
+Recovery resource feasibility includes:
+
+- available_from
+- capacity
+- existing service assignments
+- separation windows
+
+The current synthetic tug model compares an immediately busier resource against a later-free resource and ranks the resulting compound plans by projected operational disruption.
+
+Resource availability and capacity are part of the recovery state fingerprint, so a plan becomes stale when those constraints change.
+
+## Deployment boundary
+
+The production-shaped deployment is:
+
+client
+  -> Nginx web container
+      -> static React assets
+      -> /api/* -> FastAPI
+      -> /ws/* -> FastAPI WebSocket
+      -> /healthz -> FastAPI
+  -> FastAPI
+      -> PostgreSQL
+
+PostgreSQL is not exposed externally in docker-compose.prod.yml.
+
+The public web surface uses one origin, avoiding a production dependency on browser cross-origin API access.

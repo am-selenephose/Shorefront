@@ -169,3 +169,5 @@
   .recovery-receipt-row{grid-template-columns:1fr}
   .recovery-receipt-row>div:nth-child(2){flex-wrap:wrap}
 }
+
+.map-loading{display:grid;place-items:center;color:#5f7d90;font:8px 'IBM Plex Mono';letter-spacing:.8px}

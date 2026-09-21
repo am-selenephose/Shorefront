@@ -301,3 +301,35 @@ def test_recovery_proposal_id_changes_when_relevant_state_changes(tmp_path):
         assert "stale" in str(exc).lower() or "unavailable" in str(exc).lower()
     else:
         raise AssertionError("Old state-bound proposal must be rejected")
+
+
+def test_recovery_ranks_later_free_tug_above_busier_tug(tmp_path):
+    store = make_store(tmp_path)
+    sim = HarborSimulator(
+        event_sink=store.append_event,
+        incident_sink=store.upsert_incident,
+        snapshot_sink=store.save_snapshot,
+        spool_sink=store.queue_outbound_event,
+        replay_sink=lambda: len(store.replay_outbound_events(lambda event: True)),
+        pending_count=store.pending_outbound_count,
+        recovery_receipt_sink=store.save_recovery_receipt,
+    )
+
+    sim.inject_incident(IncidentType.TUG_UNAVAILABLE, "pc-aurora", 40)
+    proposals = sim.generate_recovery_proposals(call_id="pc-aurora")
+
+    assert len(proposals) >= 2
+    assert "Tug 31" in proposals[0].title
+    assert "Tug 22" in proposals[1].title
+    assert proposals[0].projected_total_delay_minutes < proposals[1].projected_total_delay_minutes
+    assert proposals[0].disruption_score < proposals[1].disruption_score
+
+    tug31 = next(resource for resource in sim.service_resources if resource.id == "tug-31")
+    assert tug31.available_from is not None
+
+    shifts = [
+        action.shift_minutes
+        for action in proposals[0].actions
+        if action.action_type.value == "shift_window"
+    ]
+    assert shifts == [20]

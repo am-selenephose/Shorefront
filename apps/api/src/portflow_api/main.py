@@ -49,7 +49,7 @@ async def lifespan(app: FastAPI):
     task.cancel()
 
 
-app = FastAPI(title="PortFlow API", version="0.4.0", lifespan=lifespan)
+app = FastAPI(title="PortFlow API", version="0.5.0", lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
@@ -74,7 +74,7 @@ def healthz():
     return {
         "ok": True,
         "service": "portflow-api",
-        "version": "0.4.0",
+        "version": "0.5.0",
         "persistence": True,
     }
 

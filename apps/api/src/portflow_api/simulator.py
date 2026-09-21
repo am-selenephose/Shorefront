@@ -215,6 +215,12 @@ class HarborSimulator:
                 assigned_port_call_ids=["pc-lima", "pc-nova"],
             ),
             ServiceResource(
+                id="tug-31", kind=ServiceKind.TUG, name="Tug 31",
+                status=ResourceStatus.AVAILABLE, capacity=1,
+                assigned_port_call_ids=[],
+                available_from=self._started + timedelta(minutes=20),
+            ),
+            ServiceResource(
                 id="b-07", kind=ServiceKind.BERTH, name="Berth 07",
                 status=ResourceStatus.ASSIGNED, capacity=1,
                 assigned_port_call_ids=["pc-glory", "pc-nova"],
@@ -480,10 +486,20 @@ class HarborSimulator:
             ),
             None,
         )
-        if target is None:
+        resource = next(
+            (
+                item for item in self.service_resources
+                if item.id == resource_id and item.kind == kind
+            ),
+            None,
+        )
+        if target is None or resource is None:
             return 0
 
         proposed = target.planned_at
+        if resource.available_from and proposed < resource.available_from:
+            proposed = resource.available_from
+
         separation = timedelta(minutes=separation_minutes)
         other_steps = sorted(
             [
@@ -495,9 +511,16 @@ class HarborSimulator:
             key=lambda item: item.planned_at,
         )
 
-        for other in other_steps:
-            if abs((proposed - other.planned_at).total_seconds()) < separation.total_seconds():
-                proposed = other.planned_at + separation
+        # Capacity is modeled as the number of concurrent assignments permitted
+        # inside the synthetic separation window.
+        for _ in range(max(1, len(other_steps) + 2)):
+            conflicts = [
+                step for step in other_steps
+                if abs((proposed - step.planned_at).total_seconds()) < separation.total_seconds()
+            ]
+            if len(conflicts) < max(resource.capacity, 1):
+                break
+            proposed = max(step.planned_at for step in conflicts) + separation
 
         return max(0, int((proposed - target.planned_at).total_seconds() // 60))
 
@@ -680,6 +703,8 @@ class HarborSimulator:
                 {
                     "id": resource.id,
                     "status": resource.status.value,
+                    "capacity": resource.capacity,
+                    "available_from": resource.available_from.isoformat() if resource.available_from else None,
                     "assigned_port_call_ids": sorted(resource.assigned_port_call_ids),
                 }
                 for resource in sorted(self.service_resources, key=lambda item: item.id)
@@ -742,7 +767,7 @@ class HarborSimulator:
             assumptions=[
                 "Delay exposure is modeled at USD 720 per delay minute for this synthetic demo.",
                 "Disruption score adds 240 points per berth conflict and 60 per blocked service.",
-                "Pilot/tug synthetic resource separation uses a 45-minute operating window.",
+                "Pilot/tug feasibility respects resource available_from, capacity, and a synthetic 45-minute operating window.",
                 "Proposal output is decision support and requires explicit operator approval.",
             ],
             requires_approval=True,
@@ -822,6 +847,10 @@ class HarborSimulator:
                         resource.id,
                     )
                     if shift:
+                        if resource.available_from and working_step.planned_at < resource.available_from:
+                            rationale.append(
+                                f"{resource.name} becomes available at {resource.available_from.isoformat()}."
+                            )
                         shift_action = RecoveryAction(
                             action_type=RecoveryActionType.SHIFT_WINDOW,
                             port_call_id=affected_step.port_call_id,
