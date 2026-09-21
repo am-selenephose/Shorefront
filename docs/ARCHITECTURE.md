@@ -157,3 +157,20 @@ system may observe -> simulate -> rank -> explain
 human operator must approve -> system may apply -> system records receipt
 
 This keeps prediction/optimization separate from operational authority.
+
+
+## Recovery state binding
+
+Recovery proposal identity is not based on actions alone.
+
+A proposal id includes a hash of a recovery-relevant state fingerprint covering:
+
+- port-call berth and timing state
+- delay state
+- active incident identity and targets
+- service-resource status and assignments
+- weather movement restriction state
+
+The fingerprint intentionally excludes continuously changing vessel map position and generated timestamps, so a proposal does not become stale merely because the live display ticked.
+
+If relevant operational state changes before approval, proposal regeneration produces a different id. The old id is rejected as stale/unavailable.

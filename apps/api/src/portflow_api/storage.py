@@ -8,7 +8,13 @@ from pathlib import Path
 from sqlalchemy import DateTime, Integer, String, Text, create_engine, select
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column
 
-from .models import HarborOverview, Incident, OperationsEvent, RecoveryApplicationReceipt, ReplayReceipt
+from .models import (
+    HarborOverview,
+    Incident,
+    OperationsEvent,
+    RecoveryApplicationReceipt,
+    ReplayReceipt,
+)
 
 
 class Base(DeclarativeBase):
@@ -38,8 +44,6 @@ class IncidentRow(Base):
     status: Mapped[str] = mapped_column(String(20), index=True, nullable=False)
     started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True, nullable=False)
     payload: Mapped[str] = mapped_column(Text, nullable=False)
-
-
 
 
 class RecoveryReceiptRow(Base):
@@ -126,7 +130,9 @@ class OperationsStore:
     def list_events(self, limit: int = 100) -> list[OperationsEvent]:
         with Session(self.engine) as session:
             rows = session.scalars(
-                select(EventRow).order_by(EventRow.sequence.desc()).limit(max(1, min(limit, 1000)))
+                select(EventRow)
+                .order_by(EventRow.sequence.desc())
+                .limit(max(1, min(limit, 1000)))
             ).all()
             return [OperationsEvent.model_validate_json(row.payload) for row in rows]
 
@@ -148,13 +154,13 @@ class OperationsStore:
     def list_incidents(self, limit: int = 100) -> list[Incident]:
         with Session(self.engine) as session:
             rows = session.scalars(
-                select(IncidentRow).order_by(IncidentRow.started_at.desc()).limit(max(1, min(limit, 1000)))
+                select(IncidentRow)
+                .order_by(IncidentRow.started_at.desc())
+                .limit(max(1, min(limit, 1000)))
             ).all()
             return [Incident.model_validate_json(row.payload) for row in rows]
 
-
-
-    def append_recovery_receipt(self, receipt: RecoveryApplicationReceipt) -> bool:
+    def save_recovery_receipt(self, receipt: RecoveryApplicationReceipt) -> bool:
         with Session(self.engine) as session:
             if session.get(RecoveryReceiptRow, receipt.proposal_id) is not None:
                 return False
@@ -184,7 +190,8 @@ class OperationsStore:
         now = datetime.now(timezone.utc)
         with Session(self.engine) as session:
             existing = session.scalar(
-                select(OutboundEnvelopeRow.envelope_id).where(OutboundEnvelopeRow.event_id == event.id)
+                select(OutboundEnvelopeRow.envelope_id)
+                .where(OutboundEnvelopeRow.event_id == event.id)
             )
             if existing is not None:
                 return False
@@ -246,20 +253,18 @@ class OperationsStore:
 
                 row.attempts += 1
                 event = OperationsEvent.model_validate_json(row.payload)
-                delivered = bool(deliver(event))
-                if not delivered:
+                if not bool(deliver(event)):
                     continue
 
                 now = datetime.now(timezone.utc)
                 row.acknowledged_at = now
-                receipt_row = ReplayReceiptRow(
+                session.add(ReplayReceiptRow(
                     envelope_id=row.envelope_id,
                     event_id=row.event_id,
                     replayed_at=now,
                     delivery_status="acked",
                     attempts=row.attempts,
-                )
-                session.add(receipt_row)
+                ))
                 receipts.append(ReplayReceipt(
                     envelope_id=row.envelope_id,
                     event_id=row.event_id,

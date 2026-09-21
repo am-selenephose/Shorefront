@@ -201,6 +201,7 @@ class RecoveryAction(BaseModel):
 
 class RecoveryProposal(BaseModel):
     id: str
+    state_fingerprint: str
     title: str
     target_port_call_id: str
     incident_id: str | None = None
@@ -218,6 +219,7 @@ class RecoveryProposal(BaseModel):
 
 class RecoveryApplicationReceipt(BaseModel):
     proposal_id: str
+    state_fingerprint: str = "legacy"
     applied_at: datetime
     target_port_call_id: str
     actions: list[RecoveryAction]

@@ -4,18 +4,41 @@ import { HarborMap } from './HarborMap'
 import { IncidentControls } from './IncidentControls'
 import { RecoveryPanel } from './RecoveryPanel'
 import { ResourceBoard, ServiceChain } from './ServiceChain'
-import type { HarborState, IncidentType, LinkMode, PortCall, RecoveryProposal } from './types'
+import type {
+  HarborState,
+  IncidentType,
+  LinkMode,
+  PortCall,
+  RecoveryProposal,
+  RecoveryReceipt,
+} from './types'
 import './styles.css'
 
 
 const fmtTime = (value: string) =>
-  new Intl.DateTimeFormat('en', { hour: '2-digit', minute: '2-digit', hour12: false }).format(new Date(value))
+  new Intl.DateTimeFormat('en', {
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).format(new Date(value))
 
 const usd = (value: number) =>
-  new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(value)
+  new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency: 'USD',
+    maximumFractionDigits: 0,
+  }).format(value)
 
 
-function Metric({ label, value, detail }: { label: string; value: string | number; detail?: string }) {
+function Metric({
+  label,
+  value,
+  detail,
+}: {
+  label: string
+  value: string | number
+  detail?: string
+}) {
   return (
     <div className="metric-card">
       <span>{label}</span>
@@ -61,7 +84,9 @@ export default function App() {
   const [state, setState] = useState<HarborState | null>(null)
   const [online, setOnline] = useState(false)
   const [busy, setBusy] = useState(false)
+  const [actionError, setActionError] = useState<string | null>(null)
   const [recoveryProposals, setRecoveryProposals] = useState<RecoveryProposal[]>([])
+  const [recoveryReceipts, setRecoveryReceipts] = useState<RecoveryReceipt[]>([])
 
   useEffect(() => {
     let ws: WebSocket | undefined
@@ -83,6 +108,11 @@ export default function App() {
       .then(setState)
       .catch(() => {})
 
+    fetch('/api/v1/recovery/receipts?limit=20')
+      .then(response => response.json())
+      .then(setRecoveryReceipts)
+      .catch(() => {})
+
     connect()
 
     return () => {
@@ -91,13 +121,15 @@ export default function App() {
     }
   }, [])
 
-
   useEffect(() => {
     if (!state) return
     const controller = new AbortController()
 
     fetch('/api/v1/recovery/proposals', { signal: controller.signal })
-      .then(response => response.ok ? response.json() : Promise.reject(new Error('recovery query failed')))
+      .then(response => {
+        if (!response.ok) throw new Error('Recovery query failed')
+        return response.json()
+      })
       .then(payload => setRecoveryProposals(payload.proposals || []))
       .catch(error => {
         if (error?.name !== 'AbortError') setRecoveryProposals([])
@@ -112,34 +144,56 @@ export default function App() {
   ])
 
   const exposure = useMemo(
-    () => state?.port_calls.reduce((sum, call) => sum + call.estimated_cost_exposure_usd, 0) ?? 0,
+    () => state?.port_calls.reduce(
+      (sum, call) => sum + call.estimated_cost_exposure_usd,
+      0,
+    ) ?? 0,
     [state],
   )
 
-  async function refresh() {
+  async function refreshHarbor() {
     const response = await fetch('/api/v1/harbor')
     if (response.ok) setState(await response.json())
   }
 
-  async function refreshRecovery() {
-    const response = await fetch('/api/v1/recovery/proposals')
-    if (!response.ok) return
-    const payload = await response.json()
-    setRecoveryProposals(payload.proposals || [])
+  async function loadRecovery() {
+    const [proposalResponse, receiptResponse] = await Promise.all([
+      fetch('/api/v1/recovery/proposals'),
+      fetch('/api/v1/recovery/receipts?limit=20'),
+    ])
+
+    if (proposalResponse.ok) {
+      const payload = await proposalResponse.json()
+      setRecoveryProposals(payload.proposals || [])
+    }
+    if (receiptResponse.ok) {
+      setRecoveryReceipts(await receiptResponse.json())
+    }
+  }
+
+  async function runAction(action: () => Promise<void>) {
+    setBusy(true)
+    setActionError(null)
+    try {
+      await action()
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : 'Operation failed')
+    } finally {
+      setBusy(false)
+    }
   }
 
   async function setMode(mode: LinkMode) {
-    setBusy(true)
-    try {
-      await fetch('/api/v1/connectivity', {
+    await runAction(async () => {
+      const response = await fetch('/api/v1/connectivity', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ mode }),
       })
-      await refresh()
-    } finally {
-      setBusy(false)
-    }
+      if (!response.ok) throw new Error(await response.text())
+      await refreshHarbor()
+      await loadRecovery()
+    })
   }
 
   async function injectIncident(
@@ -147,8 +201,7 @@ export default function App() {
     targetPortCallId?: string,
     impactMinutes?: number,
   ) {
-    setBusy(true)
-    try {
+    await runAction(async () => {
       const response = await fetch('/api/v1/incidents', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
@@ -159,38 +212,31 @@ export default function App() {
         }),
       })
       if (!response.ok) throw new Error(await response.text())
-      await refresh()
-    } finally {
-      setBusy(false)
-    }
+      await refreshHarbor()
+      await loadRecovery()
+    })
   }
 
-
   async function applyRecovery(proposalId: string) {
-    setBusy(true)
-    try {
-      const response = await fetch('/api/v1/recovery/proposals/' + proposalId + '/apply', {
-        method: 'POST',
-      })
+    await runAction(async () => {
+      const response = await fetch(
+        '/api/v1/recovery/proposals/' + proposalId + '/apply',
+        { method: 'POST' },
+      )
       if (!response.ok) throw new Error(await response.text())
-      await refresh()
-      await refreshRecovery()
-    } finally {
-      setBusy(false)
-    }
+      await refreshHarbor()
+      await loadRecovery()
+    })
   }
 
   async function resetDemo() {
-    setBusy(true)
-    try {
+    await runAction(async () => {
       const response = await fetch('/api/v1/demo/reset', { method: 'POST' })
       if (!response.ok) throw new Error(await response.text())
       setState(await response.json())
       setRecoveryProposals([])
-      await refreshRecovery()
-    } finally {
-      setBusy(false)
-    }
+      setRecoveryReceipts([])
+    })
   }
 
   if (!state) {
@@ -219,7 +265,7 @@ export default function App() {
           <a href="#port-calls">Port Calls</a>
           <a href="#incidents">Incidents</a>
           <a href="#resources">Resources</a>
-          <a href="#recovery">Recovery Engine</a>
+          <a href="#recovery">Recovery Plans</a>
           <a href="#ledger">Operations Ledger</a>
         </nav>
 
@@ -244,9 +290,14 @@ export default function App() {
           </div>
         </header>
 
+        {actionError && <div className="action-error">{actionError}</div>}
+
         <section className="metrics metrics-seven" id="overview">
           <Metric label="VESSELS IN PICTURE" value={state.metrics.vessels_in_port_picture} />
-          <Metric label="BERTHS OCCUPIED" value={String(state.metrics.berths_occupied) + '/' + String(state.metrics.berths_total)} />
+          <Metric
+            label="BERTHS OCCUPIED"
+            value={String(state.metrics.berths_occupied) + '/' + String(state.metrics.berths_total)}
+          />
           <Metric label="PORT CALLS AT RISK" value={state.metrics.port_calls_at_risk} />
           <Metric label="ACTIVE INCIDENTS" value={state.metrics.active_incidents || 0} />
           <Metric label="BERTH CONFLICTS" value={state.metrics.berth_conflicts || 0} />
@@ -377,7 +428,7 @@ export default function App() {
               <div className="panel-title">
                 <div>
                   <span>SERVICE RESOURCES</span>
-                  <b>Pilots, tugs, cranes, customs</b>
+                  <b>Pilots, tugs, berths, cranes, customs</b>
                 </div>
                 <small>{state.metrics.blocked_services || 0} blocked</small>
               </div>
@@ -386,12 +437,13 @@ export default function App() {
           </div>
         </section>
 
-
         <section className="panel recovery-shell" id="recovery">
           <RecoveryPanel
             proposals={recoveryProposals}
+            receipts={recoveryReceipts}
             busy={busy}
             onApply={applyRecovery}
+            onRefresh={loadRecovery}
           />
         </section>
 

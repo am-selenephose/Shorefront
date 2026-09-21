@@ -4,6 +4,7 @@ export type IncidentType = 'pilot_delay' | 'tug_unavailable' | 'berth_overrun' |
 export type ServiceKind = 'pilot' | 'tug' | 'berth' | 'crane' | 'cargo' | 'customs' | 'departure'
 export type ServiceState = 'ready' | 'assigned' | 'delayed' | 'blocked' | 'completed'
 export type ResourceStatus = 'available' | 'assigned' | 'delayed' | 'unavailable'
+export type RecoveryActionType = 'reassign_resource' | 'move_berth' | 'shift_window'
 
 export interface Coordinate { lat: number; lon: number }
 
@@ -147,6 +148,7 @@ export interface RecoveryAction {
 
 export interface RecoveryProposal {
   id: string
+  state_fingerprint: string
   title: string
   target_port_call_id: string
   incident_id?: string | null
@@ -160,4 +162,18 @@ export interface RecoveryProposal {
   rationale: string[]
   assumptions: string[]
   requires_approval: boolean
+}
+
+
+export interface RecoveryReceipt {
+  proposal_id: string
+  state_fingerprint: string
+  applied_at: string
+  target_port_call_id: string
+  actions: RecoveryAction[]
+  resulting_berth_conflicts: number
+  resulting_blocked_services: number
+  resulting_total_delay_minutes: number
+  resulting_modeled_cost_usd: number
+  approved_by: string
 }

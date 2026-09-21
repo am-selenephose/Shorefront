@@ -107,7 +107,7 @@ Open http://localhost:5173.
 
 Current local verification target:
 
-- 24 backend/domain/API/storage/recovery tests
+- 25 backend/domain/API/storage/recovery tests
 - production web build
 - zero production npm vulnerabilities
 
@@ -203,6 +203,9 @@ Proposal output includes:
 
 The engine never auto-applies a proposal.
 
+
+Each proposal is bound to a recovery-state fingerprint derived from recovery-relevant schedule, active-incident, resource-assignment, and weather-restriction state. If that state changes before approval, the old proposal id becomes stale and apply is rejected.
+
 ### Human authority boundary
 
 Recovery execution is a separate explicit action.
@@ -239,7 +242,7 @@ Ranked options include:
 The current synthetic ranking selects Berth 15:
 
 - conflicts: 1 -> 0
-- blocked services: -> 0
+- blocked services: incident-blocked chain -> 0
 - current modeled arrival window preserved
 - B15 crane assignment updates to crane-b15-a
 
@@ -264,11 +267,15 @@ Runtime proof:
 
 ## Next engineering milestone
 
-- idempotent offline event spool and replay
-- durable action receipts
-- berth rescheduling proposal engine
-- service dependencies such as pilots, tugs, cranes, bunkers, customs
+v0.5 will focus on production-shaped execution and richer optimization:
+
+- explicit resource availability calendars and capacity windows
+- multi-call recovery optimization instead of only local candidate ranking
+- additional service resources such as bunker, stores, gate/customs dependencies
 - deterministic scenario fixture packs
-- browser E2E tests
-- API/web containerization
-- deployment
+- Playwright browser E2E tests
+- split frontend bundles / lazy-loaded map path
+- API and web containers
+- deployable environment configuration
+- authentication / role boundaries for operator approval
+- real adapter interfaces for AIS, weather/tide, and port-call data without presenting synthetic data as live

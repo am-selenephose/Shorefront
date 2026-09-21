@@ -237,7 +237,7 @@ def test_recovery_application_receipt_is_persisted(tmp_path):
         spool_sink=store.queue_outbound_event,
         replay_sink=lambda: len(store.replay_outbound_events(lambda event: True)),
         pending_count=store.pending_outbound_count,
-        recovery_sink=store.append_recovery_receipt,
+        recovery_receipt_sink=store.save_recovery_receipt,
     )
 
     sim.inject_incident(IncidentType.BERTH_OVERRUN, "pc-glory", 90)
@@ -260,7 +260,7 @@ def test_compound_tug_recovery_clears_global_service_blocks(tmp_path):
         spool_sink=store.queue_outbound_event,
         replay_sink=lambda: len(store.replay_outbound_events(lambda event: True)),
         pending_count=store.pending_outbound_count,
-        recovery_sink=store.append_recovery_receipt,
+        recovery_receipt_sink=store.save_recovery_receipt,
     )
 
     sim.inject_incident(IncidentType.TUG_UNAVAILABLE, "pc-aurora", 40)
@@ -269,3 +269,35 @@ def test_compound_tug_recovery_clears_global_service_blocks(tmp_path):
 
     assert receipt.resulting_blocked_services == 0
     assert len([a for a in proposal.actions if a.action_type.value == "reassign_resource"]) >= 2
+
+
+def test_recovery_proposal_id_changes_when_relevant_state_changes(tmp_path):
+    store = make_store(tmp_path)
+    sim = HarborSimulator(
+        event_sink=store.append_event,
+        incident_sink=store.upsert_incident,
+        snapshot_sink=store.save_snapshot,
+        spool_sink=store.queue_outbound_event,
+        replay_sink=lambda: len(store.replay_outbound_events(lambda event: True)),
+        pending_count=store.pending_outbound_count,
+        recovery_receipt_sink=store.save_recovery_receipt,
+    )
+
+    sim.inject_incident(IncidentType.BERTH_OVERRUN, "pc-glory", 90)
+    first = sim.generate_recovery_proposals(call_id="pc-nova")
+    assert first
+    old_id = first[0].id
+    old_fingerprint = first[0].state_fingerprint
+
+    sim.inject_incident(IncidentType.PILOT_DELAY, "pc-aurora", 25)
+    second = sim.generate_recovery_proposals(call_id="pc-nova")
+    assert second
+    assert second[0].state_fingerprint != old_fingerprint
+    assert all(item.id != old_id for item in second)
+
+    try:
+        sim.apply_recovery_proposal(old_id)
+    except ValueError as exc:
+        assert "stale" in str(exc).lower() or "unavailable" in str(exc).lower()
+    else:
+        raise AssertionError("Old state-bound proposal must be rejected")

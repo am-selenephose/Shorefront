@@ -26,7 +26,7 @@ SnapshotSink = Callable[[HarborOverview], None]
 SpoolSink = Callable[[OperationsEvent], bool]
 ReplaySink = Callable[[], int]
 PendingCount = Callable[[], int]
-RecoverySink = Callable[[RecoveryApplicationReceipt], None]
+RecoveryReceiptSink = Callable[[RecoveryApplicationReceipt], bool]
 
 
 class HarborSimulator:
@@ -40,7 +40,7 @@ class HarborSimulator:
         spool_sink: SpoolSink | None = None,
         replay_sink: ReplaySink | None = None,
         pending_count: PendingCount | None = None,
-        recovery_sink: RecoverySink | None = None,
+        recovery_receipt_sink: RecoveryReceiptSink | None = None,
     ):
         self.rng = random.Random(seed)
         self.event_sink = event_sink
@@ -49,7 +49,7 @@ class HarborSimulator:
         self.spool_sink = spool_sink
         self.replay_sink = replay_sink
         self.pending_count = pending_count
-        self.recovery_sink = recovery_sink
+        self.recovery_receipt_sink = recovery_receipt_sink
         self.tick_count = 0
 
         if initial is not None:
@@ -650,9 +650,60 @@ class HarborSimulator:
             "disruption_score": disruption_score,
         }
 
-    def _proposal_id(self, actions: list[RecoveryAction]) -> str:
+    def _recovery_state_fingerprint(self, target_call_id: str) -> str:
+        relevant = {
+            "target_call_id": target_call_id,
+            "port_calls": [
+                {
+                    "id": call.id,
+                    "berth_id": call.berth_id,
+                    "arrival_eta": call.arrival_eta.isoformat(),
+                    "departure_eta": call.departure_eta.isoformat(),
+                    "delay_minutes": call.delay_minutes,
+                }
+                for call in sorted(self.port_calls, key=lambda item: item.id)
+            ],
+            "active_incidents": [
+                {
+                    "id": incident.id,
+                    "type": incident.incident_type.value,
+                    "status": incident.status.value,
+                    "target_port_call_id": incident.target_port_call_id,
+                    "target_berth_id": incident.target_berth_id,
+                    "target_resource_id": incident.target_resource_id,
+                    "impact_minutes": incident.impact_minutes,
+                }
+                for incident in sorted(self.incidents, key=lambda item: item.id)
+                if incident.status == IncidentStatus.ACTIVE
+            ],
+            "resources": [
+                {
+                    "id": resource.id,
+                    "status": resource.status.value,
+                    "assigned_port_call_ids": sorted(resource.assigned_port_call_ids),
+                }
+                for resource in sorted(self.service_resources, key=lambda item: item.id)
+            ],
+            "weather_restriction": {
+                "active": self.weather.restriction_active,
+                "reason": self.weather.restriction_reason,
+            },
+        }
+        payload = json.dumps(relevant, sort_keys=True, separators=(",", ":"))
+        return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:16]
+
+    def _proposal_id(
+        self,
+        actions: list[RecoveryAction],
+        target_call_id: str,
+        state_fingerprint: str,
+    ) -> str:
         payload = json.dumps(
-            [action.model_dump(mode="json") for action in actions],
+            {
+                "target_call_id": target_call_id,
+                "state_fingerprint": state_fingerprint,
+                "actions": [action.model_dump(mode="json") for action in actions],
+            },
             sort_keys=True,
             separators=(",", ":"),
         )
@@ -672,8 +723,11 @@ class HarborSimulator:
         action_penalty = 5 * len(actions)
         metrics["disruption_score"] += action_penalty
 
+        state_fingerprint = self._recovery_state_fingerprint(target_call_id)
+
         return RecoveryProposal(
-            id=self._proposal_id(actions),
+            id=self._proposal_id(actions, target_call_id, state_fingerprint),
+            state_fingerprint=state_fingerprint,
             title=title,
             target_port_call_id=target_call_id,
             incident_id=incident_id,
@@ -894,6 +948,7 @@ class HarborSimulator:
 
         receipt = RecoveryApplicationReceipt(
             proposal_id=proposal.id,
+            state_fingerprint=proposal.state_fingerprint,
             applied_at=datetime.now(timezone.utc).replace(microsecond=0),
             target_port_call_id=proposal.target_port_call_id,
             actions=proposal.actions,
@@ -904,8 +959,10 @@ class HarborSimulator:
             approved_by="human_operator",
         )
 
-        if self.recovery_sink:
-            self.recovery_sink(receipt)
+        if self.recovery_receipt_sink:
+            stored = self.recovery_receipt_sink(receipt)
+            if not stored:
+                raise ValueError("Recovery proposal receipt already exists")
 
         self._emit(
             "recovery",

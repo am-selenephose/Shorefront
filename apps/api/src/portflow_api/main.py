@@ -27,7 +27,7 @@ def build_simulator() -> HarborSimulator:
         spool_sink=store.queue_outbound_event,
         replay_sink=lambda: len(store.replay_outbound_events(lambda event: True)),
         pending_count=store.pending_outbound_count,
-        recovery_sink=store.append_recovery_receipt,
+        recovery_receipt_sink=store.save_recovery_receipt,
     )
 
 
@@ -204,7 +204,7 @@ def reset_demo():
         spool_sink=store.queue_outbound_event,
         replay_sink=lambda: len(store.replay_outbound_events(lambda event: True)),
         pending_count=store.pending_outbound_count,
-        recovery_sink=store.append_recovery_receipt,
+        recovery_receipt_sink=store.save_recovery_receipt,
     )
     return sim.overview()
 
