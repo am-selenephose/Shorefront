@@ -245,3 +245,44 @@ def test_supervisor_can_apply_recovery():
         assert receipt["approved_by"] == "supervisor-02"
         assert receipt["approved_role"] == "supervisor"
         assert receipt["approved_display_name"] == "Alex Chen"
+
+
+def test_scenario_catalog_and_deterministic_berth_fixture():
+    with TestClient(app) as client:
+        catalog = client.get("/api/v1/scenarios")
+        assert catalog.status_code == 200
+        ids = {row["id"] for row in catalog.json()}
+        assert {"berth-crunch", "tug-loss", "edge-pilot-delay", "wind-hold"} <= ids
+
+        first = client.post("/api/v1/scenarios/berth-crunch/run")
+        assert first.status_code == 200
+        one = first.json()
+        assert one["scenario"]["id"] == "berth-crunch"
+        assert one["harbor"]["metrics"]["berth_conflicts"] == 1
+        nova_one = next(call for call in one["harbor"]["port_calls"] if call["id"] == "pc-nova")
+        assert nova_one["berth_id"] == "b-07"
+
+        second = client.post("/api/v1/scenarios/berth-crunch/run")
+        assert second.status_code == 200
+        two = second.json()
+        assert two["harbor"]["metrics"]["berth_conflicts"] == one["harbor"]["metrics"]["berth_conflicts"]
+        nova_two = next(call for call in two["harbor"]["port_calls"] if call["id"] == "pc-nova")
+        assert nova_two["berth_id"] == nova_one["berth_id"]
+        assert len(two["recovery_proposals"]) == len(one["recovery_proposals"])
+
+
+def test_scenario_fixture_offline_spools_local_events():
+    with TestClient(app) as client:
+        payload = client.post("/api/v1/scenarios/edge-pilot-delay/run")
+        assert payload.status_code == 200
+        data = payload.json()
+        assert data["harbor"]["connectivity"]["mode"] == "offline_edge"
+        assert data["harbor"]["connectivity"]["queued_events"] >= 1
+        pending = client.get("/api/v1/replay/pending").json()
+        assert pending["pending"] == data["harbor"]["connectivity"]["queued_events"]
+
+
+def test_unknown_scenario_returns_404():
+    with TestClient(app) as client:
+        response = client.post("/api/v1/scenarios/not-real/run")
+        assert response.status_code == 404

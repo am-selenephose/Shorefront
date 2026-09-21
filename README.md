@@ -4,7 +4,7 @@ PortFlow is a port-call operations control tower for live vessel, berth, weather
 
 ## Status
 
-Private portfolio build, v0.6 identity-bound recovery authority core.
+Private portfolio build, v0.7 deterministic scenario + browser-verified operations core.
 
 ## Product principles
 
@@ -119,7 +119,7 @@ The production compose intentionally requires PORTFLOW_DB_PASSWORD instead of sh
 
 Current local verification target:
 
-- 32 backend/domain/API/storage/recovery/security tests
+- 35 backend/domain/API/storage/recovery/security/scenario tests
 - production web build
 - zero production npm vulnerabilities
 
@@ -127,6 +127,8 @@ GitHub Actions workflow is committed. The linked GitHub account currently has Ac
 
 ## API highlights
 
+- GET /api/v1/scenarios
+- POST /api/v1/scenarios/{scenario_id}/run
 - GET /api/v1/auth/me
 - GET /healthz
 - GET /api/v1/harbor
@@ -466,7 +468,7 @@ The v0.6 auth/recovery UI was rendered in the real incident state as part of vis
 
 Current verification:
 
-- 32 backend/domain/API/storage/recovery/security tests pass
+- 35 backend/domain/API/storage/recovery/security/scenario tests pass
 - production TypeScript/Vite build passes
 - production npm audit reports 0 vulnerabilities
 - FastAPI /healthz reports v0.6.0 and authorization_configured=true when approvers are present
@@ -476,15 +478,106 @@ Current verification:
 
 The authorization matrix was runtime-proven against the API process. Full Docker deployment of the auth matrix was not claimed because the execution environment blocked passing test credential configuration into the privileged Docker verification step.
 
+## v0.7 proof
+
+### Canonical deterministic scenario fixtures
+
+Scenario definitions are now owned by the backend instead of existing only as duplicated frontend button logic.
+
+Canonical fixtures:
+
+- berth-crunch: B07 overrun creates a downstream Ocean Nova berth conflict
+- tug-loss: Tug 14 failure forces constrained resource recovery planning
+- edge-pilot-delay: offline-edge connectivity plus a local pilot-delay event
+- wind-hold: deterministic high-wind movement restriction
+
+APIs:
+
+- GET /api/v1/scenarios
+- POST /api/v1/scenarios/{scenario_id}/run
+
+Running a fixture resets the synthetic demo and applies the fixture actions in deterministic order.
+
+Regression proof includes:
+
+- repeated berth-crunch runs reproduce the same structural conflict outcome
+- edge-pilot-delay enters OFFLINE_EDGE and produces durable queued events
+- unknown scenario ids return 404
+- tug-loss remains compatible with the constrained recovery engine
+
+The browser Scenario Lab now loads this backend catalog and executes canonical fixture ids. The previous frontend-only scenario definition list is removed.
+
+### Real browser recovery E2E
+
+Playwright is now part of the web development toolchain.
+
+The E2E test uses the installed system Chromium and isolated ports:
+
+- API: 8150
+- Vite UI: 5175
+
+The verified browser path is:
+
+1. reset demo through the application API
+2. open the real React control tower
+3. click the canonical B07 Berth Crunch scenario
+4. wait for the Berth 15 recovery proposal
+5. verify unauthenticated Apply is disabled
+6. enter an E2E operator credential
+7. verify operator identity and role through /api/v1/auth/me
+8. approve and apply the recovery proposal
+9. verify the identity-bound receipt appears in the UI
+10. verify berth conflicts are empty
+11. verify the credential exists only in sessionStorage for the active browser session
+12. reload the page
+13. verify operator session and receipt restore correctly
+
+Current browser result:
+
+- 1 Playwright E2E test
+- 1 passed
+- real Chromium 151 on the Raptor host
+
+Playwright retains trace/screenshot only on failure.
+
+### Configurable development proxy
+
+Vite's backend target is no longer hardcoded for every environment.
+
+PORTFLOW_API_TARGET can redirect the development UI to an isolated API process while preserving:
+
+- REST proxying
+- WebSocket proxying
+- normal localhost defaults
+
+This allows browser tests and parallel local projects to run without stealing the standard PortFlow API port.
+
+### v0.7 verification
+
+Current gates:
+
+- 35 backend/domain/API/storage/recovery/security/scenario tests pass
+- 1 real-browser Playwright recovery-authority E2E passes
+- production TypeScript/Vite build passes
+- production npm audit reports 0 vulnerabilities
+- deterministic scenario catalog is API-backed
+- Scenario Lab consumes the canonical backend fixtures
+- identity-bound recovery approval remains server-enforced
+- browser session restore is tested
+- v0.7 API and Nginx/web Docker images build successfully from current source
+- API image size: about 113 MB
+- web/Nginx image size: about 21 MB
+
 ## Next engineering milestone
 
-v0.7 should focus on deterministic operational scenarios and external-data boundaries:
+v0.8 should focus on external-data adapter boundaries and richer operational modeling:
 
-- deterministic scenario fixture packs
-- browser E2E tests for incident -> proposal -> authenticated approval -> receipt
-- richer multi-resource / multi-call optimization
+- AIS adapter interface with explicit synthetic/live provenance
+- weather/tide adapter interface
+- port-call / berth-plan adapter interface
+- adapter health and freshness metadata
+- deterministic recorded-feed fixtures for offline testing
 - bunker, stores, gate, and additional customs dependencies
-- adapter interfaces for AIS, weather/tide, and port-call feeds
-- explicit live-vs-synthetic data provenance at adapter boundaries
-- deployment configuration for a hosted portfolio demo
+- richer multi-resource / multi-call optimization
 - optional OIDC-compatible production authentication adapter
+- hosted portfolio deployment

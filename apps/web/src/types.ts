@@ -8,6 +8,22 @@ export type RecoveryActionType = 'reassign_resource' | 'move_berth' | 'shift_win
 export type OperatorRole = 'viewer' | 'operator' | 'supervisor'
 
 
+
+export interface ScenarioAction {
+  action_type: 'incident' | 'connectivity'
+  incident_type?: IncidentType | null
+  link_mode?: LinkMode | null
+  target_port_call_id?: string | null
+  impact_minutes?: number | null
+}
+
+export interface ScenarioFixture {
+  id: string
+  title: string
+  description: string
+  actions: ScenarioAction[]
+}
+
 export interface OperatorIdentity {
   operator_id: string
   display_name: string

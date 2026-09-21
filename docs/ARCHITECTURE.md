@@ -1,6 +1,6 @@
 # PortFlow architecture
 
-## v0.6
+## v0.7
 
 Synthetic operations and scenario injection feed a deterministic HarborSimulator.
 
@@ -260,3 +260,51 @@ observed state
   -> identity-bound durable receipt
 
 This keeps decision support, authority, mutation, and audit as distinct stages.
+
+
+## Deterministic scenario boundary
+
+Operational demos are expressed as backend-owned ScenarioFixture records.
+
+A scenario is an ordered list of explicit actions:
+
+- INCIDENT
+- CONNECTIVITY
+
+The run contract is:
+
+clear synthetic demo state
+  -> instantiate canonical harbor
+  -> apply actions in declared order
+  -> recompute operational state
+  -> return harbor + recovery projections
+
+This prevents browser-only scenario logic from becoming a second source of truth.
+
+The Scenario Lab consumes GET /api/v1/scenarios and executes fixture ids through POST /api/v1/scenarios/{scenario_id}/run.
+
+## Browser E2E boundary
+
+Playwright starts isolated API and Vite processes for browser verification.
+
+The recovery-authority E2E covers:
+
+scenario fixture
+  -> live React state
+  -> recovery proposal
+  -> unauthenticated UI authority boundary
+  -> bearer identity verification
+  -> server-side role authorization
+  -> state mutation
+  -> durable identity receipt
+  -> browser reload/session restoration
+
+The test uses system Chromium rather than a mocked DOM environment.
+
+## Development transport configuration
+
+Vite uses PORTFLOW_API_TARGET when present and defaults to http://127.0.0.1:8100.
+
+The WebSocket target is derived from the same backend target.
+
+This preserves one backend source for both REST and live harbor stream during isolated development and E2E runs.

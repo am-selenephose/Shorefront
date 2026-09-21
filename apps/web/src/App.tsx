@@ -5,12 +5,12 @@ import { RecoveryPanel } from './RecoveryPanel'
 import { ResourceBoard, ServiceChain } from './ServiceChain'
 import type {
   HarborState,
-  IncidentType,
   LinkMode,
   OperatorIdentity,
   PortCall,
   RecoveryProposal,
   RecoveryReceipt,
+  ScenarioFixture,
 } from './types'
 import './styles.css'
 
@@ -101,6 +101,7 @@ export default function App() {
   const [actionError, setActionError] = useState<string | null>(null)
   const [operatorToken, setOperatorToken] = useState(storedOperatorToken)
   const [operatorIdentity, setOperatorIdentity] = useState<OperatorIdentity | null>(null)
+  const [scenarios, setScenarios] = useState<ScenarioFixture[]>([])
   const [recoveryProposals, setRecoveryProposals] = useState<RecoveryProposal[]>([])
   const [recoveryReceipts, setRecoveryReceipts] = useState<RecoveryReceipt[]>([])
 
@@ -123,6 +124,11 @@ export default function App() {
       .then(response => response.json())
       .then(setState)
       .catch(() => {})
+
+    fetch('/api/v1/scenarios')
+      .then(response => response.json())
+      .then(setScenarios)
+      .catch(() => setScenarios([]))
 
     connect()
 
@@ -274,24 +280,17 @@ export default function App() {
     })
   }
 
-  async function injectIncident(
-    incidentType: IncidentType,
-    targetPortCallId?: string,
-    impactMinutes?: number,
-  ) {
+  async function runScenario(scenarioId: string) {
     await runAction(async () => {
-      const response = await fetch('/api/v1/incidents', {
+      const response = await fetch('/api/v1/scenarios/' + scenarioId + '/run', {
         method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({
-          incident_type: incidentType,
-          target_port_call_id: targetPortCallId,
-          impact_minutes: impactMinutes,
-        }),
       })
       if (!response.ok) throw new Error(await response.text())
-      await refreshHarbor()
-      await loadRecovery()
+
+      const payload = await response.json()
+      setState(payload.harbor)
+      setRecoveryProposals(payload.recovery_proposals || [])
+      setRecoveryReceipts([])
     })
   }
 
@@ -511,8 +510,9 @@ export default function App() {
             <div className="panel" id="incidents">
               <IncidentControls
                 state={state}
+                scenarios={scenarios}
                 busy={busy}
-                onInject={injectIncident}
+                onRunScenario={runScenario}
                 onReset={resetDemo}
               />
             </div>

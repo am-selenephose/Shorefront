@@ -1,6 +1,6 @@
 [project]
 name = "portflow-api"
-version = "0.6.0"
+version = "0.7.0"
 description = "PortFlow operations control API"
 requires-python = ">=3.11"
 dependencies = [

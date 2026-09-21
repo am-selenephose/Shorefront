@@ -1,24 +1,16 @@
-import type { HarborState, IncidentType } from './types'
-
-type Inject = (incidentType: IncidentType, target?: string, impact?: number) => Promise<void>
-
-const scenarios: Array<{ type: IncidentType; label: string; detail: string; target?: string; impact?: number }> = [
-  { type: 'pilot_delay', label: 'Pilot +25m', detail: 'Shift Aurora critical path', target: 'pc-aurora', impact: 25 },
-  { type: 'tug_unavailable', label: 'Tug unavailable', detail: 'Delay maneuver + berth', target: 'pc-aurora', impact: 40 },
-  { type: 'berth_overrun', label: 'Berth overrun', detail: 'Create downstream B07 conflict', target: 'pc-glory', impact: 90 },
-  { type: 'wind_restriction', label: 'Wind restriction', detail: 'Hold inbound pilot movements', impact: 30 },
-  { type: 'connectivity_loss', label: 'Lose control link', detail: 'Switch to edge-only queueing' },
-]
+import type { HarborState, ScenarioFixture } from './types'
 
 export function IncidentControls({
   state,
+  scenarios,
   busy,
-  onInject,
+  onRunScenario,
   onReset,
 }: {
   state: HarborState
+  scenarios: ScenarioFixture[]
   busy: boolean
-  onInject: Inject
+  onRunScenario: (scenarioId: string) => Promise<void>
   onReset: () => Promise<void>
 }) {
   const active = state.incidents.filter(item => item.status === 'active')
@@ -28,20 +20,23 @@ export function IncidentControls({
       <div className="scenario-head">
         <div>
           <span>SCENARIO LAB</span>
-          <b>Inject operational failures</b>
+          <b>Deterministic operational fixtures</b>
         </div>
         <button disabled={busy} onClick={onReset}>Reset demo</button>
       </div>
 
       <div className="scenario-grid">
+        {scenarios.length === 0 && (
+          <p className="scenario-empty">Loading canonical scenario fixtures...</p>
+        )}
         {scenarios.map(item => (
           <button
-            key={item.type}
+            key={item.id}
             disabled={busy}
-            onClick={() => onInject(item.type, item.target, item.impact)}
+            onClick={() => onRunScenario(item.id)}
           >
-            <b>{item.label}</b>
-            <span>{item.detail}</span>
+            <b>{item.title}</b>
+            <span>{item.description}</span>
           </button>
         ))}
       </div>

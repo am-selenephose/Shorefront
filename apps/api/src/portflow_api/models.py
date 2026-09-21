@@ -84,10 +84,30 @@ class OperatorRole(StrEnum):
     SUPERVISOR = "supervisor"
 
 
+class ScenarioActionType(StrEnum):
+    INCIDENT = "incident"
+    CONNECTIVITY = "connectivity"
+
+
 class OperatorIdentity(BaseModel):
     operator_id: str
     display_name: str
     role: OperatorRole
+
+
+class ScenarioAction(BaseModel):
+    action_type: ScenarioActionType
+    incident_type: IncidentType | None = None
+    link_mode: LinkMode | None = None
+    target_port_call_id: str | None = None
+    impact_minutes: int | None = None
+
+
+class ScenarioFixture(BaseModel):
+    id: str
+    title: str
+    description: str
+    actions: list[ScenarioAction]
 
 
 class Coordinate(BaseModel):

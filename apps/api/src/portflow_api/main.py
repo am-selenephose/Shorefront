@@ -11,6 +11,7 @@ from .domain import detect_berth_conflicts, score_port_call
 from .models import IncidentType, LinkMode, OperatorIdentity
 from .simulator import HarborSimulator
 from .security import configured_approvers, current_operator, recovery_approver
+from .scenarios import get_scenario, list_scenarios
 from .storage import OperationsStore
 
 
@@ -51,7 +52,7 @@ async def lifespan(app: FastAPI):
     task.cancel()
 
 
-app = FastAPI(title="PortFlow API", version="0.6.0", lifespan=lifespan)
+app = FastAPI(title="PortFlow API", version="0.7.0", lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
@@ -76,7 +77,7 @@ def healthz():
     return {
         "ok": True,
         "service": "portflow-api",
-        "version": "0.6.0",
+        "version": "0.7.0",
         "persistence": True,
         "authorization_configured": bool(configured_approvers()),
     }
@@ -85,6 +86,51 @@ def healthz():
 @app.get("/api/v1/auth/me")
 def auth_me(identity: OperatorIdentity = Depends(current_operator)):
     return identity
+
+
+@app.get("/api/v1/scenarios")
+def scenarios():
+    return list_scenarios()
+
+
+@app.post("/api/v1/scenarios/{scenario_id}/run")
+def run_scenario(scenario_id: str):
+    global sim
+
+    scenario = get_scenario(scenario_id)
+    if scenario is None:
+        raise HTTPException(status_code=404, detail=f"Unknown scenario: {scenario_id}")
+
+    store.clear_demo_state()
+    sim = HarborSimulator(
+        event_sink=store.append_event,
+        incident_sink=store.upsert_incident,
+        snapshot_sink=store.save_snapshot,
+        spool_sink=store.queue_outbound_event,
+        replay_sink=lambda: len(store.replay_outbound_events(lambda event: True)),
+        pending_count=store.pending_outbound_count,
+        recovery_receipt_sink=store.save_recovery_receipt,
+    )
+
+    for action in scenario.actions:
+        if action.action_type.value == "connectivity":
+            if action.link_mode is None:
+                raise HTTPException(status_code=500, detail="Scenario connectivity action missing link_mode")
+            sim.set_connectivity(action.link_mode)
+        elif action.action_type.value == "incident":
+            if action.incident_type is None:
+                raise HTTPException(status_code=500, detail="Scenario incident action missing incident_type")
+            sim.inject_incident(
+                incident_type=action.incident_type,
+                target_port_call_id=action.target_port_call_id,
+                impact_minutes=action.impact_minutes,
+            )
+
+    return {
+        "scenario": scenario,
+        "harbor": sim.overview(),
+        "recovery_proposals": sim.generate_recovery_proposals(),
+    }
 
 
 @app.get("/api/v1/harbor")

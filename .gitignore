@@ -18,3 +18,5 @@ apps/web/pnpm-workspace.yaml
 *.db
 *.sqlite
 *.sqlite3
+apps/web/test-results/
+apps/web/playwright-report/
