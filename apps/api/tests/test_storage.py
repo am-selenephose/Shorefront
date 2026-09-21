@@ -1210,3 +1210,102 @@ def test_legacy_zero_duration_steps_are_migrated_on_restore():
     )
     assert bunker.duration_minutes == 60
     assert tug.duration_minutes == 45
+
+
+def test_compound_tug_bunker_recovery_links_incidents_and_preserves_lifecycle(tmp_path):
+    store = make_store(tmp_path)
+    sim = HarborSimulator(
+        event_sink=store.append_event,
+        incident_sink=store.upsert_incident,
+        snapshot_sink=store.save_snapshot,
+        recovery_receipt_sink=store.save_recovery_receipt,
+    )
+
+    tug_incident = sim.inject_incident(
+        IncidentType.TUG_UNAVAILABLE,
+        "pc-aurora",
+        40,
+    )
+    bunker_incident = sim.inject_incident(
+        IncidentType.BUNKER_UNAVAILABLE,
+        "pc-aurora",
+        45,
+    )
+
+    compound = [
+        proposal
+        for proposal in sim.generate_recovery_proposals(call_id="pc-aurora")
+        if len(proposal.incident_ids) == 2
+        and {
+            action.service_kind
+            for action in proposal.actions
+            if action.service_kind is not None
+        } >= {ServiceKind.TUG, ServiceKind.BUNKER}
+    ]
+    assert compound
+
+    proposal = min(compound, key=lambda item: item.disruption_score)
+    assert proposal.title == "Compound recovery: Tug 22 + Bunker Barge 9"
+    assert set(proposal.incident_ids) == {tug_incident.id, bunker_incident.id}
+    assert proposal.projected_blocked_services == 0
+
+    receipt = sim.apply_recovery_proposal(
+        proposal.id,
+        approved_by="ops-compound",
+        approved_role=OperatorRole.OPERATOR,
+        approved_display_name="Compound Ops",
+    )
+    assert set(receipt.incident_ids) == {tug_incident.id, bunker_incident.id}
+    assert receipt.resulting_blocked_services == 0
+
+    active = {
+        incident.id: incident.status.value
+        for incident in sim.incidents
+        if incident.id in {tug_incident.id, bunker_incident.id}
+    }
+    assert active == {
+        tug_incident.id: "active",
+        bunker_incident.id: "active",
+    }
+
+    for call_id in ("pc-aurora", "pc-glory"):
+        graph = sim.dependency_graph(call_id)
+        nodes = {node["kind"]: node for node in graph["nodes"]}
+        assert nodes["tug"]["state"] != "blocked"
+        assert nodes["bunker"]["state"] != "blocked"
+        assert nodes["departure"]["state"] != "blocked"
+
+
+def test_compound_recovery_generation_is_deterministic():
+    def signature():
+        sim = HarborSimulator()
+        sim.inject_incident(IncidentType.TUG_UNAVAILABLE, "pc-aurora", 40)
+        sim.inject_incident(IncidentType.BUNKER_UNAVAILABLE, "pc-aurora", 45)
+
+        rows = []
+        for proposal in sim.generate_recovery_proposals(call_id="pc-aurora"):
+            if len(proposal.incident_ids) != 2:
+                continue
+            actions = tuple(
+                (
+                    action.action_type.value,
+                    action.port_call_id,
+                    action.service_kind.value if action.service_kind else None,
+                    action.from_resource_id,
+                    action.to_resource_id,
+                    action.shift_minutes,
+                )
+                for action in proposal.actions
+            )
+            rows.append(
+                (
+                    proposal.title,
+                    actions,
+                    proposal.projected_total_delay_minutes,
+                    proposal.projected_blocked_services,
+                    proposal.disruption_score,
+                )
+            )
+        return rows
+
+    assert signature() == signature()

@@ -312,6 +312,7 @@ class RecoveryProposal(BaseModel):
     title: str
     target_port_call_id: str
     incident_id: str | None = None
+    incident_ids: list[str] = Field(default_factory=list)
     actions: list[RecoveryAction]
     projected_total_delay_minutes: int
     projected_modeled_cost_usd: float
@@ -331,6 +332,7 @@ class RecoveryApplicationReceipt(BaseModel):
     state_fingerprint: str = "legacy"
     applied_at: datetime
     target_port_call_id: str
+    incident_ids: list[str] = Field(default_factory=list)
     actions: list[RecoveryAction]
     resulting_berth_conflicts: int
     resulting_blocked_services: int

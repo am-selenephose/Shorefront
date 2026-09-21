@@ -3,6 +3,7 @@ from __future__ import annotations
 from copy import deepcopy
 from datetime import datetime, timedelta, timezone
 import hashlib
+from itertools import islice, product
 import json
 import math
 import random
@@ -1386,6 +1387,7 @@ class HarborSimulator:
         actions: list[RecoveryAction],
         rationale: list[str],
         incident_id: str | None = None,
+        incident_ids: list[str] | None = None,
     ) -> RecoveryProposal:
         clone = HarborSimulator(initial=self.overview())
         clone._apply_recovery_actions(actions)
@@ -1395,13 +1397,21 @@ class HarborSimulator:
 
         state_fingerprint = self._recovery_state_fingerprint(target_call_id)
         decision_confidence, data_quality_warnings = self._recovery_decision_confidence()
+        linked_incidents = list(dict.fromkeys(
+            incident_ids
+            or ([incident_id] if incident_id else [])
+        ))
+        primary_incident_id = incident_id or (
+            linked_incidents[0] if linked_incidents else None
+        )
 
         return RecoveryProposal(
             id=self._proposal_id(actions, target_call_id, state_fingerprint),
             state_fingerprint=state_fingerprint,
             title=title,
             target_port_call_id=target_call_id,
-            incident_id=incident_id,
+            incident_id=primary_incident_id,
+            incident_ids=linked_incidents,
             actions=actions,
             projected_total_delay_minutes=metrics["total_delay"],
             projected_modeled_cost_usd=metrics["modeled_cost"],
@@ -1421,20 +1431,148 @@ class HarborSimulator:
             requires_approval=True,
         )
 
+    @staticmethod
+    def _resource_failure_spec(
+        incident_type: IncidentType,
+    ) -> tuple[ServiceKind, int] | None:
+        return {
+            IncidentType.TUG_UNAVAILABLE: (ServiceKind.TUG, 45),
+            IncidentType.BUNKER_UNAVAILABLE: (ServiceKind.BUNKER, 60),
+        }.get(incident_type)
+
+    def _resource_failure_alternative_ids(
+        self,
+        incident: Incident,
+        affected_kind: ServiceKind,
+    ) -> list[str]:
+        return [
+            resource.id
+            for resource in self.service_resources
+            if resource.kind == affected_kind
+            and resource.id != incident.target_resource_id
+            and resource.status != ResourceStatus.UNAVAILABLE
+        ]
+
+    def _build_resource_failure_actions(
+        self,
+        working: "HarborSimulator",
+        incident: Incident,
+        affected_kind: ServiceKind,
+        fallback_duration_minutes: int,
+        resource_id: str,
+    ) -> tuple[list[RecoveryAction], list[str]]:
+        if not incident.target_resource_id:
+            return [], []
+
+        resource = next(
+            (
+                item for item in working.service_resources
+                if item.id == resource_id and item.kind == affected_kind
+            ),
+            None,
+        )
+        if resource is None or resource.status == ResourceStatus.UNAVAILABLE:
+            return [], []
+
+        affected_steps = sorted(
+            [
+                step for step in working.service_steps
+                if step.kind == affected_kind
+                and step.resource_id == incident.target_resource_id
+            ],
+            key=lambda item: item.planned_at,
+        )
+        if not affected_steps:
+            return [], []
+
+        actions: list[RecoveryAction] = []
+        rationale = [
+            (
+                f"{incident.target_resource_id} is unavailable for "
+                f"{len(affected_steps)} modeled {affected_kind.value} assignment(s)."
+            ),
+            (
+                f"Move the affected {affected_kind.value} workload to "
+                f"{resource.name} instead of recovering only one vessel."
+            ),
+        ]
+
+        for affected_step in affected_steps:
+            working_step = next(
+                (
+                    step for step in working.service_steps
+                    if step.port_call_id == affected_step.port_call_id
+                    and step.kind == affected_kind
+                ),
+                None,
+            )
+            if working_step is None:
+                continue
+
+            reassign = RecoveryAction(
+                action_type=RecoveryActionType.REASSIGN_RESOURCE,
+                port_call_id=affected_step.port_call_id,
+                service_kind=affected_kind,
+                from_resource_id=working_step.resource_id,
+                to_resource_id=resource.id,
+            )
+            working._apply_recovery_actions([reassign])
+            actions.append(reassign)
+
+            shift = working._resource_shift_needed(
+                affected_step.port_call_id,
+                affected_kind,
+                resource.id,
+                separation_minutes=fallback_duration_minutes,
+            )
+            if shift:
+                if (
+                    resource.available_from
+                    and working_step.planned_at < resource.available_from
+                ):
+                    rationale.append(
+                        (
+                            f"{resource.name} becomes available at "
+                            f"{resource.available_from.isoformat()}."
+                        )
+                    )
+
+                shift_action = RecoveryAction(
+                    action_type=RecoveryActionType.SHIFT_WINDOW,
+                    port_call_id=affected_step.port_call_id,
+                    service_kind=affected_kind,
+                    shift_minutes=shift,
+                )
+                working._apply_recovery_actions([shift_action])
+                actions.append(shift_action)
+                rationale.append(
+                    (
+                        f"Shift {affected_step.port_call_id} by {shift} min "
+                        f"to fit {resource.name}'s interval-capacity schedule "
+                        f"for the modeled {affected_kind.value} service duration."
+                    )
+                )
+            else:
+                rationale.append(
+                    (
+                        f"{affected_step.port_call_id} fits {resource.name}'s "
+                        "current modeled interval-capacity window."
+                    )
+                )
+
+        return actions, rationale
+
     def generate_recovery_proposals(
         self,
         call_id: str | None = None,
     ) -> list[RecoveryProposal]:
         proposals: list[RecoveryProposal] = []
 
-        # Compound recovery for unavailable shared service resources.
-        resource_failure_kinds = {
-            IncidentType.TUG_UNAVAILABLE: (ServiceKind.TUG, 45),
-            IncidentType.BUNKER_UNAVAILABLE: (ServiceKind.BUNKER, 60),
-        }
+        # Recovery for unavailable shared service resources.
+        resource_failures: list[tuple[Incident, ServiceKind, int]] = []
 
         for incident in self.incidents:
-            recovery_spec = resource_failure_kinds.get(incident.incident_type)
+            recovery_spec = self._resource_failure_spec(incident.incident_type)
             if (
                 incident.status != IncidentStatus.ACTIVE
                 or recovery_spec is None
@@ -1443,118 +1581,161 @@ class HarborSimulator:
             ):
                 continue
 
-            affected_kind, separation_minutes = recovery_spec
+            affected_kind, fallback_duration_minutes = recovery_spec
+            resource_failures.append(
+                (incident, affected_kind, fallback_duration_minutes)
+            )
+
             target_call_id = incident.target_port_call_id
             if call_id and target_call_id != call_id:
                 continue
 
-            affected_steps = sorted(
-                [
-                    step for step in self.service_steps
-                    if step.kind == affected_kind
-                    and step.resource_id == incident.target_resource_id
-                ],
-                key=lambda item: item.planned_at,
-            )
-            if not affected_steps:
+            for resource_id in self._resource_failure_alternative_ids(
+                incident,
+                affected_kind,
+            ):
+                working = HarborSimulator(initial=self.overview())
+                actions, rationale = self._build_resource_failure_actions(
+                    working,
+                    incident,
+                    affected_kind,
+                    fallback_duration_minutes,
+                    resource_id,
+                )
+                if not actions:
+                    continue
+
+                resource = next(
+                    item for item in self.service_resources
+                    if item.id == resource_id
+                )
+                proposals.append(
+                    self._project_recovery(
+                        title=(
+                            f"Recover {incident.target_resource_id} workload "
+                            f"with {resource.name}"
+                        ),
+                        target_call_id=target_call_id,
+                        actions=actions,
+                        rationale=rationale,
+                        incident_id=incident.id,
+                        incident_ids=[incident.id],
+                    )
+                )
+
+        # Cross-resource compound recovery. Incidents are grouped by their
+        # primary target call so one operator decision can coordinate multiple
+        # failed resources without pretending the incidents themselves vanished.
+        failures_by_target: dict[
+            str,
+            list[tuple[Incident, ServiceKind, int]],
+        ] = {}
+        for failure in resource_failures:
+            incident, _, _ = failure
+            if incident.target_port_call_id:
+                failures_by_target.setdefault(
+                    incident.target_port_call_id,
+                    [],
+                ).append(failure)
+
+        service_order = {
+            ServiceKind.PILOT: 0,
+            ServiceKind.TUG: 1,
+            ServiceKind.BERTH: 2,
+            ServiceKind.CRANE: 3,
+            ServiceKind.CARGO: 4,
+            ServiceKind.BUNKER: 5,
+            ServiceKind.STORES: 6,
+            ServiceKind.DOCUMENTS: 7,
+            ServiceKind.CUSTOMS: 8,
+            ServiceKind.GATE: 9,
+            ServiceKind.DEPARTURE: 10,
+        }
+
+        for target_call_id, failures in failures_by_target.items():
+            if len(failures) < 2:
+                continue
+            if call_id and target_call_id != call_id:
                 continue
 
-            alternatives = [
-                resource for resource in self.service_resources
-                if resource.kind == affected_kind
-                and resource.id != incident.target_resource_id
-                and resource.status != ResourceStatus.UNAVAILABLE
+            ordered = sorted(
+                failures,
+                key=lambda item: (
+                    service_order[item[1]],
+                    item[0].id,
+                ),
+            )
+            alternative_lists = [
+                self._resource_failure_alternative_ids(incident, kind)
+                for incident, kind, _ in ordered
             ]
+            if any(not alternatives for alternatives in alternative_lists):
+                continue
 
-            for resource in alternatives:
+            for resource_ids in islice(product(*alternative_lists), 12):
                 working = HarborSimulator(initial=self.overview())
-                actions: list[RecoveryAction] = []
-                rationale = [
+                compound_actions: list[RecoveryAction] = []
+                compound_rationale = [
                     (
-                        f"{incident.target_resource_id} is unavailable for "
-                        f"{len(affected_steps)} modeled {affected_kind.value} assignment(s)."
-                    ),
-                    (
-                        f"Move the affected {affected_kind.value} workload to "
-                        f"{resource.name} instead of recovering only one vessel."
-                    ),
+                        f"Coordinate {len(ordered)} active resource failures "
+                        "as one operator-approved recovery plan."
+                    )
                 ]
+                linked_incidents: list[str] = []
+                resource_names: list[str] = []
+                valid = True
 
-                for affected_step in affected_steps:
-                    working_step = next(
-                        (
-                            step for step in working.service_steps
-                            if step.port_call_id == affected_step.port_call_id
-                            and step.kind == affected_kind
+                for (
+                    incident,
+                    affected_kind,
+                    fallback_duration_minutes,
+                ), resource_id in zip(ordered, resource_ids):
+                    part_actions, part_rationale = (
+                        self._build_resource_failure_actions(
+                            working,
+                            incident,
+                            affected_kind,
+                            fallback_duration_minutes,
+                            resource_id,
+                        )
+                    )
+                    if not part_actions:
+                        valid = False
+                        break
+
+                    compound_actions.extend(part_actions)
+                    compound_rationale.extend(part_rationale)
+                    linked_incidents.append(incident.id)
+                    resource = next(
+                        item for item in working.service_resources
+                        if item.id == resource_id
+                    )
+                    resource_names.append(resource.name)
+
+                if not valid or not compound_actions:
+                    continue
+
+                kinds = {
+                    action.service_kind
+                    for action in compound_actions
+                    if action.service_kind is not None
+                }
+                if len(kinds) < 2:
+                    continue
+
+                proposals.append(
+                    self._project_recovery(
+                        title=(
+                            "Compound recovery: "
+                            + " + ".join(resource_names)
                         ),
-                        None,
+                        target_call_id=target_call_id,
+                        actions=compound_actions,
+                        rationale=compound_rationale,
+                        incident_id=linked_incidents[0],
+                        incident_ids=linked_incidents,
                     )
-                    if working_step is None:
-                        continue
-
-                    reassign = RecoveryAction(
-                        action_type=RecoveryActionType.REASSIGN_RESOURCE,
-                        port_call_id=affected_step.port_call_id,
-                        service_kind=affected_kind,
-                        from_resource_id=working_step.resource_id,
-                        to_resource_id=resource.id,
-                    )
-                    working._apply_recovery_actions([reassign])
-                    actions.append(reassign)
-
-                    shift = working._resource_shift_needed(
-                        affected_step.port_call_id,
-                        affected_kind,
-                        resource.id,
-                        separation_minutes=separation_minutes,
-                    )
-                    if shift:
-                        if (
-                            resource.available_from
-                            and working_step.planned_at < resource.available_from
-                        ):
-                            rationale.append(
-                                (
-                                    f"{resource.name} becomes available at "
-                                    f"{resource.available_from.isoformat()}."
-                                )
-                            )
-                        shift_action = RecoveryAction(
-                            action_type=RecoveryActionType.SHIFT_WINDOW,
-                            port_call_id=affected_step.port_call_id,
-                            service_kind=affected_kind,
-                            shift_minutes=shift,
-                        )
-                        working._apply_recovery_actions([shift_action])
-                        actions.append(shift_action)
-                        rationale.append(
-                            (
-                                f"Shift {affected_step.port_call_id} by {shift} min "
-                                f"to fit {resource.name}'s interval-capacity schedule "
-                                f"for the modeled {affected_kind.value} service duration."
-                            )
-                        )
-                    else:
-                        rationale.append(
-                            (
-                                f"{affected_step.port_call_id} fits {resource.name}'s "
-                                "current modeled interval-capacity window."
-                            )
-                        )
-
-                if actions:
-                    proposals.append(
-                        self._project_recovery(
-                            title=(
-                                f"Recover {incident.target_resource_id} workload "
-                                f"with {resource.name}"
-                            ),
-                            target_call_id=target_call_id,
-                            actions=actions,
-                            rationale=rationale,
-                            incident_id=incident.id,
-                        )
-                    )
+                )
 
         # Berth conflict recovery.
         for conflict in detect_berth_conflicts(self.port_calls):
@@ -1667,6 +1848,7 @@ class HarborSimulator:
             state_fingerprint=proposal.state_fingerprint,
             applied_at=datetime.now(timezone.utc).replace(microsecond=0),
             target_port_call_id=proposal.target_port_call_id,
+            incident_ids=proposal.incident_ids,
             actions=proposal.actions,
             resulting_berth_conflicts=metrics["conflicts"],
             resulting_blocked_services=metrics["blocked"],
@@ -1688,6 +1870,7 @@ class HarborSimulator:
             f"Recovery applied: {proposal.title}",
             (
                 f"Approved recovery proposal {proposal.id}; "
+                f"linked incident(s): {', '.join(proposal.incident_ids) or 'none'}; "
                 f"{metrics['conflicts']} conflict(s), {metrics['blocked']} blocked service(s), "
                 f"{metrics['total_delay']} total modeled delay minutes remain."
             ),

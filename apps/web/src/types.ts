@@ -221,6 +221,7 @@ export interface RecoveryProposal {
   title: string
   target_port_call_id: string
   incident_id?: string | null
+  incident_ids: string[]
   actions: RecoveryAction[]
   projected_total_delay_minutes: number
   projected_modeled_cost_usd: number
@@ -241,6 +242,7 @@ export interface RecoveryReceipt {
   state_fingerprint: string
   applied_at: string
   target_port_call_id: string
+  incident_ids: string[]
   actions: RecoveryAction[]
   resulting_berth_conflicts: number
   resulting_blocked_services: number

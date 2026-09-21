@@ -132,6 +132,11 @@ export function RecoveryPanel({
               <div className="recovery-card-head">
                 <div>
                   <span>{index === 0 ? 'LOWEST DISRUPTION' : 'ALTERNATIVE'}</span>
+                  {proposal.incident_ids.length > 1 && (
+                    <span className="compound-recovery-label">
+                      COMPOUND · {proposal.incident_ids.length} INCIDENTS
+                    </span>
+                  )}
                   <b>{proposal.title}</b>
                 </div>
                 <span className={'risk ' + proposal.projected_risk}>

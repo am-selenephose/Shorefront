@@ -53,6 +53,29 @@ SCENARIOS: tuple[ScenarioFixture, ...] = (
         ],
     ),
     ScenarioFixture(
+        id="dual-resource-loss",
+        title="Tug 14 + Bunker Barge 4 Unavailable",
+        description=(
+            "Tug 14 and Bunker Barge 4 fail in the same Aurora-centered operating "
+            "window, requiring one coordinated recovery across maneuvering and "
+            "departure-critical service dependencies."
+        ),
+        actions=[
+            ScenarioAction(
+                action_type=ScenarioActionType.INCIDENT,
+                incident_type=IncidentType.TUG_UNAVAILABLE,
+                target_port_call_id="pc-aurora",
+                impact_minutes=40,
+            ),
+            ScenarioAction(
+                action_type=ScenarioActionType.INCIDENT,
+                incident_type=IncidentType.BUNKER_UNAVAILABLE,
+                target_port_call_id="pc-aurora",
+                impact_minutes=45,
+            ),
+        ],
+    ),
+    ScenarioFixture(
         id="edge-pilot-delay",
         title="Offline Edge + Pilot Delay",
         description="The control link drops to offline-edge mode before a 25-minute Aurora pilot delay is recorded locally.",

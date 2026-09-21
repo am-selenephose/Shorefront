@@ -1,6 +1,6 @@
 # PortFlow architecture
 
-## v0.13
+## v0.14
 
 Synthetic operations and scenario injection feed a deterministic HarborSimulator.
 
@@ -657,3 +657,45 @@ Recovery fingerprints bind the service schedule, including resource id, planned 
 Legacy snapshot steps whose duration_minutes is zero/missing are populated from the current canonical duration table during restore.
 
 The browser projects duration metadata but does not calculate interval feasibility or capacity.
+
+
+## v0.14 compound cross-resource recovery
+
+Compound recovery is a deterministic planning layer over multiple active resource-failure incidents. It does not merge incident lifecycle with recovery lifecycle.
+
+Recoverable resource failures are grouped by their primary affected port call and processed in dependency order:
+
+    pilot -> tug -> berth -> crane -> cargo -> bunker
+          -> stores -> documents -> customs -> gate -> departure
+
+For each failure, the planner derives alternative resource IDs. Candidate combinations are formed with a Cartesian product and intentionally bounded to the first 12 combinations.
+
+For one candidate combination:
+
+    canonical state
+      -> deep cloned working simulator
+      -> apply first failure recovery
+      -> resulting assignments / shifts / capacity state
+      -> apply second failure recovery against that evolved state
+      -> continue for remaining linked failures
+      -> project consequences
+      -> emit only if >= 2 service kinds are covered
+
+This sequential-state rule is critical. Independent single-resource projections cannot safely be concatenated because later resource feasibility depends on schedule and capacity consequences created by earlier actions.
+
+RecoveryProposal carries:
+
+- incident_id: backward-compatible primary incident reference
+- incident_ids: the complete linked incident set
+
+RecoveryApplicationReceipt carries the same linked incident set so audit can reconstruct which active failures the applied adaptation was intended to route around.
+
+Applying a compound proposal:
+
+- mutates operational assignments/schedule through the normal approval boundary
+- writes the same durable identity-bound receipt as other recovery actions
+- does not mark any linked incident resolved
+
+The canonical dual-resource-loss scenario exercises simultaneous Tug 14 and Bunker Barge 4 unavailability. Its best deterministic compound projection is Tug 22 + Bunker Barge 9 with 124 modeled delay minutes, 0 blocked services, and disruption score 149.
+
+The browser does not synthesize compound logic. It projects backend incident_ids and adds a visible COMPOUND · N INCIDENTS label. Authority remains server-side.

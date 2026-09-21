@@ -133,6 +133,7 @@
 .recovery-card.preferred:before{content:'';position:absolute;left:0;top:0;bottom:0;width:2px;background:#69d4ff}
 .recovery-card-head{display:flex;justify-content:space-between;gap:12px;align-items:flex-start}
 .recovery-card-head>div>span{display:block;color:#64a9c4;font:700 7px 'IBM Plex Mono';letter-spacing:.8px}
+.recovery-card-head>div>.compound-recovery-label{display:inline-block;margin-top:5px;padding:3px 5px;border:1px solid #6b5a8f;border-radius:3px;background:#171225;color:#c7a9ff;font:700 7px 'IBM Plex Mono';letter-spacing:.7px}
 .recovery-card-head>div>b{display:block;font-size:11px;margin-top:4px}
 
 .recovery-metrics{display:grid;grid-template-columns:repeat(6,1fr);gap:5px;margin-top:11px}

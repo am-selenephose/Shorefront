@@ -105,7 +105,7 @@ test('bunker loss renders the branched DAG and operator recovery clears shared b
 
   await page.goto('/')
 
-  const scenarioButton = page.getByRole('button', { name: /Bunker Barge 4 Unavailable/i })
+  const scenarioButton = page.getByRole('button', { name: /^Bunker Barge 4 Unavailable\b/i })
   await expect(scenarioButton).toBeVisible()
   await scenarioButton.click()
 
@@ -164,6 +164,55 @@ test('bunker loss renders the branched DAG and operator recovery clears shared b
     const nodes = Object.fromEntries(
       graph.nodes.map((node: { kind: string; state: string }) => [node.kind, node]),
     )
+    expect(nodes.bunker.state).not.toBe('blocked')
+    expect(nodes.departure.state).not.toBe('blocked')
+  }
+})
+
+
+test('compound dual-resource recovery links both incidents and clears tug/bunker blockage', async ({ page, request }) => {
+  const reset = await request.post('/api/v1/demo/reset')
+  expect(reset.ok()).toBeTruthy()
+
+  await page.goto('/')
+
+  const scenarioButton = page.getByRole('button', {
+    name: 'Tug 14 + Bunker Barge 4 Unavailable',
+  })
+  await expect(scenarioButton).toBeVisible()
+  await scenarioButton.click()
+
+  const compoundRecovery = page
+    .locator('article.recovery-card')
+    .filter({ hasText: 'COMPOUND · 2 INCIDENTS' })
+    .first()
+
+  await expect(compoundRecovery).toBeVisible()
+  await expect(compoundRecovery).toContainText('Compound recovery: Tug 22 + Bunker Barge 9')
+  await expect(compoundRecovery).toContainText('tug:')
+  await expect(compoundRecovery).toContainText('bunker:')
+  await expect(
+    compoundRecovery.getByRole('button', { name: 'Authenticate to apply' }),
+  ).toBeDisabled()
+
+  await page.getByLabel('Operator access token').fill(operatorToken)
+  await page.getByRole('button', { name: 'Verify' }).click()
+  await expect(page.getByText('E2E Operator').first()).toBeVisible()
+
+  const approve = compoundRecovery.getByRole('button', { name: 'Approve & apply' })
+  await expect(approve).toBeEnabled()
+  await approve.click()
+
+  await expect(page.getByText(/RECENT OPERATOR RECEIPTS · 1/)).toBeVisible()
+
+  for (const callId of ['pc-aurora', 'pc-glory']) {
+    const graphResponse = await request.get('/api/v1/port-calls/' + callId + '/dependency-graph')
+    expect(graphResponse.ok()).toBeTruthy()
+    const graph = await graphResponse.json()
+    const nodes = Object.fromEntries(
+      graph.nodes.map((node: { kind: string; state: string }) => [node.kind, node]),
+    )
+    expect(nodes.tug.state).not.toBe('blocked')
     expect(nodes.bunker.state).not.toBe('blocked')
     expect(nodes.departure.state).not.toBe('blocked')
   }

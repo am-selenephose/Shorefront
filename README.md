@@ -4,7 +4,7 @@ PortFlow is a port-call operations control tower for continuously updated vessel
 
 ## Status
 
-Private portfolio build, v0.13 interval-based resource capacity + service occupancy durations.
+Private portfolio build, v0.14 compound cross-resource recovery.
 
 ## Product principles
 
@@ -1251,7 +1251,7 @@ The bunker-loss Chromium path explicitly verifies the 60-minute bunker duration 
 - branched DAG truth
 - shared-resource blockage
 - operator approval
-- compound recovery
+- shared-resource recovery
 - departure unblocking
 
 ### v0.13 verification
@@ -1271,15 +1271,83 @@ Current gates:
 - Python compile passes
 - v0.12 confidence, v0.11 adapter resilience, v0.10 calendar, v0.9 DAG/recovery, and v0.8 provenance guarantees remain covered by regression tests
 
+## v0.14 proof
+
+### Compound cross-resource recovery
+
+PortFlow now coordinates recovery across multiple active recoverable resource failures that affect the same primary port call.
+
+The planner:
+
+- groups active recoverable resource failures by target port call
+- orders failures by service dependency depth
+- enumerates alternative resource combinations with a Cartesian product
+- bounds the search to the first 12 combinations
+- applies each failure sequentially to one evolving cloned simulator state
+- emits a compound proposal only when at least two service kinds are covered
+
+Sequential simulation matters: a later resource decision sees the assignments, schedule shifts, capacity usage, and downstream consequences created by earlier decisions in the same proposal.
+
+RecoveryProposal and RecoveryApplicationReceipt both retain the backward-compatible primary incident_id and add incident_ids for the full linked incident set.
+
+Applying a recovery proposal does not resolve the underlying incidents. Incidents describe real-world failure state; recovery describes an operational adaptation around that state. Incident lifecycle remains explicit and separate.
+
+### Canonical dual-resource fixture
+
+The deterministic scenario dual-resource-loss injects:
+
+- Tug 14 unavailable for Aurora, modeled impact 40 minutes
+- Bunker Barge 4 unavailable for Aurora, modeled impact 45 minutes
+
+The canonical best compound proposal is:
+
+- Compound recovery: Tug 22 + Bunker Barge 9
+- 2 linked incident IDs
+- tug + bunker service actions
+- 5 recovery actions
+- 124 minutes projected total delay
+- 0 projected blocked services
+- disruption score 149
+
+Single-resource recovery proposals under the same dual failure leave downstream work blocked. The compound plan clears the modeled downstream blockage, so this is an operational planning behavior rather than a UI-only label.
+
+### Compound authority and audit
+
+Compound recovery preserves the existing control boundary:
+
+current operational state + provenance
+  -> deterministic compound proposal
+  -> explicit operator/supervisor approval
+  -> operational mutation
+  -> durable receipt linked to all incident IDs
+
+No proposal auto-applies.
+
+The Recovery Plans UI marks multi-incident proposals as COMPOUND · N INCIDENTS.
+
+### v0.14 release gate
+
+The release is accepted only when all of the following pass:
+
+- 77 backend/domain/API/storage/recovery/security/scenario/adapter/calendar/resilience/confidence/capacity/compound tests
+- Python compile
+- production TypeScript/Vite build
+- production npm audit with 0 relevant vulnerabilities
+- 4 real Chromium Playwright E2Es
+- Docker API and WEB image builds
+- isolated Docker runtime health reports version 0.14.0
+- the runtime dual-resource-loss scenario reproduces the compound proof above with 0 blocked services
+- release diff contains intended files only
+- remote main is advanced non-force
+- lightweight tag v0.14.0 points to the same commit as main
+- remote changed blobs match the exact locally verified content
+
 ## Next engineering milestone
 
-v0.14 should focus on cross-resource recovery, resource-duration calibration, and deployment:
+v0.15 should prioritize product realism and deployment rather than expanding PortFlow into the separate vessel-intelligence runtime:
 
-- richer crane/cargo multi-resource capacity constraints
-- cross-resource recovery optimization across multiple incident classes
-- adapter freshness impact on decision confidence
-- retry/backoff scheduling beyond on-demand snapshot requests
-- richer crane/cargo multi-resource capacity constraints
-- cross-resource recovery optimization across multiple incident classes
-- optional OIDC-compatible production identity adapter
-- hosted portfolio deployment with a real public demo
+- configurable / empirical service-duration calibration while preserving synthetic vs recorded/live provenance
+- retry, backoff, and contingency scheduling
+- hosted production deployment with HTTPS, persistent PostgreSQL, migrations, observability, backups, and resilient startup
+- stronger scenario snapshots, replayability, and evidence controls
+- a documented future event/API boundary for vessel-side operational events without prematurely coupling the codebases

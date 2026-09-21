@@ -453,3 +453,44 @@ def test_live_adapter_preview_reuses_last_good_across_api_requests(monkeypatch):
     assert second.json()["provenance"]["using_cached_records"] is True
     assert second.json()["provenance"]["consecutive_errors"] == 1
     assert second.json()["records"] == first.json()["records"]
+
+
+def test_dual_resource_scenario_exposes_compound_recovery_contract():
+    with TestClient(app) as client:
+        catalog = client.get("/api/v1/scenarios")
+        assert catalog.status_code == 200
+        assert "dual-resource-loss" in {row["id"] for row in catalog.json()}
+
+        response = client.post("/api/v1/scenarios/dual-resource-loss/run")
+        assert response.status_code == 200
+        payload = response.json()
+
+        incidents = [
+            incident
+            for incident in payload["harbor"]["incidents"]
+            if incident["status"] == "active"
+            and incident["incident_type"] in {"tug_unavailable", "bunker_unavailable"}
+        ]
+        assert {incident["incident_type"] for incident in incidents} == {
+            "tug_unavailable",
+            "bunker_unavailable",
+        }
+
+        compound = [
+            proposal
+            for proposal in payload["recovery_proposals"]
+            if len(proposal.get("incident_ids", [])) == 2
+            and {
+                action.get("service_kind")
+                for action in proposal["actions"]
+                if action.get("service_kind")
+            } >= {"tug", "bunker"}
+        ]
+        assert compound
+
+        best = min(compound, key=lambda proposal: proposal["disruption_score"])
+        assert best["title"] == "Compound recovery: Tug 22 + Bunker Barge 9"
+        assert set(best["incident_ids"]) == {incident["id"] for incident in incidents}
+        assert best["projected_total_delay_minutes"] == 124
+        assert best["projected_blocked_services"] == 0
+        assert best["disruption_score"] == 149
