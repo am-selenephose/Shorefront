@@ -136,6 +136,8 @@ test('bunker loss renders the branched DAG and operator recovery clears shared b
     .filter({ hasText: 'Bunker Barge 12' })
     .first()
   await expect(preferredRecovery).toBeVisible()
+  await expect(preferredRecovery).toContainText('DATA CONFIDENCE · DEMO')
+  await expect(preferredRecovery).toContainText('synthetic demo sources')
   await expect(
     preferredRecovery.getByRole('button', { name: 'Authenticate to apply' }),
   ).toBeDisabled()

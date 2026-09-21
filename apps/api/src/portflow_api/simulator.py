@@ -12,7 +12,7 @@ from uuid import uuid4
 from .domain import detect_berth_conflicts, extend_departure, score_port_call, shift_call_from_stage
 from .models import (
     AdapterHealth, AdapterSnapshot, Berth, BerthStatus, ConnectivityState,
-    Coordinate, DataDomain, DataSourceMode, DataSourceProvenance, HarborOverview,
+    Coordinate, DataDomain, DataSourceMode, DataSourceProvenance, DecisionConfidence, HarborOverview,
     Incident, IncidentStatus, IncidentType, LinkMode, OperationsEvent,
     PortCall, PortCallStage, RecoveryAction, RecoveryActionType,
     RecoveryApplicationReceipt, RecoveryProposal, ResourceStatus, ResourceUnavailableWindow, RiskLevel,
@@ -1147,7 +1147,73 @@ class HarborSimulator:
             "disruption_score": disruption_score,
         }
 
+    def _recovery_decision_confidence(self) -> tuple[DecisionConfidence, list[str]]:
+        self._refresh_data_source_freshness()
+        active_ids = self._active_source_ids()
+        by_id = {source.source_id: source for source in self.data_sources}
+        missing_ids = sorted(active_ids - set(by_id))
+        sources = [by_id[source_id] for source_id in sorted(active_ids) if source_id in by_id]
+        warnings: list[str] = []
+
+        if missing_ids:
+            warnings.append(
+                "Missing provenance for active source id(s): " + ", ".join(missing_ids) + "."
+            )
+
+        unhealthy = [
+            source for source in sources
+            if source.stale or source.health in {
+                AdapterHealth.STALE,
+                AdapterHealth.ERROR,
+                AdapterHealth.OFFLINE,
+                AdapterHealth.UNCONFIGURED,
+            }
+        ]
+        if missing_ids or unhealthy:
+            for source in unhealthy:
+                warnings.append(
+                    f"{source.source_id} is {source.health.value}"
+                    + (" and stale." if source.stale else ".")
+                )
+            return DecisionConfidence.LOW, warnings
+
+        degraded = [
+            source for source in sources
+            if source.health == AdapterHealth.DEGRADED or source.using_cached_records
+        ]
+        if degraded:
+            for source in degraded:
+                warnings.append(
+                    f"{source.source_id} is using degraded or cached upstream state."
+                )
+            return DecisionConfidence.MEDIUM, warnings
+
+        modes = {source.mode for source in sources}
+        if sources and modes == {DataSourceMode.SYNTHETIC}:
+            return DecisionConfidence.DEMO, [
+                "All active operational inputs are synthetic demo sources."
+            ]
+
+        if sources and modes == {DataSourceMode.LIVE}:
+            return DecisionConfidence.HIGH, []
+
+        if DataSourceMode.RECORDED in modes:
+            warnings.append(
+                "Recorded replay data is active; recorded fixtures are not live provider observations."
+            )
+        if DataSourceMode.SYNTHETIC in modes:
+            warnings.append(
+                "Operational picture mixes synthetic and external provenance."
+            )
+        if not sources:
+            warnings.append("No active data-source provenance is available.")
+            return DecisionConfidence.LOW, warnings
+
+        return DecisionConfidence.MEDIUM, warnings
+
     def _recovery_state_fingerprint(self, target_call_id: str) -> str:
+        self._refresh_data_source_freshness()
+        active_source_ids = self._active_source_ids()
         relevant = {
             "target_call_id": target_call_id,
             "port_calls": [
@@ -1198,6 +1264,21 @@ class HarborSimulator:
                 "active": self.weather.restriction_active,
                 "reason": self.weather.restriction_reason,
             },
+            "data_sources": [
+                {
+                    "source_id": source.source_id,
+                    "domain": source.domain.value,
+                    "mode": source.mode.value,
+                    "observed_at": source.observed_at.isoformat(),
+                    "stale_after_seconds": source.stale_after_seconds,
+                    "stale": source.stale,
+                    "health": source.health.value,
+                    "using_cached_records": source.using_cached_records,
+                    "consecutive_errors": source.consecutive_errors,
+                }
+                for source in sorted(self.data_sources, key=lambda item: item.source_id)
+                if source.source_id in active_source_ids
+            ],
         }
         payload = json.dumps(relevant, sort_keys=True, separators=(",", ":"))
         return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:16]
@@ -1234,6 +1315,7 @@ class HarborSimulator:
         metrics["disruption_score"] += action_penalty
 
         state_fingerprint = self._recovery_state_fingerprint(target_call_id)
+        decision_confidence, data_quality_warnings = self._recovery_decision_confidence()
 
         return RecoveryProposal(
             id=self._proposal_id(actions, target_call_id, state_fingerprint),
@@ -1248,6 +1330,8 @@ class HarborSimulator:
             projected_blocked_services=metrics["blocked"],
             projected_risk=metrics["risk"],
             disruption_score=metrics["disruption_score"],
+            decision_confidence=decision_confidence,
+            data_quality_warnings=data_quality_warnings,
             rationale=rationale,
             assumptions=[
                 "Delay exposure is modeled at USD 720 per delay minute for this synthetic demo.",

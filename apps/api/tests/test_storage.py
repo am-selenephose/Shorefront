@@ -3,7 +3,7 @@ from pathlib import Path
 
 from portflow_api.adapters import HttpJsonAdapter, configured_live_adapters, get_adapter_snapshot
 from portflow_api.domain import detect_berth_conflicts
-from portflow_api.models import DataDomain, IncidentType, LinkMode, OperatorRole, ResourceUnavailableWindow, ServiceKind
+from portflow_api.models import AdapterHealth, DataDomain, DataSourceMode, DataSourceProvenance, IncidentType, LinkMode, OperatorRole, ResourceUnavailableWindow, ServiceKind
 from portflow_api.simulator import HarborSimulator
 from portflow_api.storage import OperationsStore
 
@@ -969,3 +969,103 @@ def test_configured_live_adapter_instance_is_reused_while_config_is_unchanged(mo
     monkeypatch.setenv("PORTFLOW_AIS_PROVIDER", "Changed AIS")
     third = configured_live_adapters()["live-ais"]
     assert third is not first
+
+
+def test_recovery_confidence_is_demo_for_synthetic_only_inputs():
+    sim = HarborSimulator()
+    sim.inject_incident(IncidentType.BUNKER_UNAVAILABLE, "pc-aurora", 45)
+
+    proposal = sim.generate_recovery_proposals(call_id="pc-aurora")[0]
+    assert proposal.decision_confidence.value == "demo"
+    assert any("synthetic demo" in warning.lower() for warning in proposal.data_quality_warnings)
+
+
+def test_recorded_ingest_changes_recovery_confidence_and_fingerprint():
+    sim = HarborSimulator()
+    sim.inject_incident(IncidentType.BUNKER_UNAVAILABLE, "pc-aurora", 45)
+    before = sim.generate_recovery_proposals(call_id="pc-aurora")[0]
+
+    snapshot = get_adapter_snapshot("recorded-ais")
+    assert snapshot is not None
+    sim.ingest_adapter_snapshot(snapshot)
+    after = sim.generate_recovery_proposals(call_id="pc-aurora")[0]
+
+    assert before.decision_confidence.value == "demo"
+    assert after.decision_confidence.value == "medium"
+    assert after.state_fingerprint != before.state_fingerprint
+    assert any("recorded replay" in warning.lower() for warning in after.data_quality_warnings)
+    assert any("mixes synthetic" in warning.lower() for warning in after.data_quality_warnings)
+
+
+def test_stale_active_source_drives_low_recovery_confidence():
+    sim = HarborSimulator()
+    snapshot = get_adapter_snapshot("recorded-ais")
+    assert snapshot is not None
+    sim.ingest_adapter_snapshot(snapshot)
+
+    source = next(item for item in sim.data_sources if item.source_id == "recorded-ais")
+    source.observed_at = source.observed_at - timedelta(hours=1)
+    source.stale_after_seconds = 1
+
+    sim.inject_incident(IncidentType.BUNKER_UNAVAILABLE, "pc-aurora", 45)
+    proposal = sim.generate_recovery_proposals(call_id="pc-aurora")[0]
+
+    assert proposal.decision_confidence.value == "low"
+    assert any("recorded-ais" in warning for warning in proposal.data_quality_warnings)
+
+
+def test_all_healthy_live_active_sources_can_be_high_confidence():
+    from datetime import datetime, timezone
+
+    sim = HarborSimulator()
+    now = datetime.now(timezone.utc).replace(microsecond=0)
+
+    for vessel in sim.vessels:
+        vessel.source_id = "live-ais-proof"
+    for berth in sim.berths:
+        berth.source_id = "live-berth-proof"
+    for call in sim.port_calls:
+        call.source_id = "live-berth-proof"
+    sim.weather.source_id = "live-weather-proof"
+
+    sim.data_sources = [
+        DataSourceProvenance(
+            source_id="live-ais-proof",
+            domain=DataDomain.AIS,
+            mode=DataSourceMode.LIVE,
+            provider="Live AIS Proof",
+            observed_at=now,
+            received_at=now,
+            stale_after_seconds=120,
+            health=AdapterHealth.HEALTHY,
+            record_count=len(sim.vessels),
+        ),
+        DataSourceProvenance(
+            source_id="live-weather-proof",
+            domain=DataDomain.WEATHER_TIDE,
+            mode=DataSourceMode.LIVE,
+            provider="Live Weather Proof",
+            observed_at=now,
+            received_at=now,
+            stale_after_seconds=300,
+            health=AdapterHealth.HEALTHY,
+            record_count=1,
+        ),
+        DataSourceProvenance(
+            source_id="live-berth-proof",
+            domain=DataDomain.BERTH_PLAN,
+            mode=DataSourceMode.LIVE,
+            provider="Live Berth Proof",
+            observed_at=now,
+            received_at=now,
+            stale_after_seconds=600,
+            health=AdapterHealth.HEALTHY,
+            record_count=len(sim.port_calls),
+        ),
+    ]
+
+    sim.inject_incident(IncidentType.BUNKER_UNAVAILABLE, "pc-aurora", 45)
+    proposal = sim.generate_recovery_proposals(call_id="pc-aurora")[0]
+
+    assert proposal.decision_confidence.value == "high"
+    assert proposal.data_quality_warnings == []

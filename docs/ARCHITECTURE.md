@@ -1,6 +1,6 @@
 # PortFlow architecture
 
-## v0.11
+## v0.12
 
 Synthetic operations and scenario injection feed a deterministic HarborSimulator.
 
@@ -605,3 +605,24 @@ The configured adapter registry preserves an HttpJsonAdapter instance only when 
 Per-adapter locks serialize live snapshot state transitions. A registry lock serializes configuration reconciliation.
 
 The browser projects resilience metadata but does not own retry policy, cache policy, or ingest authority.
+
+
+## v0.12 provenance-bound recovery confidence
+
+Recovery decision confidence is a categorical provenance/health assessment, not a calibrated probability.
+
+Confidence inputs are the active source ids actually referenced by current vessel, berth, port-call, and weather state.
+
+Classification:
+
+    missing/stale/error/offline/unconfigured -> LOW
+    degraded or cached upstream state        -> MEDIUM
+    all active sources synthetic             -> DEMO
+    all active sources healthy live          -> HIGH
+    recorded replay or mixed provenance      -> MEDIUM
+
+RecoveryProposal carries the category and its human-readable data-quality warnings.
+
+The recovery state fingerprint also binds active provenance state. This makes evidence changes proposal-invalidating events rather than presentation-only updates.
+
+The browser only displays confidence and warnings. It does not calculate them and cannot elevate proposal authority.

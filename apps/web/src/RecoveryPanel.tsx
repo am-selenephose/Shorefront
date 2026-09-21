@@ -145,6 +145,23 @@ export function RecoveryPanel({
                 <div><span>CONFLICTS</span><b>{proposal.projected_berth_conflicts}</b></div>
                 <div><span>BLOCKED</span><b>{proposal.projected_blocked_services}</b></div>
                 <div><span>SCORE</span><b>{proposal.disruption_score.toFixed(0)}</b></div>
+                <div>
+                  <span>CONFIDENCE</span>
+                  <b className={'decision-confidence ' + proposal.decision_confidence}>
+                    {proposal.decision_confidence.toUpperCase()}
+                  </b>
+                </div>
+              </div>
+
+              <div className={'recovery-data-quality ' + proposal.decision_confidence}>
+                <b>DATA CONFIDENCE · {proposal.decision_confidence.toUpperCase()}</b>
+                {proposal.data_quality_warnings.length === 0 ? (
+                  <span>All active referenced sources are healthy live observations.</span>
+                ) : (
+                  proposal.data_quality_warnings.slice(0, 3).map(warning => (
+                    <span key={warning}>{warning}</span>
+                  ))
+                )}
               </div>
 
               <div className="recovery-actions">

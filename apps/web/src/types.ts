@@ -9,6 +9,7 @@ export type OperatorRole = 'viewer' | 'operator' | 'supervisor'
 export type DataSourceMode = 'synthetic' | 'recorded' | 'live'
 export type DataDomain = 'ais' | 'weather_tide' | 'berth_plan'
 export type AdapterHealth = 'healthy' | 'degraded' | 'stale' | 'offline' | 'unconfigured' | 'error'
+export type DecisionConfidence = 'demo' | 'low' | 'medium' | 'high'
 
 
 
@@ -226,6 +227,8 @@ export interface RecoveryProposal {
   projected_blocked_services: number
   projected_risk: Risk
   disruption_score: number
+  decision_confidence: DecisionConfidence
+  data_quality_warnings: string[]
   rationale: string[]
   assumptions: string[]
   requires_approval: boolean

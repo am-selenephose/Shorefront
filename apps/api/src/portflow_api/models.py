@@ -89,6 +89,13 @@ class OperatorRole(StrEnum):
     SUPERVISOR = "supervisor"
 
 
+class DecisionConfidence(StrEnum):
+    DEMO = "demo"
+    LOW = "low"
+    MEDIUM = "medium"
+    HIGH = "high"
+
+
 class ScenarioActionType(StrEnum):
     INCIDENT = "incident"
     CONNECTIVITY = "connectivity"
@@ -311,6 +318,8 @@ class RecoveryProposal(BaseModel):
     projected_blocked_services: int
     projected_risk: RiskLevel
     disruption_score: float
+    decision_confidence: DecisionConfidence
+    data_quality_warnings: list[str] = Field(default_factory=list)
     rationale: list[str] = Field(default_factory=list)
     assumptions: list[str] = Field(default_factory=list)
     requires_approval: bool = True

@@ -4,7 +4,7 @@ PortFlow is a port-call operations control tower for continuously updated vessel
 
 ## Status
 
-Private portfolio build, v0.11 resilient live-adapter state + last-known-good preview boundary.
+Private portfolio build, v0.12 provenance-bound recovery confidence + decision staleness.
 
 ## Product principles
 
@@ -1079,9 +1079,102 @@ Current gates:
 - Python compile passes
 - v0.10 calendar, v0.9 DAG/recovery, and v0.8 provenance ownership guarantees remain covered by regression tests
 
+## v0.12 proof
+
+### Provenance-bound decision confidence
+
+Recovery proposals now carry an explicit DecisionConfidence state:
+
+- demo
+- low
+- medium
+- high
+
+This is not a probability score.
+
+It is a deterministic statement about the provenance and health of the active operational inputs that support the current harbor picture.
+
+Rules:
+
+- all active inputs synthetic -> demo
+- missing, stale, offline, unconfigured, or error input -> low
+- degraded/cached input -> medium
+- mixed synthetic/external or recorded-replay input -> medium
+- all active inputs healthy live observations -> high
+
+The model intentionally refuses to call recorded replay or mixed synthetic/external state high-confidence.
+
+### Data-quality warnings on every recovery plan
+
+RecoveryProposal now includes:
+
+- decision_confidence
+- data_quality_warnings
+
+The Recovery Plans UI surfaces both directly beside the operational projection.
+
+Examples include:
+
+- all active operational inputs are synthetic demo sources
+- recorded replay data is active and is not a live provider observation
+- operational picture mixes synthetic and external provenance
+- a named active source is stale
+- a source is using degraded or cached upstream state
+
+The purpose is not to hide a recommendation when data quality is weaker. It is to expose why the operator should trust it less.
+
+### Fresh source data invalidates old recovery proposals
+
+Recovery state fingerprints now include active data-source provenance:
+
+- source id
+- domain
+- mode
+- observed_at
+- stale threshold/state
+- health
+- cached-record state
+- consecutive error count
+
+A new AIS/weather/berth observation can therefore change the recovery fingerprint even when the physical incident itself has not changed.
+
+This closes a stale-decision gap where a proposal could previously remain apparently valid after the operational evidence supporting it had changed.
+
+### Confidence remains advisory, not authority
+
+Decision confidence does not bypass the existing approval model.
+
+A HIGH proposal still requires operator/supervisor approval.
+
+A DEMO/MEDIUM/LOW proposal remains visible for inspection, with its warnings, but the product does not convert the confidence label into autonomous execution.
+
+Authority remains:
+
+current operational state + provenance
+  -> deterministic proposal + confidence
+  -> human approval
+  -> canonical mutation + receipt
+
+### v0.12 verification
+
+Current gates:
+
+- 69 backend/domain/API/storage/recovery/security/scenario/adapter/calendar/resilience/confidence tests pass
+- synthetic-only recovery proposals are explicitly DEMO
+- recorded AIS ingestion changes recovery confidence to MEDIUM and changes the recovery fingerprint
+- stale active provenance drives LOW confidence
+- an all-healthy-live active-source fixture can reach HIGH confidence
+- recovery fingerprints are bound to active source provenance
+- 3 real Chromium Playwright E2Es pass
+- the bunker recovery E2E explicitly verifies DATA CONFIDENCE · DEMO
+- production TypeScript/Vite build passes
+- production npm audit reports 0 vulnerabilities
+- Python compile passes
+- v0.11 adapter resilience, v0.10 calendar, v0.9 DAG/recovery, and v0.8 provenance-ownership guarantees remain covered by regression tests
+
 ## Next engineering milestone
 
-v0.12 should focus on deeper capacity modeling, cross-resource recovery, and deployment:
+v0.13 should focus on deeper capacity modeling, cross-resource recovery, and deployment:
 
 - richer crane/cargo multi-resource capacity constraints
 - cross-resource recovery optimization across multiple incident classes
