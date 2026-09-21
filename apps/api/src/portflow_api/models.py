@@ -4,6 +4,7 @@ from datetime import datetime
 from enum import StrEnum
 from pydantic import BaseModel, Field
 
+
 class VesselStatus(StrEnum):
     INBOUND = "inbound"
     AT_ANCHOR = "at_anchor"
@@ -11,11 +12,13 @@ class VesselStatus(StrEnum):
     BERTHED = "berthed"
     OUTBOUND = "outbound"
 
+
 class BerthStatus(StrEnum):
     AVAILABLE = "available"
     OCCUPIED = "occupied"
     RESERVED = "reserved"
     MAINTENANCE = "maintenance"
+
 
 class RiskLevel(StrEnum):
     LOW = "low"
@@ -23,15 +26,31 @@ class RiskLevel(StrEnum):
     HIGH = "high"
     CRITICAL = "critical"
 
+
 class LinkMode(StrEnum):
     FULL = "full"
     DEGRADED = "degraded"
     CRITICAL = "critical"
     OFFLINE_EDGE = "offline_edge"
 
+
+class IncidentType(StrEnum):
+    PILOT_DELAY = "pilot_delay"
+    TUG_UNAVAILABLE = "tug_unavailable"
+    BERTH_OVERRUN = "berth_overrun"
+    WIND_RESTRICTION = "wind_restriction"
+    CONNECTIVITY_LOSS = "connectivity_loss"
+
+
+class IncidentStatus(StrEnum):
+    ACTIVE = "active"
+    RESOLVED = "resolved"
+
+
 class Coordinate(BaseModel):
     lat: float
     lon: float
+
 
 class Vessel(BaseModel):
     id: str
@@ -46,6 +65,7 @@ class Vessel(BaseModel):
     assigned_berth_id: str | None = None
     cargo_summary: str | None = None
 
+
 class Berth(BaseModel):
     id: str
     name: str
@@ -55,6 +75,7 @@ class Berth(BaseModel):
     position: Coordinate
     vessel_id: str | None = None
 
+
 class PortCallStage(BaseModel):
     code: str
     label: str
@@ -62,6 +83,7 @@ class PortCallStage(BaseModel):
     actual_at: datetime | None = None
     state: str = "pending"
     dependency_codes: list[str] = Field(default_factory=list)
+
 
 class PortCall(BaseModel):
     id: str
@@ -74,6 +96,7 @@ class PortCall(BaseModel):
     risk: RiskLevel = RiskLevel.LOW
     estimated_cost_exposure_usd: float = 0
 
+
 class WeatherState(BaseModel):
     observed_at: datetime
     wind_knots: float
@@ -84,6 +107,7 @@ class WeatherState(BaseModel):
     restriction_active: bool
     restriction_reason: str | None = None
 
+
 class ConnectivityState(BaseModel):
     mode: LinkMode
     primary_link: str
@@ -91,6 +115,21 @@ class ConnectivityState(BaseModel):
     bandwidth_kbps: int
     queued_events: int = 0
     last_transition_at: datetime
+
+
+class Incident(BaseModel):
+    id: str
+    incident_type: IncidentType
+    status: IncidentStatus = IncidentStatus.ACTIVE
+    severity: RiskLevel
+    title: str
+    started_at: datetime
+    target_port_call_id: str | None = None
+    target_berth_id: str | None = None
+    impact_minutes: int = 0
+    details: str
+    resolved_at: datetime | None = None
+
 
 class OperationsEvent(BaseModel):
     id: str
@@ -102,6 +141,8 @@ class OperationsEvent(BaseModel):
     vessel_id: str | None = None
     berth_id: str | None = None
     port_call_id: str | None = None
+    incident_id: str | None = None
+
 
 class HarborOverview(BaseModel):
     generated_at: datetime
@@ -112,6 +153,7 @@ class HarborOverview(BaseModel):
     port_calls: list[PortCall]
     weather: WeatherState
     connectivity: ConnectivityState
+    incidents: list[Incident] = Field(default_factory=list)
     events: list[OperationsEvent]
     metrics: dict[str, float | int]
     data_disclaimer: str

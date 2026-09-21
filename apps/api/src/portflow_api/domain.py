@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import timedelta
 
-from .models import Berth, PortCall, RiskLevel, WeatherState
+from .models import PortCall, RiskLevel, WeatherState
 
 
 @dataclass(frozen=True)
@@ -27,12 +27,11 @@ def detect_berth_conflicts(calls: list[PortCall]) -> list[BerthConflict]:
                 overlap_start = max(left.arrival_eta, right.arrival_eta)
                 overlap_end = min(left.departure_eta, right.departure_eta)
                 if overlap_end > overlap_start:
-                    minutes = int((overlap_end - overlap_start).total_seconds() // 60)
                     conflicts.append(BerthConflict(
                         berth_id=berth_id,
                         first_call_id=left.id,
                         second_call_id=right.id,
-                        overlap_minutes=minutes,
+                        overlap_minutes=int((overlap_end - overlap_start).total_seconds() // 60),
                     ))
     return conflicts
 
@@ -43,12 +42,36 @@ def dependency_violations(call: PortCall) -> list[tuple[str, str]]:
     for stage in call.stages:
         for dep_code in stage.dependency_codes:
             dep = by_code.get(dep_code)
-            if dep is None:
-                violations.append((stage.code, dep_code))
-                continue
-            if dep.planned_at > stage.planned_at:
+            if dep is None or dep.planned_at > stage.planned_at:
                 violations.append((stage.code, dep_code))
     return violations
+
+
+def shift_call_from_stage(call: PortCall, from_stage_code: str, delay_minutes: int) -> None:
+    if delay_minutes <= 0:
+        return
+    codes = [stage.code for stage in call.stages]
+    if from_stage_code not in codes:
+        raise ValueError(f"Unknown stage {from_stage_code}")
+    start_idx = codes.index(from_stage_code)
+    delta = timedelta(minutes=delay_minutes)
+    for stage in call.stages[start_idx:]:
+        stage.planned_at += delta
+    if from_stage_code in {"pilot", "pilot_board", "tug", "berth"}:
+        call.arrival_eta += delta
+    call.departure_eta += delta
+    call.delay_minutes += delay_minutes
+
+
+def extend_departure(call: PortCall, delay_minutes: int) -> None:
+    if delay_minutes <= 0:
+        return
+    delta = timedelta(minutes=delay_minutes)
+    call.departure_eta += delta
+    for stage in call.stages:
+        if stage.code == "departure":
+            stage.planned_at += delta
+    call.delay_minutes += delay_minutes
 
 
 def score_port_call(
@@ -59,7 +82,10 @@ def score_port_call(
     score = 0
     reasons: list[str] = []
 
-    if call.delay_minutes >= 30:
+    if call.delay_minutes >= 60:
+        score += 5
+        reasons.append("delay >= 60 min")
+    elif call.delay_minutes >= 30:
         score += 4
         reasons.append("delay >= 30 min")
     elif call.delay_minutes >= 15:
@@ -81,8 +107,7 @@ def score_port_call(
         score += 4
         reasons.append("berth schedule conflict")
 
-    violations = dependency_violations(call)
-    if violations:
+    if dependency_violations(call):
         score += 4
         reasons.append("invalid port-call dependency ordering")
 

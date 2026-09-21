@@ -40,3 +40,29 @@ def test_conflict_endpoint_contract():
     with TestClient(app) as client:
         data = client.get("/api/v1/berth-conflicts").json()
     assert isinstance(data, list)
+
+
+def test_incident_endpoint_propagates_and_persists():
+    with TestClient(app) as client:
+        client.post("/api/v1/demo/reset")
+        incident = client.post(
+            "/api/v1/incidents",
+            json={
+                "incident_type": "berth_overrun",
+                "target_port_call_id": "pc-glory",
+                "impact_minutes": 90,
+            },
+        )
+        assert incident.status_code == 200
+        body = incident.json()
+        assert body["incident_type"] == "berth_overrun"
+        assert body["target_berth_id"] == "b-07"
+
+        conflicts = client.get("/api/v1/berth-conflicts").json()
+        assert any(c["berth_id"] == "b-07" for c in conflicts)
+
+        ledger = client.get("/api/v1/events?limit=20").json()
+        assert any(e["incident_id"] == body["id"] for e in ledger)
+
+        persisted = client.get("/api/v1/incidents?limit=20").json()
+        assert any(i["id"] == body["id"] for i in persisted)
