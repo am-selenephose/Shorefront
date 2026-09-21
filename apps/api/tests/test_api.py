@@ -102,3 +102,58 @@ def test_offline_replay_api_contract():
 
         receipts = client.get("/api/v1/replay/receipts").json()
         assert len(receipts) >= 2
+
+
+def test_recovery_api_requires_explicit_apply():
+    with TestClient(app) as client:
+        client.post("/api/v1/demo/reset")
+        client.post(
+            "/api/v1/incidents",
+            json={
+                "incident_type": "berth_overrun",
+                "target_port_call_id": "pc-glory",
+                "impact_minutes": 90,
+            },
+        )
+
+        before = client.get("/api/v1/berth-conflicts").json()
+        assert before
+
+        response = client.get("/api/v1/recovery/proposals?call_id=pc-nova")
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["auto_apply"] is False
+        assert payload["authority"] == "human_operator"
+        assert payload["count"] >= 1
+
+        unchanged = client.get("/api/v1/berth-conflicts").json()
+        assert unchanged == before
+
+        proposal_id = payload["proposals"][0]["id"]
+        applied = client.post(f"/api/v1/recovery/proposals/{proposal_id}/apply")
+        assert applied.status_code == 200
+        assert applied.json()["approved_by"] == "human_operator"
+
+        after = client.get("/api/v1/berth-conflicts").json()
+        assert after == []
+
+
+def test_recovery_receipt_api_exposes_operator_decision():
+    with TestClient(app) as client:
+        client.post("/api/v1/demo/reset")
+        client.post(
+            "/api/v1/incidents",
+            json={
+                "incident_type": "berth_overrun",
+                "target_port_call_id": "pc-glory",
+                "impact_minutes": 90,
+            },
+        )
+        payload = client.get("/api/v1/recovery/proposals?call_id=pc-nova").json()
+        proposal_id = payload["proposals"][0]["id"]
+        client.post(f"/api/v1/recovery/proposals/{proposal_id}/apply")
+
+        receipts = client.get("/api/v1/recovery/receipts").json()
+        assert len(receipts) == 1
+        assert receipts[0]["proposal_id"] == proposal_id
+        assert receipts[0]["approved_by"] == "human_operator"

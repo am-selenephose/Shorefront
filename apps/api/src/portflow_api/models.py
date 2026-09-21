@@ -72,6 +72,12 @@ class ResourceStatus(StrEnum):
     UNAVAILABLE = "unavailable"
 
 
+class RecoveryActionType(StrEnum):
+    REASSIGN_RESOURCE = "reassign_resource"
+    MOVE_BERTH = "move_berth"
+    SHIFT_WINDOW = "shift_window"
+
+
 class Coordinate(BaseModel):
     lat: float
     lon: float
@@ -151,6 +157,7 @@ class Incident(BaseModel):
     started_at: datetime
     target_port_call_id: str | None = None
     target_berth_id: str | None = None
+    target_resource_id: str | None = None
     impact_minutes: int = 0
     details: str
     resolved_at: datetime | None = None
@@ -177,6 +184,48 @@ class ServiceStep(BaseModel):
     state: ServiceState = ServiceState.READY
     resource_id: str | None = None
     dependency_step_ids: list[str] = Field(default_factory=list)
+
+
+
+
+class RecoveryAction(BaseModel):
+    action_type: RecoveryActionType
+    port_call_id: str
+    service_kind: ServiceKind | None = None
+    from_resource_id: str | None = None
+    to_resource_id: str | None = None
+    from_berth_id: str | None = None
+    to_berth_id: str | None = None
+    shift_minutes: int = 0
+
+
+class RecoveryProposal(BaseModel):
+    id: str
+    title: str
+    target_port_call_id: str
+    incident_id: str | None = None
+    actions: list[RecoveryAction]
+    projected_total_delay_minutes: int
+    projected_modeled_cost_usd: float
+    projected_berth_conflicts: int
+    projected_blocked_services: int
+    projected_risk: RiskLevel
+    disruption_score: float
+    rationale: list[str] = Field(default_factory=list)
+    assumptions: list[str] = Field(default_factory=list)
+    requires_approval: bool = True
+
+
+class RecoveryApplicationReceipt(BaseModel):
+    proposal_id: str
+    applied_at: datetime
+    target_port_call_id: str
+    actions: list[RecoveryAction]
+    resulting_berth_conflicts: int
+    resulting_blocked_services: int
+    resulting_total_delay_minutes: int
+    resulting_modeled_cost_usd: float
+    approved_by: str = "human_operator"
 
 
 class ReplayReceipt(BaseModel):

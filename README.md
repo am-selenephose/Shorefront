@@ -4,7 +4,7 @@ PortFlow is a port-call operations control tower for live vessel, berth, weather
 
 ## Status
 
-Private portfolio build, v0.3 resilient operations core.
+Private portfolio build, v0.4 recovery decision-support core.
 
 ## Product principles
 
@@ -107,7 +107,7 @@ Open http://localhost:5173.
 
 Current local verification target:
 
-- 12 backend/domain/API/storage tests
+- 24 backend/domain/API/storage/recovery tests
 - production web build
 - zero production npm vulnerabilities
 
@@ -174,6 +174,93 @@ The API exposes an explainable dependency graph for each port call.
 - POST /api/v1/replay
 - GET /api/v1/replay/receipts
 - GET /api/v1/port-calls/{call_id}/dependency-graph
+
+## v0.4 proof
+
+### Recovery proposal engine
+
+PortFlow now evaluates corrective actions without mutating live state.
+
+Current recovery actions:
+
+- reassign a service resource
+- move a vessel to a compatible clear berth
+- shift an operating window
+
+Each proposal is simulated against a cloned HarborOverview before it is ranked.
+
+Proposal output includes:
+
+- projected total delay minutes
+- projected modeled delay exposure
+- projected berth conflicts
+- projected blocked services
+- projected target-call risk
+- disruption score
+- rationale
+- explicit assumptions
+- approval-required flag
+
+The engine never auto-applies a proposal.
+
+### Human authority boundary
+
+Recovery execution is a separate explicit action.
+
+Flow:
+
+incident -> generate proposals -> compare projections -> operator approves -> apply -> durable receipt
+
+Applied recovery decisions produce a RecoveryApplicationReceipt with:
+
+- proposal id
+- application time
+- target port call
+- exact actions
+- resulting conflicts
+- resulting blocked services
+- resulting total delay
+- resulting modeled cost
+- approved_by = human_operator
+
+Receipts are persisted in the SQL operations store and exposed by API.
+
+### Demonstrated recovery cases
+
+Berth overrun:
+
+B07 overrun creates a 55-minute modeled overlap with pc-nova.
+
+Ranked options include:
+
+1. move pc-nova to Berth 15
+2. hold pc-nova until B07 clears plus operating buffer
+
+The current synthetic ranking selects Berth 15:
+
+- conflicts: 1 -> 0
+- blocked services: -> 0
+- current modeled arrival window preserved
+- B15 crane assignment updates to crane-b15-a
+
+Tug failure:
+
+Tug 14 failure affects every modeled call assigned to that tug, not only the incident's initiating vessel.
+
+The recovery engine generates a compound plan that moves the affected Tug 14 workload to Tug 22 and shifts only the window required to maintain the synthetic 45-minute resource separation.
+
+Runtime proof:
+
+- global blocked services: -> 0
+- pc-aurora tug state: assigned
+- pc-aurora tug resource: tug-22
+- downstream departure chain: unblocked
+
+### Recovery APIs
+
+- GET /api/v1/recovery/proposals
+- POST /api/v1/recovery/proposals/{proposal_id}/apply
+- GET /api/v1/recovery/receipts
 
 ## Next engineering milestone
 

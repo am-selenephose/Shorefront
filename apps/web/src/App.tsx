@@ -2,8 +2,9 @@ import { useEffect, useMemo, useState } from 'react'
 import { BerthTimeline } from './BerthTimeline'
 import { HarborMap } from './HarborMap'
 import { IncidentControls } from './IncidentControls'
+import { RecoveryPanel } from './RecoveryPanel'
 import { ResourceBoard, ServiceChain } from './ServiceChain'
-import type { HarborState, IncidentType, LinkMode, PortCall } from './types'
+import type { HarborState, IncidentType, LinkMode, PortCall, RecoveryProposal } from './types'
 import './styles.css'
 
 
@@ -60,6 +61,7 @@ export default function App() {
   const [state, setState] = useState<HarborState | null>(null)
   const [online, setOnline] = useState(false)
   const [busy, setBusy] = useState(false)
+  const [recoveryProposals, setRecoveryProposals] = useState<RecoveryProposal[]>([])
 
   useEffect(() => {
     let ws: WebSocket | undefined
@@ -89,6 +91,26 @@ export default function App() {
     }
   }, [])
 
+
+  useEffect(() => {
+    if (!state) return
+    const controller = new AbortController()
+
+    fetch('/api/v1/recovery/proposals', { signal: controller.signal })
+      .then(response => response.ok ? response.json() : Promise.reject(new Error('recovery query failed')))
+      .then(payload => setRecoveryProposals(payload.proposals || []))
+      .catch(error => {
+        if (error?.name !== 'AbortError') setRecoveryProposals([])
+      })
+
+    return () => controller.abort()
+  }, [
+    state?.metrics.active_incidents,
+    state?.metrics.berth_conflicts,
+    state?.metrics.blocked_services,
+    state?.metrics.delayed_services,
+  ])
+
   const exposure = useMemo(
     () => state?.port_calls.reduce((sum, call) => sum + call.estimated_cost_exposure_usd, 0) ?? 0,
     [state],
@@ -97,6 +119,13 @@ export default function App() {
   async function refresh() {
     const response = await fetch('/api/v1/harbor')
     if (response.ok) setState(await response.json())
+  }
+
+  async function refreshRecovery() {
+    const response = await fetch('/api/v1/recovery/proposals')
+    if (!response.ok) return
+    const payload = await response.json()
+    setRecoveryProposals(payload.proposals || [])
   }
 
   async function setMode(mode: LinkMode) {
@@ -136,12 +165,29 @@ export default function App() {
     }
   }
 
+
+  async function applyRecovery(proposalId: string) {
+    setBusy(true)
+    try {
+      const response = await fetch('/api/v1/recovery/proposals/' + proposalId + '/apply', {
+        method: 'POST',
+      })
+      if (!response.ok) throw new Error(await response.text())
+      await refresh()
+      await refreshRecovery()
+    } finally {
+      setBusy(false)
+    }
+  }
+
   async function resetDemo() {
     setBusy(true)
     try {
       const response = await fetch('/api/v1/demo/reset', { method: 'POST' })
       if (!response.ok) throw new Error(await response.text())
       setState(await response.json())
+      setRecoveryProposals([])
+      await refreshRecovery()
     } finally {
       setBusy(false)
     }
@@ -173,6 +219,7 @@ export default function App() {
           <a href="#port-calls">Port Calls</a>
           <a href="#incidents">Incidents</a>
           <a href="#resources">Resources</a>
+          <a href="#recovery">Recovery Engine</a>
           <a href="#ledger">Operations Ledger</a>
         </nav>
 
@@ -337,6 +384,15 @@ export default function App() {
               <ResourceBoard state={state} />
             </div>
           </div>
+        </section>
+
+
+        <section className="panel recovery-shell" id="recovery">
+          <RecoveryPanel
+            proposals={recoveryProposals}
+            busy={busy}
+            onApply={applyRecovery}
+          />
         </section>
 
         <section className="panel feed-panel" id="ledger">

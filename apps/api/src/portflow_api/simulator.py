@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from copy import deepcopy
 from datetime import datetime, timedelta, timezone
+import hashlib
+import json
 import math
 import random
 from typing import Callable
@@ -11,8 +13,10 @@ from .domain import detect_berth_conflicts, extend_departure, score_port_call, s
 from .models import (
     Berth, BerthStatus, ConnectivityState, Coordinate, HarborOverview,
     Incident, IncidentStatus, IncidentType, LinkMode, OperationsEvent,
-    PortCall, PortCallStage, ResourceStatus, RiskLevel, ServiceKind,
-    ServiceResource, ServiceState, ServiceStep, Vessel, VesselStatus, WeatherState,
+    PortCall, PortCallStage, RecoveryAction, RecoveryActionType,
+    RecoveryApplicationReceipt, RecoveryProposal, ResourceStatus, RiskLevel,
+    ServiceKind, ServiceResource, ServiceState, ServiceStep, Vessel, VesselStatus,
+    WeatherState,
 )
 
 
@@ -22,6 +26,7 @@ SnapshotSink = Callable[[HarborOverview], None]
 SpoolSink = Callable[[OperationsEvent], bool]
 ReplaySink = Callable[[], int]
 PendingCount = Callable[[], int]
+RecoverySink = Callable[[RecoveryApplicationReceipt], None]
 
 
 class HarborSimulator:
@@ -35,6 +40,7 @@ class HarborSimulator:
         spool_sink: SpoolSink | None = None,
         replay_sink: ReplaySink | None = None,
         pending_count: PendingCount | None = None,
+        recovery_sink: RecoverySink | None = None,
     ):
         self.rng = random.Random(seed)
         self.event_sink = event_sink
@@ -43,6 +49,7 @@ class HarborSimulator:
         self.spool_sink = spool_sink
         self.replay_sink = replay_sink
         self.pending_count = pending_count
+        self.recovery_sink = recovery_sink
         self.tick_count = 0
 
         if initial is not None:
@@ -97,6 +104,11 @@ class HarborSimulator:
         # Backward-compatible restore for snapshots created before v0.3.
         if not self.service_resources:
             self.service_resources = self._make_service_resources()
+        else:
+            existing_ids = {resource.id for resource in self.service_resources}
+            for resource in self._make_service_resources():
+                if resource.id not in existing_ids:
+                    self.service_resources.append(resource)
         if not self.service_steps:
             self.service_steps = self._make_service_steps()
 
@@ -203,6 +215,26 @@ class HarborSimulator:
                 assigned_port_call_ids=["pc-lima", "pc-nova"],
             ),
             ServiceResource(
+                id="b-07", kind=ServiceKind.BERTH, name="Berth 07",
+                status=ResourceStatus.ASSIGNED, capacity=1,
+                assigned_port_call_ids=["pc-glory", "pc-nova"],
+            ),
+            ServiceResource(
+                id="b-09", kind=ServiceKind.BERTH, name="Berth 09",
+                status=ResourceStatus.ASSIGNED, capacity=1,
+                assigned_port_call_ids=["pc-lima"],
+            ),
+            ServiceResource(
+                id="b-12", kind=ServiceKind.BERTH, name="Berth 12",
+                status=ResourceStatus.ASSIGNED, capacity=1,
+                assigned_port_call_ids=["pc-aurora"],
+            ),
+            ServiceResource(
+                id="b-15", kind=ServiceKind.BERTH, name="Berth 15",
+                status=ResourceStatus.AVAILABLE, capacity=1,
+                assigned_port_call_ids=[],
+            ),
+            ServiceResource(
                 id="crane-b07-a", kind=ServiceKind.CRANE, name="B07 Crane A",
                 status=ResourceStatus.ASSIGNED, capacity=1,
                 assigned_port_call_ids=["pc-glory", "pc-nova"],
@@ -216,6 +248,11 @@ class HarborSimulator:
                 id="crane-b12-a", kind=ServiceKind.CRANE, name="B12 Crane A",
                 status=ResourceStatus.ASSIGNED, capacity=1,
                 assigned_port_call_ids=["pc-aurora"],
+            ),
+            ServiceResource(
+                id="crane-b15-a", kind=ServiceKind.CRANE, name="B15 Crane A",
+                status=ResourceStatus.AVAILABLE, capacity=1,
+                assigned_port_call_ids=[],
             ),
             ServiceResource(
                 id="customs-team-1", kind=ServiceKind.CUSTOMS, name="Customs Team 1",
@@ -304,9 +341,24 @@ class HarborSimulator:
             if incident.incident_type == IncidentType.PILOT_DELAY and incident.target_port_call_id:
                 self._mark_step(incident.target_port_call_id, ServiceKind.PILOT, ServiceState.DELAYED)
                 self._mark_resource_for_call(incident.target_port_call_id, ServiceKind.PILOT, ResourceStatus.DELAYED)
-            elif incident.incident_type == IncidentType.TUG_UNAVAILABLE and incident.target_port_call_id:
-                self._mark_step(incident.target_port_call_id, ServiceKind.TUG, ServiceState.BLOCKED)
-                self._mark_resource_for_call(incident.target_port_call_id, ServiceKind.TUG, ResourceStatus.UNAVAILABLE)
+            elif incident.incident_type == IncidentType.TUG_UNAVAILABLE:
+                if incident.target_resource_id:
+                    resource = next(
+                        (item for item in self.service_resources if item.id == incident.target_resource_id),
+                        None,
+                    )
+                    if resource:
+                        resource.status = ResourceStatus.UNAVAILABLE
+                    for step in self.service_steps:
+                        if step.kind == ServiceKind.TUG and step.resource_id == incident.target_resource_id:
+                            step.state = ServiceState.BLOCKED
+                elif incident.target_port_call_id:
+                    self._mark_step(incident.target_port_call_id, ServiceKind.TUG, ServiceState.BLOCKED)
+                    self._mark_resource_for_call(
+                        incident.target_port_call_id,
+                        ServiceKind.TUG,
+                        ResourceStatus.UNAVAILABLE,
+                    )
             elif incident.incident_type == IncidentType.WIND_RESTRICTION:
                 for call in self.port_calls:
                     vessel = next((v for v in self.vessels if v.id == call.vessel_id), None)
@@ -392,6 +444,483 @@ class HarborSimulator:
                 for dep in step.dependency_step_ids
             ],
         }
+
+
+    def _berth_compatible(self, call: PortCall, berth: Berth) -> bool:
+        if berth.status == BerthStatus.MAINTENANCE:
+            return False
+        vessel = next((item for item in self.vessels if item.id == call.vessel_id), None)
+        if vessel is None:
+            return False
+        if "Container" in vessel.vessel_type:
+            return "Container" in berth.terminal
+        if "tanker" in vessel.vessel_type.lower():
+            return "Liquid" in berth.terminal
+        return True
+
+    def _berth_free_for_call(self, berth_id: str, target: PortCall) -> bool:
+        for other in self.port_calls:
+            if other.id == target.id or other.berth_id != berth_id:
+                continue
+            if target.arrival_eta < other.departure_eta and other.arrival_eta < target.departure_eta:
+                return False
+        return True
+
+    def _resource_shift_needed(
+        self,
+        target_call_id: str,
+        kind: ServiceKind,
+        resource_id: str,
+        separation_minutes: int = 45,
+    ) -> int:
+        target = next(
+            (
+                step for step in self.service_steps
+                if step.port_call_id == target_call_id and step.kind == kind
+            ),
+            None,
+        )
+        if target is None:
+            return 0
+
+        proposed = target.planned_at
+        separation = timedelta(minutes=separation_minutes)
+        other_steps = sorted(
+            [
+                step for step in self.service_steps
+                if step.port_call_id != target_call_id
+                and step.kind == kind
+                and step.resource_id == resource_id
+            ],
+            key=lambda item: item.planned_at,
+        )
+
+        for other in other_steps:
+            if abs((proposed - other.planned_at).total_seconds()) < separation.total_seconds():
+                proposed = other.planned_at + separation
+
+        return max(0, int((proposed - target.planned_at).total_seconds() // 60))
+
+    def _apply_recovery_action(self, action: RecoveryAction) -> None:
+        call = self._find_call(action.port_call_id, action.port_call_id)
+
+        if action.action_type == RecoveryActionType.REASSIGN_RESOURCE:
+            if action.service_kind is None or action.to_resource_id is None:
+                raise ValueError("Resource reassignment requires service_kind and to_resource_id")
+
+            step = next(
+                (
+                    item for item in self.service_steps
+                    if item.port_call_id == call.id and item.kind == action.service_kind
+                ),
+                None,
+            )
+            target_resource = next(
+                (
+                    item for item in self.service_resources
+                    if item.id == action.to_resource_id and item.kind == action.service_kind
+                ),
+                None,
+            )
+            if step is None or target_resource is None:
+                raise ValueError("Recovery resource or service step is no longer available")
+
+            old_resource = next(
+                (item for item in self.service_resources if item.id == step.resource_id),
+                None,
+            )
+            if old_resource and call.id in old_resource.assigned_port_call_ids:
+                old_resource.assigned_port_call_ids.remove(call.id)
+
+            if call.id not in target_resource.assigned_port_call_ids:
+                target_resource.assigned_port_call_ids.append(call.id)
+            step.resource_id = target_resource.id
+
+        elif action.action_type == RecoveryActionType.MOVE_BERTH:
+            if action.to_berth_id is None:
+                raise ValueError("Berth move requires to_berth_id")
+
+            new_berth = next(
+                (item for item in self.berths if item.id == action.to_berth_id),
+                None,
+            )
+            if new_berth is None or not self._berth_compatible(call, new_berth):
+                raise ValueError("Recovery berth is unavailable or incompatible")
+
+            old_berth_id = call.berth_id
+            call.berth_id = new_berth.id
+
+            vessel = next((item for item in self.vessels if item.id == call.vessel_id), None)
+            if vessel:
+                vessel.assigned_berth_id = new_berth.id
+
+            berth_step = next(
+                (
+                    item for item in self.service_steps
+                    if item.port_call_id == call.id and item.kind == ServiceKind.BERTH
+                ),
+                None,
+            )
+            if berth_step:
+                berth_step.resource_id = new_berth.id
+
+            old_berth_resource = next(
+                (item for item in self.service_resources if item.id == old_berth_id),
+                None,
+            )
+            new_berth_resource = next(
+                (item for item in self.service_resources if item.id == new_berth.id),
+                None,
+            )
+            if old_berth_resource and call.id in old_berth_resource.assigned_port_call_ids:
+                old_berth_resource.assigned_port_call_ids.remove(call.id)
+            if new_berth_resource and call.id not in new_berth_resource.assigned_port_call_ids:
+                new_berth_resource.assigned_port_call_ids.append(call.id)
+
+            crane_step = next(
+                (
+                    item for item in self.service_steps
+                    if item.port_call_id == call.id and item.kind == ServiceKind.CRANE
+                ),
+                None,
+            )
+            if crane_step:
+                old_crane = next(
+                    (item for item in self.service_resources if item.id == crane_step.resource_id),
+                    None,
+                )
+                new_crane_id = "crane-" + new_berth.id.replace("-", "") + "-a"
+                new_crane = next(
+                    (item for item in self.service_resources if item.id == new_crane_id),
+                    None,
+                )
+                if old_crane and call.id in old_crane.assigned_port_call_ids:
+                    old_crane.assigned_port_call_ids.remove(call.id)
+                if new_crane:
+                    if call.id not in new_crane.assigned_port_call_ids:
+                        new_crane.assigned_port_call_ids.append(call.id)
+                    crane_step.resource_id = new_crane.id
+
+        elif action.action_type == RecoveryActionType.SHIFT_WINDOW:
+            if action.shift_minutes <= 0:
+                return
+            stage_by_kind = {
+                ServiceKind.PILOT: "pilot",
+                ServiceKind.TUG: "tug",
+                ServiceKind.BERTH: "berth",
+                ServiceKind.CRANE: "cargo",
+                ServiceKind.CARGO: "cargo",
+                ServiceKind.CUSTOMS: "departure",
+                ServiceKind.DEPARTURE: "departure",
+            }
+            stage_code = stage_by_kind.get(action.service_kind or ServiceKind.BERTH, "berth")
+            shift_call_from_stage(call, stage_code, action.shift_minutes)
+
+        else:
+            raise ValueError(f"Unsupported recovery action: {action.action_type}")
+
+    def _apply_recovery_actions(self, actions: list[RecoveryAction]) -> None:
+        for action in actions:
+            self._apply_recovery_action(action)
+        self._recalculate_services()
+        self._recalculate_risks()
+
+    def _recovery_metrics(self, call_id: str) -> dict:
+        self._recalculate_services()
+        self._recalculate_risks()
+        target = self._find_call(call_id, call_id)
+        total_delay = int(sum(max(0, call.delay_minutes) for call in self.port_calls))
+        blocked = sum(
+            1 for step in self.service_steps
+            if step.state == ServiceState.BLOCKED
+        )
+        conflicts = len(detect_berth_conflicts(self.port_calls))
+        modeled_cost = float(total_delay * 720)
+        disruption_score = float(
+            total_delay
+            + conflicts * 240
+            + blocked * 60
+        )
+        return {
+            "total_delay": total_delay,
+            "blocked": blocked,
+            "conflicts": conflicts,
+            "modeled_cost": modeled_cost,
+            "risk": target.risk,
+            "disruption_score": disruption_score,
+        }
+
+    def _proposal_id(self, actions: list[RecoveryAction]) -> str:
+        payload = json.dumps(
+            [action.model_dump(mode="json") for action in actions],
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        return "rec-" + hashlib.sha256(payload.encode("utf-8")).hexdigest()[:14]
+
+    def _project_recovery(
+        self,
+        title: str,
+        target_call_id: str,
+        actions: list[RecoveryAction],
+        rationale: list[str],
+        incident_id: str | None = None,
+    ) -> RecoveryProposal:
+        clone = HarborSimulator(initial=self.overview())
+        clone._apply_recovery_actions(actions)
+        metrics = clone._recovery_metrics(target_call_id)
+        action_penalty = 5 * len(actions)
+        metrics["disruption_score"] += action_penalty
+
+        return RecoveryProposal(
+            id=self._proposal_id(actions),
+            title=title,
+            target_port_call_id=target_call_id,
+            incident_id=incident_id,
+            actions=actions,
+            projected_total_delay_minutes=metrics["total_delay"],
+            projected_modeled_cost_usd=metrics["modeled_cost"],
+            projected_berth_conflicts=metrics["conflicts"],
+            projected_blocked_services=metrics["blocked"],
+            projected_risk=metrics["risk"],
+            disruption_score=metrics["disruption_score"],
+            rationale=rationale,
+            assumptions=[
+                "Delay exposure is modeled at USD 720 per delay minute for this synthetic demo.",
+                "Disruption score adds 240 points per berth conflict and 60 per blocked service.",
+                "Pilot/tug synthetic resource separation uses a 45-minute operating window.",
+                "Proposal output is decision support and requires explicit operator approval.",
+            ],
+            requires_approval=True,
+        )
+
+    def generate_recovery_proposals(
+        self,
+        call_id: str | None = None,
+    ) -> list[RecoveryProposal]:
+        proposals: list[RecoveryProposal] = []
+
+        # Resource recovery for unavailable tugs.
+        for incident in self.incidents:
+            if (
+                incident.status != IncidentStatus.ACTIVE
+                or incident.incident_type != IncidentType.TUG_UNAVAILABLE
+                or not incident.target_port_call_id
+                or not incident.target_resource_id
+            ):
+                continue
+
+            target_call_id = incident.target_port_call_id
+            if call_id and target_call_id != call_id:
+                continue
+
+            affected_steps = sorted(
+                [
+                    step for step in self.service_steps
+                    if step.kind == ServiceKind.TUG
+                    and step.resource_id == incident.target_resource_id
+                ],
+                key=lambda item: item.planned_at,
+            )
+            if not affected_steps:
+                continue
+
+            alternatives = [
+                resource for resource in self.service_resources
+                if resource.kind == ServiceKind.TUG
+                and resource.id != incident.target_resource_id
+                and resource.status != ResourceStatus.UNAVAILABLE
+            ]
+
+            for resource in alternatives:
+                working = HarborSimulator(initial=self.overview())
+                actions: list[RecoveryAction] = []
+                rationale = [
+                    f"{incident.target_resource_id} is unavailable for {len(affected_steps)} modeled tug assignment(s).",
+                    f"Move the affected workload to {resource.name} instead of recovering only one vessel.",
+                ]
+
+                for affected_step in affected_steps:
+                    working_step = next(
+                        (
+                            step for step in working.service_steps
+                            if step.port_call_id == affected_step.port_call_id
+                            and step.kind == ServiceKind.TUG
+                        ),
+                        None,
+                    )
+                    if working_step is None:
+                        continue
+
+                    reassign = RecoveryAction(
+                        action_type=RecoveryActionType.REASSIGN_RESOURCE,
+                        port_call_id=affected_step.port_call_id,
+                        service_kind=ServiceKind.TUG,
+                        from_resource_id=working_step.resource_id,
+                        to_resource_id=resource.id,
+                    )
+                    working._apply_recovery_actions([reassign])
+                    actions.append(reassign)
+
+                    shift = working._resource_shift_needed(
+                        affected_step.port_call_id,
+                        ServiceKind.TUG,
+                        resource.id,
+                    )
+                    if shift:
+                        shift_action = RecoveryAction(
+                            action_type=RecoveryActionType.SHIFT_WINDOW,
+                            port_call_id=affected_step.port_call_id,
+                            service_kind=ServiceKind.TUG,
+                            shift_minutes=shift,
+                        )
+                        working._apply_recovery_actions([shift_action])
+                        actions.append(shift_action)
+                        rationale.append(
+                            f"Shift {affected_step.port_call_id} by {shift} min to preserve the synthetic 45-minute tug separation."
+                        )
+                    else:
+                        rationale.append(
+                            f"{affected_step.port_call_id} fits {resource.name}'s current synthetic operating window."
+                        )
+
+                proposals.append(
+                    self._project_recovery(
+                        title=f"Recover {incident.target_resource_id} workload with {resource.name}",
+                        target_call_id=target_call_id,
+                        actions=actions,
+                        rationale=rationale,
+                        incident_id=incident.id,
+                    )
+                )
+
+        # Berth conflict recovery.
+        for conflict in detect_berth_conflicts(self.port_calls):
+            target_call_id = conflict.second_call_id
+            if call_id and target_call_id != call_id:
+                continue
+            target = self._find_call(target_call_id, target_call_id)
+            related_incident = next(
+                (
+                    incident for incident in self.incidents
+                    if incident.status == IncidentStatus.ACTIVE
+                    and incident.target_berth_id == conflict.berth_id
+                ),
+                None,
+            )
+
+            candidate_berths = [
+                berth for berth in self.berths
+                if berth.id != target.berth_id
+                and self._berth_compatible(target, berth)
+                and self._berth_free_for_call(berth.id, target)
+            ]
+
+            for berth in candidate_berths[:2]:
+                actions = [
+                    RecoveryAction(
+                        action_type=RecoveryActionType.MOVE_BERTH,
+                        port_call_id=target.id,
+                        service_kind=ServiceKind.BERTH,
+                        from_berth_id=target.berth_id,
+                        to_berth_id=berth.id,
+                    )
+                ]
+                proposals.append(
+                    self._project_recovery(
+                        title=f"Move {target.id} to {berth.name}",
+                        target_call_id=target.id,
+                        actions=actions,
+                        rationale=[
+                            f"{target.berth_id} has a {conflict.overlap_minutes}-minute modeled overlap.",
+                            f"{berth.name} is compatible with the synthetic vessel/terminal rules and is clear for the modeled window.",
+                            "Move the berth assignment while preserving the current arrival window.",
+                        ],
+                        incident_id=related_incident.id if related_incident else None,
+                    )
+                )
+
+            shift = conflict.overlap_minutes + 15
+            actions = [
+                RecoveryAction(
+                    action_type=RecoveryActionType.SHIFT_WINDOW,
+                    port_call_id=target.id,
+                    service_kind=ServiceKind.BERTH,
+                    shift_minutes=shift,
+                )
+            ]
+            proposals.append(
+                self._project_recovery(
+                    title=f"Hold {target.id} for {shift} min",
+                    target_call_id=target.id,
+                    actions=actions,
+                    rationale=[
+                        f"Wait for {conflict.berth_id} to clear its {conflict.overlap_minutes}-minute overlap.",
+                        "Add a 15-minute synthetic operating buffer before the next berth window.",
+                    ],
+                    incident_id=related_incident.id if related_incident else None,
+                )
+            )
+
+        unique: dict[str, RecoveryProposal] = {}
+        for proposal in proposals:
+            unique[proposal.id] = proposal
+
+        return sorted(
+            unique.values(),
+            key=lambda proposal: (
+                proposal.disruption_score,
+                proposal.projected_modeled_cost_usd,
+                proposal.id,
+            ),
+        )
+
+    def apply_recovery_proposal(
+        self,
+        proposal_id: str,
+    ) -> RecoveryApplicationReceipt:
+        proposal = next(
+            (
+                item for item in self.generate_recovery_proposals()
+                if item.id == proposal_id
+            ),
+            None,
+        )
+        if proposal is None:
+            raise ValueError("Recovery proposal is stale, unavailable, or already applied")
+
+        self._apply_recovery_actions(proposal.actions)
+        metrics = self._recovery_metrics(proposal.target_port_call_id)
+
+        receipt = RecoveryApplicationReceipt(
+            proposal_id=proposal.id,
+            applied_at=datetime.now(timezone.utc).replace(microsecond=0),
+            target_port_call_id=proposal.target_port_call_id,
+            actions=proposal.actions,
+            resulting_berth_conflicts=metrics["conflicts"],
+            resulting_blocked_services=metrics["blocked"],
+            resulting_total_delay_minutes=metrics["total_delay"],
+            resulting_modeled_cost_usd=metrics["modeled_cost"],
+            approved_by="human_operator",
+        )
+
+        if self.recovery_sink:
+            self.recovery_sink(receipt)
+
+        self._emit(
+            "recovery",
+            RiskLevel.LOW if metrics["conflicts"] == 0 and metrics["blocked"] == 0 else RiskLevel.MEDIUM,
+            f"Recovery applied: {proposal.title}",
+            (
+                f"Operator-approved proposal {proposal.id}; "
+                f"{metrics['conflicts']} conflict(s), {metrics['blocked']} blocked service(s), "
+                f"{metrics['total_delay']} total modeled delay minutes remain."
+            ),
+            port_call_id=proposal.target_port_call_id,
+            incident_id=proposal.incident_id,
+        )
+        self._persist()
+        return receipt
 
     def _emit(self, category: str, severity: RiskLevel, title: str, message: str, **refs) -> OperationsEvent:
         event = OperationsEvent(
@@ -509,8 +1038,15 @@ class HarborSimulator:
         now = datetime.now(timezone.utc).replace(microsecond=0)
         incident_id = f"inc-{uuid4().hex[:12]}"
 
+        target_resource_id: str | None = None
+
         if incident_type == IncidentType.PILOT_DELAY:
             call = self._find_call(target_port_call_id, "pc-aurora")
+            pilot_step = next(
+                (step for step in self.service_steps if step.port_call_id == call.id and step.kind == ServiceKind.PILOT),
+                None,
+            )
+            target_resource_id = pilot_step.resource_id if pilot_step else None
             impact = impact_minutes or 25
             shift_call_from_stage(call, "pilot", impact)
             severity = RiskLevel.HIGH
@@ -520,6 +1056,11 @@ class HarborSimulator:
 
         elif incident_type == IncidentType.TUG_UNAVAILABLE:
             call = self._find_call(target_port_call_id, "pc-aurora")
+            tug_step = next(
+                (step for step in self.service_steps if step.port_call_id == call.id and step.kind == ServiceKind.TUG),
+                None,
+            )
+            target_resource_id = tug_step.resource_id if tug_step else None
             impact = impact_minutes or 40
             shift_call_from_stage(call, "tug", impact)
             severity = RiskLevel.HIGH
@@ -529,6 +1070,7 @@ class HarborSimulator:
 
         elif incident_type == IncidentType.BERTH_OVERRUN:
             call = self._find_call(target_port_call_id, "pc-glory")
+            target_resource_id = call.berth_id
             impact = impact_minutes or 90
             extend_departure(call, impact)
             severity = RiskLevel.CRITICAL
@@ -575,6 +1117,7 @@ class HarborSimulator:
             started_at=now,
             target_port_call_id=call.id if call else target_port_call_id,
             target_berth_id=berth_id,
+            target_resource_id=target_resource_id,
             impact_minutes=impact,
             details=details,
         )

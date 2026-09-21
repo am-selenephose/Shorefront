@@ -1,6 +1,6 @@
 # PortFlow architecture
 
-## v0.3
+## v0.4
 
 Synthetic operations and scenario injection feed a deterministic HarborSimulator.
 
@@ -107,3 +107,53 @@ Incidents mutate resource/service state before risk and UI projection:
 - ready
 
 Dependency-state propagation continues downstream until no graph state changes remain.
+
+
+## Recovery decision support
+
+Recovery is intentionally split into proposal and execution phases.
+
+Proposal phase:
+
+1. clone current HarborOverview
+2. apply candidate corrective actions to the clone
+3. recompute schedule, services, conflicts, risk, and delay
+4. rank projections by disruption score
+5. return assumptions and rationale
+
+No proposal mutates live state.
+
+Execution phase:
+
+1. operator selects a proposal
+2. current state is checked by regenerating the deterministic proposal id
+3. actions are applied
+4. service/risk state is recalculated
+5. recovery event is appended
+6. RecoveryApplicationReceipt is persisted
+
+A proposal becomes stale after its underlying state changes or after it is applied.
+
+Current action primitives:
+
+- REASSIGN_RESOURCE
+- MOVE_BERTH
+- SHIFT_WINDOW
+
+Current synthetic disruption score:
+
+total delay minutes + 240 per berth conflict + 60 per blocked service + 5 per action
+
+The score is an internal comparison heuristic, not a market price or safety certification.
+
+## Recovery authority
+
+PortFlow does not auto-execute corrective actions.
+
+The authority boundary is explicit:
+
+system may observe -> simulate -> rank -> explain
+
+human operator must approve -> system may apply -> system records receipt
+
+This keeps prediction/optimization separate from operational authority.

@@ -27,6 +27,7 @@ def build_simulator() -> HarborSimulator:
         spool_sink=store.queue_outbound_event,
         replay_sink=lambda: len(store.replay_outbound_events(lambda event: True)),
         pending_count=store.pending_outbound_count,
+        recovery_sink=store.append_recovery_receipt,
     )
 
 
@@ -48,7 +49,7 @@ async def lifespan(app: FastAPI):
     task.cancel()
 
 
-app = FastAPI(title="PortFlow API", version="0.3.0", lifespan=lifespan)
+app = FastAPI(title="PortFlow API", version="0.4.0", lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
@@ -73,7 +74,7 @@ def healthz():
     return {
         "ok": True,
         "service": "portflow-api",
-        "version": "0.3.0",
+        "version": "0.4.0",
         "persistence": True,
     }
 
@@ -117,6 +118,30 @@ def resolve_incident(incident_id: str):
         return sim.resolve_incident(incident_id)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@app.get("/api/v1/recovery/proposals")
+def recovery_proposals(call_id: str | None = None):
+    proposals = sim.generate_recovery_proposals(call_id=call_id)
+    return {
+        "count": len(proposals),
+        "proposals": proposals,
+        "auto_apply": False,
+        "authority": "human_operator",
+    }
+
+
+@app.post("/api/v1/recovery/proposals/{proposal_id}/apply")
+def apply_recovery_proposal(proposal_id: str):
+    try:
+        return sim.apply_recovery_proposal(proposal_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@app.get("/api/v1/recovery/receipts")
+def recovery_receipts(limit: int = 100):
+    return store.list_recovery_receipts(limit=limit)
 
 
 @app.get("/api/v1/replay/pending")
@@ -179,6 +204,7 @@ def reset_demo():
         spool_sink=store.queue_outbound_event,
         replay_sink=lambda: len(store.replay_outbound_events(lambda event: True)),
         pending_count=store.pending_outbound_count,
+        recovery_sink=store.append_recovery_receipt,
     )
     return sim.overview()
 

@@ -8,7 +8,7 @@ from pathlib import Path
 from sqlalchemy import DateTime, Integer, String, Text, create_engine, select
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column
 
-from .models import HarborOverview, Incident, OperationsEvent, ReplayReceipt
+from .models import HarborOverview, Incident, OperationsEvent, RecoveryApplicationReceipt, ReplayReceipt
 
 
 class Base(DeclarativeBase):
@@ -37,6 +37,16 @@ class IncidentRow(Base):
     incident_id: Mapped[str] = mapped_column(String(80), primary_key=True)
     status: Mapped[str] = mapped_column(String(20), index=True, nullable=False)
     started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True, nullable=False)
+    payload: Mapped[str] = mapped_column(Text, nullable=False)
+
+
+
+
+class RecoveryReceiptRow(Base):
+    __tablename__ = "recovery_receipt"
+    proposal_id: Mapped[str] = mapped_column(String(96), primary_key=True)
+    applied_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True, nullable=False)
+    target_port_call_id: Mapped[str] = mapped_column(String(80), index=True, nullable=False)
     payload: Mapped[str] = mapped_column(Text, nullable=False)
 
 
@@ -141,6 +151,33 @@ class OperationsStore:
                 select(IncidentRow).order_by(IncidentRow.started_at.desc()).limit(max(1, min(limit, 1000)))
             ).all()
             return [Incident.model_validate_json(row.payload) for row in rows]
+
+
+
+    def append_recovery_receipt(self, receipt: RecoveryApplicationReceipt) -> bool:
+        with Session(self.engine) as session:
+            if session.get(RecoveryReceiptRow, receipt.proposal_id) is not None:
+                return False
+            session.add(RecoveryReceiptRow(
+                proposal_id=receipt.proposal_id,
+                applied_at=receipt.applied_at,
+                target_port_call_id=receipt.target_port_call_id,
+                payload=receipt.model_dump_json(),
+            ))
+            session.commit()
+            return True
+
+    def list_recovery_receipts(self, limit: int = 100) -> list[RecoveryApplicationReceipt]:
+        with Session(self.engine) as session:
+            rows = session.scalars(
+                select(RecoveryReceiptRow)
+                .order_by(RecoveryReceiptRow.applied_at.desc())
+                .limit(max(1, min(limit, 1000)))
+            ).all()
+            return [
+                RecoveryApplicationReceipt.model_validate_json(row.payload)
+                for row in rows
+            ]
 
     def queue_outbound_event(self, event: OperationsEvent) -> bool:
         envelope_id = f"out-{event.id}"
@@ -258,6 +295,7 @@ class OperationsStore:
             session.query(SnapshotRow).delete()
             session.query(EventRow).delete()
             session.query(IncidentRow).delete()
+            session.query(RecoveryReceiptRow).delete()
             session.query(OutboundEnvelopeRow).delete()
             session.query(ReplayReceiptRow).delete()
             session.commit()

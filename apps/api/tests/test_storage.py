@@ -138,3 +138,134 @@ def test_berth_conflict_blocks_later_calls_service_chain(tmp_path):
     assert nodes["crane"]["state"] == "blocked"
     assert nodes["cargo"]["state"] == "blocked"
     assert nodes["departure"]["state"] == "blocked"
+
+
+def test_tug_recovery_proposal_requires_approval_and_unblocks_target(tmp_path):
+    store = make_store(tmp_path)
+    sim = HarborSimulator(
+        event_sink=store.append_event,
+        incident_sink=store.upsert_incident,
+        snapshot_sink=store.save_snapshot,
+        spool_sink=store.queue_outbound_event,
+        replay_sink=lambda: len(store.replay_outbound_events(lambda event: True)),
+        pending_count=store.pending_outbound_count,
+    )
+
+    sim.inject_incident(IncidentType.TUG_UNAVAILABLE, "pc-aurora", 40)
+    proposals = sim.generate_recovery_proposals(call_id="pc-aurora")
+    assert proposals
+    best = proposals[0]
+    assert best.requires_approval is True
+    assert any(action.action_type.value == "reassign_resource" for action in best.actions)
+
+    receipt = sim.apply_recovery_proposal(best.id)
+    assert receipt.proposal_id == best.id
+
+    graph = sim.dependency_graph("pc-aurora")
+    nodes = {node["kind"]: node for node in graph["nodes"]}
+    assert nodes["tug"]["state"] != "blocked"
+    assert nodes["tug"]["resource"]["id"] != "tug-14"
+
+
+def test_berth_recovery_prefers_free_compatible_berth(tmp_path):
+    store = make_store(tmp_path)
+    sim = HarborSimulator(
+        event_sink=store.append_event,
+        incident_sink=store.upsert_incident,
+        snapshot_sink=store.save_snapshot,
+        spool_sink=store.queue_outbound_event,
+        replay_sink=lambda: len(store.replay_outbound_events(lambda event: True)),
+        pending_count=store.pending_outbound_count,
+    )
+
+    sim.inject_incident(IncidentType.BERTH_OVERRUN, "pc-glory", 90)
+    proposals = sim.generate_recovery_proposals(call_id="pc-nova")
+    assert proposals
+
+    best = proposals[0]
+    assert best.projected_berth_conflicts == 0
+    assert any(
+        action.action_type.value == "move_berth" and action.to_berth_id == "b-15"
+        for action in best.actions
+    )
+
+    receipt = sim.apply_recovery_proposal(best.id)
+    assert receipt.resulting_berth_conflicts == 0
+
+    nova = next(call for call in sim.port_calls if call.id == "pc-nova")
+    assert nova.berth_id == "b-15"
+
+    graph = sim.dependency_graph("pc-nova")
+    nodes = {node["kind"]: node for node in graph["nodes"]}
+    assert nodes["berth"]["resource"]["id"] == "b-15"
+    assert nodes["crane"]["resource"]["id"] == "crane-b15-a"
+
+
+def test_recovery_proposals_are_deterministic_and_stale_after_apply(tmp_path):
+    store = make_store(tmp_path)
+    sim = HarborSimulator(
+        event_sink=store.append_event,
+        incident_sink=store.upsert_incident,
+        snapshot_sink=store.save_snapshot,
+        spool_sink=store.queue_outbound_event,
+        replay_sink=lambda: len(store.replay_outbound_events(lambda event: True)),
+        pending_count=store.pending_outbound_count,
+    )
+
+    sim.inject_incident(IncidentType.BERTH_OVERRUN, "pc-glory", 90)
+    first = sim.generate_recovery_proposals(call_id="pc-nova")
+    second = sim.generate_recovery_proposals(call_id="pc-nova")
+    assert [item.id for item in first] == [item.id for item in second]
+
+    proposal_id = first[0].id
+    sim.apply_recovery_proposal(proposal_id)
+
+    try:
+        sim.apply_recovery_proposal(proposal_id)
+    except ValueError as exc:
+        assert "stale" in str(exc).lower() or "already applied" in str(exc).lower()
+    else:
+        raise AssertionError("Applied recovery proposal must become stale")
+
+
+def test_recovery_application_receipt_is_persisted(tmp_path):
+    store = make_store(tmp_path)
+    sim = HarborSimulator(
+        event_sink=store.append_event,
+        incident_sink=store.upsert_incident,
+        snapshot_sink=store.save_snapshot,
+        spool_sink=store.queue_outbound_event,
+        replay_sink=lambda: len(store.replay_outbound_events(lambda event: True)),
+        pending_count=store.pending_outbound_count,
+        recovery_sink=store.append_recovery_receipt,
+    )
+
+    sim.inject_incident(IncidentType.BERTH_OVERRUN, "pc-glory", 90)
+    proposal = sim.generate_recovery_proposals(call_id="pc-nova")[0]
+    receipt = sim.apply_recovery_proposal(proposal.id)
+
+    stored = store.list_recovery_receipts(limit=10)
+    assert len(stored) == 1
+    assert stored[0].proposal_id == receipt.proposal_id
+    assert stored[0].approved_by == "human_operator"
+    assert stored[0].resulting_berth_conflicts == 0
+
+
+def test_compound_tug_recovery_clears_global_service_blocks(tmp_path):
+    store = make_store(tmp_path)
+    sim = HarborSimulator(
+        event_sink=store.append_event,
+        incident_sink=store.upsert_incident,
+        snapshot_sink=store.save_snapshot,
+        spool_sink=store.queue_outbound_event,
+        replay_sink=lambda: len(store.replay_outbound_events(lambda event: True)),
+        pending_count=store.pending_outbound_count,
+        recovery_sink=store.append_recovery_receipt,
+    )
+
+    sim.inject_incident(IncidentType.TUG_UNAVAILABLE, "pc-aurora", 40)
+    proposal = sim.generate_recovery_proposals(call_id="pc-aurora")[0]
+    receipt = sim.apply_recovery_proposal(proposal.id)
+
+    assert receipt.resulting_blocked_services == 0
+    assert len([a for a in proposal.actions if a.action_type.value == "reassign_resource"]) >= 2

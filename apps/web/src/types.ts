@@ -132,3 +132,32 @@ export interface HarborState {
   metrics: Record<string, number>
   data_disclaimer: string
 }
+
+
+export interface RecoveryAction {
+  action_type: 'reassign_resource' | 'move_berth' | 'shift_window'
+  port_call_id: string
+  service_kind?: ServiceKind | null
+  from_resource_id?: string | null
+  to_resource_id?: string | null
+  from_berth_id?: string | null
+  to_berth_id?: string | null
+  shift_minutes: number
+}
+
+export interface RecoveryProposal {
+  id: string
+  title: string
+  target_port_call_id: string
+  incident_id?: string | null
+  actions: RecoveryAction[]
+  projected_total_delay_minutes: number
+  projected_modeled_cost_usd: number
+  projected_berth_conflicts: number
+  projected_blocked_services: number
+  projected_risk: Risk
+  disruption_score: number
+  rationale: string[]
+  assumptions: string[]
+  requires_approval: boolean
+}
