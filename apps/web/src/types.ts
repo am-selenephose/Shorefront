@@ -137,6 +137,7 @@ export interface ServiceStep {
   kind: ServiceKind
   label: string
   planned_at: string
+  duration_minutes: number
   state: ServiceState
   resource_id?: string | null
   dependency_step_ids: string[]

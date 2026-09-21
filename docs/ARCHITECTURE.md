@@ -1,6 +1,6 @@
 # PortFlow architecture
 
-## v0.12
+## v0.13
 
 Synthetic operations and scenario injection feed a deterministic HarborSimulator.
 
@@ -626,3 +626,34 @@ RecoveryProposal carries the category and its human-readable data-quality warnin
 The recovery state fingerprint also binds active provenance state. This makes evidence changes proposal-invalidating events rather than presentation-only updates.
 
 The browser only displays confidence and warnings. It does not calculate them and cannot elevate proposal authority.
+
+
+## v0.13 interval-capacity scheduling
+
+ServiceStep duration_minutes turns a resource assignment into a modeled occupancy interval rather than a point event.
+
+For a service step:
+
+    start = planned_at
+    end = planned_at + duration_minutes
+
+Intervals are half-open: [start, end).
+
+Resource capacity is evaluated from the intervals of already assigned work.
+
+The scheduler derives saturation intervals where existing concurrency is already greater than or equal to the resource capacity.
+
+A candidate service is feasible only when its entire interval avoids:
+
+- explicit resource unavailable windows
+- resource-capacity saturation intervals
+
+This preserves concurrency when spare capacity exists instead of applying a blanket pairwise separation rule.
+
+The default durations are synthetic calibration values for the canonical portfolio fixture. Production deployment requires target-port/service-provider calibration before they are treated as operational scheduling parameters.
+
+Recovery fingerprints bind the service schedule, including resource id, planned start, duration, and service state.
+
+Legacy snapshot steps whose duration_minutes is zero/missing are populated from the current canonical duration table during restore.
+
+The browser projects duration metadata but does not calculate interval feasibility or capacity.

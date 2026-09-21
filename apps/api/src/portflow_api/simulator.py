@@ -135,6 +135,10 @@ class HarborSimulator:
         if not service_graph_complete:
             self.service_steps = self._make_service_steps()
 
+        for step in self.service_steps:
+            if step.duration_minutes <= 0:
+                step.duration_minutes = self._service_duration_minutes(step.kind)
+
         self._refresh_queued_count()
         self._recalculate_services()
         self._recalculate_risks()
@@ -645,6 +649,23 @@ class HarborSimulator:
         stage = next((item for item in call.stages if item.code == code), None)
         return stage.planned_at if stage else fallback
 
+    @staticmethod
+    def _service_duration_minutes(kind: ServiceKind) -> int:
+        durations = {
+            ServiceKind.PILOT: 30,
+            ServiceKind.TUG: 45,
+            ServiceKind.BERTH: 15,
+            ServiceKind.CRANE: 30,
+            ServiceKind.CARGO: 180,
+            ServiceKind.BUNKER: 60,
+            ServiceKind.STORES: 30,
+            ServiceKind.DOCUMENTS: 30,
+            ServiceKind.CUSTOMS: 30,
+            ServiceKind.GATE: 30,
+            ServiceKind.DEPARTURE: 20,
+        }
+        return durations[kind]
+
     def _make_service_steps(self) -> list[ServiceStep]:
         steps: list[ServiceStep] = []
 
@@ -726,6 +747,7 @@ class HarborSimulator:
                     kind=kind,
                     label=labels[kind],
                     planned_at=times[kind],
+                    duration_minutes=self._service_duration_minutes(kind),
                     state=ServiceState.ASSIGNED if resource_id else ServiceState.READY,
                     resource_id=resource_id,
                     dependency_step_ids=dependency_ids,
@@ -950,11 +972,16 @@ class HarborSimulator:
         if resource.available_from and proposed < resource.available_from:
             proposed = resource.available_from
 
+        target_duration_minutes = max(
+            target.duration_minutes or separation_minutes,
+            1,
+        )
+        target_duration = timedelta(minutes=target_duration_minutes)
+
         unavailable_windows = sorted(
             resource.unavailable_windows,
             key=lambda item: item.start_at,
         )
-        separation = timedelta(minutes=separation_minutes)
         other_steps = sorted(
             [
                 step for step in self.service_steps
@@ -965,18 +992,51 @@ class HarborSimulator:
             key=lambda item: item.planned_at,
         )
 
-        # Capacity is modeled as the number of concurrent assignments permitted
-        # inside the synthetic separation window. Explicit calendar outages are
-        # hard constraints: a service cannot be scheduled inside one.
+        capacity = max(resource.capacity, 1)
+        events: list[tuple[datetime, int]] = []
+        for step in other_steps:
+            duration_minutes = max(
+                step.duration_minutes or separation_minutes,
+                1,
+            )
+            events.append((step.planned_at, 1))
+            events.append(
+                (
+                    step.planned_at + timedelta(minutes=duration_minutes),
+                    -1,
+                )
+            )
+
+        # Build half-open intervals where existing assignments already consume
+        # the full resource capacity. A new assignment may overlap work below
+        # capacity, but it cannot overlap a saturation interval.
+        saturation_windows: list[tuple[datetime, datetime]] = []
+        active = 0
+        saturated_from: datetime | None = None
+        for at, delta in sorted(
+            events,
+            key=lambda item: (item[0], 0 if item[1] < 0 else 1),
+        ):
+            before = active
+            active += delta
+            if before < capacity <= active:
+                saturated_from = at
+            elif before >= capacity > active and saturated_from is not None:
+                saturation_windows.append((saturated_from, at))
+                saturated_from = None
+
         iteration_budget = max(
-            2,
-            len(other_steps) + len(unavailable_windows) + 4,
+            4,
+            2 * (len(unavailable_windows) + len(saturation_windows)) + 6,
         )
         for _ in range(iteration_budget):
+            proposed_end = proposed + target_duration
+
             blocking_window = next(
                 (
                     window for window in unavailable_windows
-                    if window.start_at <= proposed < window.end_at
+                    if proposed < window.end_at
+                    and window.start_at < proposed_end
                 ),
                 None,
             )
@@ -984,15 +1044,24 @@ class HarborSimulator:
                 proposed = blocking_window.end_at
                 continue
 
-            conflicts = [
-                step for step in other_steps
-                if abs((proposed - step.planned_at).total_seconds()) < separation.total_seconds()
-            ]
-            if len(conflicts) < max(resource.capacity, 1):
-                break
-            proposed = max(step.planned_at for step in conflicts) + separation
+            saturated = next(
+                (
+                    window for window in saturation_windows
+                    if proposed < window[1]
+                    and window[0] < proposed_end
+                ),
+                None,
+            )
+            if saturated is not None:
+                proposed = saturated[1]
+                continue
 
-        return max(0, int((proposed - target.planned_at).total_seconds() // 60))
+            break
+
+        return max(
+            0,
+            int((proposed - target.planned_at).total_seconds() // 60),
+        )
 
     def _apply_recovery_action(self, action: RecoveryAction) -> None:
         call = self._find_call(action.port_call_id, action.port_call_id)
@@ -1239,6 +1308,16 @@ class HarborSimulator:
                 for incident in sorted(self.incidents, key=lambda item: item.id)
                 if incident.status == IncidentStatus.ACTIVE
             ],
+            "service_schedule": [
+                {
+                    "id": step.id,
+                    "resource_id": step.resource_id,
+                    "planned_at": step.planned_at.isoformat(),
+                    "duration_minutes": step.duration_minutes,
+                    "state": step.state.value,
+                }
+                for step in sorted(self.service_steps, key=lambda item: item.id)
+            ],
             "resources": [
                 {
                     "id": resource.id,
@@ -1336,7 +1415,7 @@ class HarborSimulator:
             assumptions=[
                 "Delay exposure is modeled at USD 720 per delay minute for this synthetic demo.",
                 "Disruption score adds 240 points per berth conflict and 60 per blocked service.",
-                "Resource feasibility respects available_from, explicit unavailable calendar windows, capacity, and service-specific separation windows.",
+                "Resource feasibility respects available_from, full-interval calendar outages, modeled service durations, and concurrent resource capacity.",
                 "Proposal output is decision support and requires explicit operator approval.",
             ],
             requires_approval=True,
@@ -1451,15 +1530,15 @@ class HarborSimulator:
                         rationale.append(
                             (
                                 f"Shift {affected_step.port_call_id} by {shift} min "
-                                f"to preserve the synthetic {separation_minutes}-minute "
-                                f"{affected_kind.value} separation."
+                                f"to fit {resource.name}'s interval-capacity schedule "
+                                f"for the modeled {affected_kind.value} service duration."
                             )
                         )
                     else:
                         rationale.append(
                             (
                                 f"{affected_step.port_call_id} fits {resource.name}'s "
-                                "current synthetic operating window."
+                                "current modeled interval-capacity window."
                             )
                         )
 

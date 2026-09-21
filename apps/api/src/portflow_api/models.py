@@ -287,6 +287,7 @@ class ServiceStep(BaseModel):
     kind: ServiceKind
     label: str
     planned_at: datetime
+    duration_minutes: int = Field(default=0, ge=0, le=24 * 60)
     state: ServiceState = ServiceState.READY
     resource_id: str | None = None
     dependency_step_ids: list[str] = Field(default_factory=list)

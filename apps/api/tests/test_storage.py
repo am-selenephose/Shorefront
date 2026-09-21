@@ -1069,3 +1069,144 @@ def test_all_healthy_live_active_sources_can_be_high_confidence():
 
     assert proposal.decision_confidence.value == "high"
     assert proposal.data_quality_warnings == []
+
+
+def test_interval_capacity_one_delays_overlapping_bunker_assignment():
+    sim = HarborSimulator()
+    resource = next(
+        item for item in sim.service_resources
+        if item.id == "bunker-barge-12"
+    )
+    resource.available_from = None
+    resource.unavailable_windows = []
+    resource.capacity = 1
+
+    target = next(
+        step for step in sim.service_steps
+        if step.port_call_id == "pc-glory" and step.kind == ServiceKind.BUNKER
+    )
+    other = next(
+        step for step in sim.service_steps
+        if step.port_call_id == "pc-lima" and step.kind == ServiceKind.BUNKER
+    )
+    other.resource_id = resource.id
+    other.planned_at = sim._started + timedelta(minutes=120)
+    other.duration_minutes = 60
+
+    assert target.planned_at == sim._started + timedelta(minutes=97)
+    shift = sim._resource_shift_needed(
+        target.port_call_id,
+        ServiceKind.BUNKER,
+        resource.id,
+        separation_minutes=60,
+    )
+    assert shift == 83
+
+
+def test_interval_capacity_two_allows_one_overlapping_assignment():
+    sim = HarborSimulator()
+    resource = next(
+        item for item in sim.service_resources
+        if item.id == "bunker-barge-12"
+    )
+    resource.available_from = None
+    resource.unavailable_windows = []
+    resource.capacity = 2
+
+    other = next(
+        step for step in sim.service_steps
+        if step.port_call_id == "pc-lima" and step.kind == ServiceKind.BUNKER
+    )
+    other.resource_id = resource.id
+    other.planned_at = sim._started + timedelta(minutes=120)
+    other.duration_minutes = 60
+
+    shift = sim._resource_shift_needed(
+        "pc-glory",
+        ServiceKind.BUNKER,
+        resource.id,
+        separation_minutes=60,
+    )
+    assert shift == 0
+
+
+def test_interval_capacity_two_delays_when_two_assignments_saturate_resource():
+    sim = HarborSimulator()
+    resource = next(
+        item for item in sim.service_resources
+        if item.id == "bunker-barge-12"
+    )
+    resource.available_from = None
+    resource.unavailable_windows = []
+    resource.capacity = 2
+
+    lima = next(
+        step for step in sim.service_steps
+        if step.port_call_id == "pc-lima" and step.kind == ServiceKind.BUNKER
+    )
+    nova = next(
+        step for step in sim.service_steps
+        if step.port_call_id == "pc-nova" and step.kind == ServiceKind.BUNKER
+    )
+    lima.resource_id = resource.id
+    nova.resource_id = resource.id
+    lima.planned_at = sim._started + timedelta(minutes=100)
+    nova.planned_at = sim._started + timedelta(minutes=120)
+    lima.duration_minutes = 60
+    nova.duration_minutes = 60
+
+    shift = sim._resource_shift_needed(
+        "pc-glory",
+        ServiceKind.BUNKER,
+        resource.id,
+        separation_minutes=60,
+    )
+    assert shift == 63
+
+
+def test_calendar_outage_blocks_service_interval_not_only_start_time():
+    sim = HarborSimulator()
+    resource = next(
+        item for item in sim.service_resources
+        if item.id == "bunker-barge-12"
+    )
+    resource.available_from = None
+    resource.capacity = 1
+    resource.unavailable_windows = [
+        ResourceUnavailableWindow(
+            start_at=sim._started + timedelta(minutes=120),
+            end_at=sim._started + timedelta(minutes=140),
+            reason="maintenance during service",
+        )
+    ]
+
+    # Glory starts at +97 and the modeled bunker duration is 60 minutes, so
+    # the job overlaps a +120..+140 outage even though it starts beforehand.
+    shift = sim._resource_shift_needed(
+        "pc-glory",
+        ServiceKind.BUNKER,
+        resource.id,
+        separation_minutes=60,
+    )
+    assert shift == 43
+
+
+def test_legacy_zero_duration_steps_are_migrated_on_restore():
+    sim = HarborSimulator()
+    snapshot = sim.overview()
+    for step in snapshot.service_steps:
+        step.duration_minutes = 0
+
+    restored = HarborSimulator(initial=snapshot)
+
+    assert all(step.duration_minutes > 0 for step in restored.service_steps)
+    bunker = next(
+        step for step in restored.service_steps
+        if step.kind == ServiceKind.BUNKER
+    )
+    tug = next(
+        step for step in restored.service_steps
+        if step.kind == ServiceKind.TUG
+    )
+    assert bunker.duration_minutes == 60
+    assert tug.duration_minutes == 45

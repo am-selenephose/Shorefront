@@ -4,7 +4,7 @@ PortFlow is a port-call operations control tower for continuously updated vessel
 
 ## Status
 
-Private portfolio build, v0.12 provenance-bound recovery confidence + decision staleness.
+Private portfolio build, v0.13 interval-based resource capacity + service occupancy durations.
 
 ## Product principles
 
@@ -1172,9 +1172,108 @@ Current gates:
 - Python compile passes
 - v0.11 adapter resilience, v0.10 calendar, v0.9 DAG/recovery, and v0.8 provenance-ownership guarantees remain covered by regression tests
 
+## v0.13 proof
+
+### Modeled service occupancy durations
+
+ServiceStep now carries duration_minutes in addition to planned_at.
+
+Canonical demo durations include:
+
+- pilot: 30 minutes
+- tug: 45 minutes
+- berth-access step: 15 minutes
+- crane allocation/setup: 30 minutes
+- cargo operation: 180 minutes
+- bunker service: 60 minutes
+- stores: 30 minutes
+- documents: 30 minutes
+- customs: 30 minutes
+- gate: 30 minutes
+- departure clearance: 20 minutes
+
+These are deterministic portfolio-model assumptions for the demo fixture, not universal legal or operational standards.
+
+Legacy snapshots whose service steps do not contain a duration are migrated to the current canonical duration table on restore.
+
+### Interval-based resource capacity
+
+Resource feasibility no longer treats a service as a single point in time.
+
+Each assignment occupies a half-open interval:
+
+    [planned_at, planned_at + duration)
+
+For an alternative resource, PortFlow builds intervals where its existing assignments already consume the full configured capacity.
+
+A new assignment may overlap existing work while capacity remains available.
+
+It may not overlap a saturation interval.
+
+This gives capacity an operational meaning:
+
+- capacity 1 -> one concurrent modeled assignment
+- capacity 2 -> two concurrent modeled assignments
+- and so on
+
+Regression tests prove:
+
+- capacity 1 delays an overlapping bunker job
+- capacity 2 allows one overlapping assignment
+- capacity 2 delays a third assignment when two existing jobs overlap
+
+### Full-interval calendar enforcement
+
+Resource unavailable windows now constrain the entire modeled service interval, not only its start time.
+
+A 60-minute bunker service starting before a maintenance outage is still infeasible if the service would extend into the outage.
+
+The scheduler advances the assignment until its full interval no longer overlaps the blocked calendar period.
+
+### Recovery fingerprint includes service schedule occupancy
+
+Recovery state fingerprints now bind:
+
+- service id
+- assigned resource id
+- planned service start
+- modeled duration
+- service state
+
+A service duration, resource assignment, or schedule-state change can therefore invalidate an old recovery proposal.
+
+### Duration visibility in the service DAG
+
+The operations UI exposes modeled duration on every service node beside its resource.
+
+The bunker-loss Chromium path explicitly verifies the 60-minute bunker duration while still proving:
+
+- branched DAG truth
+- shared-resource blockage
+- operator approval
+- compound recovery
+- departure unblocking
+
+### v0.13 verification
+
+Current gates:
+
+- 74 backend/domain/API/storage/recovery/security/scenario/adapter/calendar/resilience/confidence/capacity tests pass
+- capacity-1 overlap delays correctly
+- capacity-2 permits one overlap
+- capacity-2 saturation delays a third assignment
+- maintenance overlap is checked across the entire service interval
+- legacy zero-duration service steps migrate on restore
+- canonical bunker recovery remains Bunker Barge 12 at 48 minutes / 0 blocked / disruption score 63
+- 3 real Chromium Playwright E2Es pass
+- production TypeScript/Vite build passes
+- production npm audit reports 0 vulnerabilities
+- Python compile passes
+- v0.12 confidence, v0.11 adapter resilience, v0.10 calendar, v0.9 DAG/recovery, and v0.8 provenance guarantees remain covered by regression tests
+
 ## Next engineering milestone
 
-v0.13 should focus on deeper capacity modeling, cross-resource recovery, and deployment:
+v0.14 should focus on cross-resource recovery, resource-duration calibration, and deployment:
 
 - richer crane/cargo multi-resource capacity constraints
 - cross-resource recovery optimization across multiple incident classes

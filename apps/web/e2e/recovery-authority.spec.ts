@@ -126,6 +126,7 @@ test('bunker loss renders the branched DAG and operator recovery clears shared b
     auroraDag.locator('[data-service-kind="departure"] em'),
   ).toHaveText('FROM CARGO + BUNKER + STORES + CUSTOMS + GATE')
 
+  await expect(auroraDag.locator('[data-service-kind="bunker"]')).toContainText('60m')
   await expect(auroraDag.locator('[data-service-kind="bunker"]')).toHaveClass(/blocked/)
   await expect(auroraDag.locator('[data-service-kind="departure"]')).toHaveClass(/blocked/)
   await expect(gloryDag.locator('[data-service-kind="bunker"]')).toHaveClass(/blocked/)

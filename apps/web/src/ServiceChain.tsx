@@ -84,7 +84,9 @@ export function ServiceChain({ call, state }: { call: PortCall; state: HarborSta
                   <i />
                   <b>{labels[step.kind] || step.kind.toUpperCase()}</b>
                 </div>
-                <small>{resource?.name || 'system'}</small>
+                <small>
+                  {resource?.name || 'system'} · {step.duration_minutes}m
+                </small>
                 {upstream.length > 0 && <em>FROM {upstream.join(' + ')}</em>}
               </div>
             )
