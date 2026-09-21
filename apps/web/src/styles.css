@@ -223,6 +223,7 @@
 .adapter-row{display:flex;align-items:center;justify-content:space-between;gap:12px;background:#07121d;border:1px solid #172c3c;border-radius:4px;padding:9px 10px}
 .adapter-row>div:first-child>b{display:block;font-size:9px;color:#cadce5}
 .adapter-row>div:first-child>span{display:block;font-size:7px;color:#678296;margin-top:3px}
+.adapter-row>div:first-child>.adapter-resilience{color:#d6a650;font:700 7px 'IBM Plex Mono';letter-spacing:.25px}
 .adapter-row>div:first-child>small{display:block;font-size:7px;color:#486476;margin-top:4px}
 .adapter-row-actions{display:flex;align-items:center;gap:8px;flex:none}
 .adapter-row-actions button{background:#123146;color:#dff6ff;border:1px solid #4d829c;border-radius:3px;padding:7px 9px;font:600 7px 'IBM Plex Mono';cursor:pointer}

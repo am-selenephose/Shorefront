@@ -1,7 +1,7 @@
 from datetime import timedelta
 from pathlib import Path
 
-from portflow_api.adapters import HttpJsonAdapter, get_adapter_snapshot
+from portflow_api.adapters import HttpJsonAdapter, configured_live_adapters, get_adapter_snapshot
 from portflow_api.domain import detect_berth_conflicts
 from portflow_api.models import DataDomain, IncidentType, LinkMode, OperatorRole, ResourceUnavailableWindow, ServiceKind
 from portflow_api.simulator import HarborSimulator
@@ -822,3 +822,150 @@ def test_resource_calendar_can_change_recovery_ranking():
     assert "Bunker Barge 9" in proposals[0].title
     assert "Bunker Barge 12" in proposals[1].title
     assert proposals[0].disruption_score < proposals[1].disruption_score
+
+
+def test_live_adapter_falls_back_to_fresh_last_good_as_degraded_preview():
+    from datetime import datetime, timezone
+
+    base = datetime(2026, 9, 21, 18, 0, tzinfo=timezone.utc)
+    calls = {"count": 0}
+
+    def loader(url, timeout):
+        calls["count"] += 1
+        if calls["count"] == 1:
+            return {
+                "observed_at": base.isoformat(),
+                "records": [{"vessel_id": "v-aurora", "lat": 51.9, "lon": 4.0}],
+            }
+        raise TimeoutError("fixture timeout")
+
+    adapter = HttpJsonAdapter(
+        adapter_id="live-ais-cache-test",
+        domain=DataDomain.AIS,
+        provider="Cache Test",
+        url="https://example.invalid/ais",
+        stale_after_seconds=120,
+        loader=loader,
+    )
+
+    healthy = adapter.snapshot(now=base)
+    degraded = adapter.snapshot(now=base + timedelta(seconds=30))
+
+    assert healthy.provenance.health.value == "healthy"
+    assert healthy.provenance.last_success_at == base
+    assert degraded.provenance.health.value == "degraded"
+    assert degraded.provenance.stale is False
+    assert degraded.provenance.using_cached_records is True
+    assert degraded.provenance.consecutive_errors == 1
+    assert degraded.provenance.last_success_at == base
+    assert degraded.records == healthy.records
+
+
+def test_live_adapter_cached_preview_becomes_stale_after_threshold():
+    from datetime import datetime, timezone
+
+    base = datetime(2026, 9, 21, 18, 0, tzinfo=timezone.utc)
+    calls = {"count": 0}
+
+    def loader(url, timeout):
+        calls["count"] += 1
+        if calls["count"] == 1:
+            return {
+                "observed_at": base.isoformat(),
+                "records": [{"wind_knots": 12.0}],
+            }
+        raise ConnectionError("fixture offline")
+
+    adapter = HttpJsonAdapter(
+        adapter_id="live-weather-cache-test",
+        domain=DataDomain.WEATHER_TIDE,
+        provider="Cache Test",
+        url="https://example.invalid/weather",
+        stale_after_seconds=60,
+        loader=loader,
+    )
+
+    adapter.snapshot(now=base)
+    stale = adapter.snapshot(now=base + timedelta(seconds=90))
+
+    assert stale.provenance.health.value == "stale"
+    assert stale.provenance.stale is True
+    assert stale.provenance.using_cached_records is True
+    assert stale.provenance.consecutive_errors == 1
+
+
+def test_live_adapter_without_last_good_reports_error_streak():
+    from datetime import datetime, timezone
+
+    now = datetime(2026, 9, 21, 18, 0, tzinfo=timezone.utc)
+    adapter = HttpJsonAdapter(
+        adapter_id="live-error-test",
+        domain=DataDomain.AIS,
+        provider="Error Test",
+        url="https://example.invalid/ais",
+        stale_after_seconds=120,
+        loader=lambda url, timeout: (_ for _ in ()).throw(TimeoutError("down")),
+    )
+
+    first = adapter.snapshot(now=now)
+    second = adapter.snapshot(now=now + timedelta(seconds=5))
+
+    assert first.provenance.health.value == "error"
+    assert first.provenance.consecutive_errors == 1
+    assert first.provenance.last_success_at is None
+    assert first.records == []
+    assert second.provenance.consecutive_errors == 2
+
+
+def test_degraded_cached_snapshot_cannot_mutate_harbor_truth():
+    from datetime import datetime, timezone
+
+    base = datetime(2026, 9, 21, 18, 0, tzinfo=timezone.utc)
+    calls = {"count": 0}
+
+    def loader(url, timeout):
+        calls["count"] += 1
+        if calls["count"] == 1:
+            return {
+                "observed_at": base.isoformat(),
+                "records": [{
+                    "vessel_id": "v-aurora",
+                    "lat": 51.9,
+                    "lon": 4.0,
+                    "speed_knots": 8.0,
+                    "heading_deg": 90.0,
+                }],
+            }
+        raise TimeoutError("down")
+
+    adapter = HttpJsonAdapter(
+        adapter_id="live-ais-ingest-gate-test",
+        domain=DataDomain.AIS,
+        provider="Gate Test",
+        url="https://example.invalid/ais",
+        stale_after_seconds=120,
+        loader=loader,
+    )
+    adapter.snapshot(now=base)
+    degraded = adapter.snapshot(now=base + timedelta(seconds=30))
+    sim = HarborSimulator()
+
+    try:
+        sim.ingest_adapter_snapshot(degraded)
+    except ValueError as exc:
+        assert "degraded" in str(exc).lower()
+    else:
+        raise AssertionError("Degraded cached preview must not be ingestible")
+
+
+def test_configured_live_adapter_instance_is_reused_while_config_is_unchanged(monkeypatch):
+    monkeypatch.setenv("PORTFLOW_AIS_URL", "https://example.invalid/ais")
+    monkeypatch.setenv("PORTFLOW_AIS_PROVIDER", "Persistent AIS")
+
+    first = configured_live_adapters()["live-ais"]
+    second = configured_live_adapters()["live-ais"]
+    assert first is second
+
+    monkeypatch.setenv("PORTFLOW_AIS_PROVIDER", "Changed AIS")
+    third = configured_live_adapters()["live-ais"]
+    assert third is not first

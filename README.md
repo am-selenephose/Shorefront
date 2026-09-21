@@ -4,7 +4,7 @@ PortFlow is a port-call operations control tower for continuously updated vessel
 
 ## Status
 
-Private portfolio build, v0.10 explicit resource calendars + calendar-aware recovery ranking.
+Private portfolio build, v0.11 resilient live-adapter state + last-known-good preview boundary.
 
 ## Product principles
 
@@ -993,14 +993,101 @@ Current gates:
 - the Resource Board visibly labels the planned-maintenance interval
 - v0.9 provenance, authority, DAG, and PostgreSQL persistence guarantees remain covered by regression tests
 
+## v0.11 proof
+
+### Persistent live-adapter runtime state
+
+Environment-configured live adapters are now reused while their effective configuration is unchanged.
+
+This matters because resilience state is temporal. Recreating an adapter object for every preview would erase:
+
+- the last known healthy payload
+- the last successful fetch time
+- the consecutive error streak
+
+If URL/provider configuration changes, the adapter instance is intentionally replaced and begins with clean runtime state.
+
+### Last-known-good preview
+
+A healthy live fetch records a deep copy of the last-known-good AdapterSnapshot.
+
+If a later fetch fails:
+
+- fresh last-known-good data -> health=degraded
+- expired last-known-good data -> health=stale
+- no last-known-good data -> health=error
+
+Cached previews carry:
+
+- last_success_at
+- consecutive_errors
+- using_cached_records=true
+- the original observation timestamp
+- freshness recalculated against the current request time
+
+The failure detail identifies the exception type but does not expose arbitrary exception text.
+
+### Cached data cannot mutate operational truth
+
+PortFlow now allows operational ingest only when adapter health is exactly healthy.
+
+This closes an earlier gap where degraded health was not explicitly rejected.
+
+A degraded cached preview may help an operator understand the last known upstream state, but it cannot become a new canonical harbor observation.
+
+This preserves the boundary:
+
+preview/cache != ingest != canonical operational truth
+
+### Thread-safe adapter state
+
+Each live HttpJsonAdapter serializes snapshot state updates with a lock.
+
+The configured live-adapter registry also uses a lock while reconciling environment configuration with existing instances.
+
+This avoids concurrent preview/ingest requests racing last-good state or error counters.
+
+### Data Feeds resilience UI
+
+The Data Feeds panel now labels all adapter types under AVAILABLE ADAPTERS instead of incorrectly calling the whole list recorded fixtures.
+
+When resilience state exists, the UI exposes:
+
+- LAST-KNOWN-GOOD CACHE
+- consecutive error count
+- degraded / stale / error health
+- Cached preview action state
+- Feed unavailable state
+- mode-aware Ingest live versus Ingest fixture labels
+
+Cached or unhealthy adapters remain disabled for ingest.
+
+### v0.11 verification
+
+Current gates:
+
+- 65 backend/domain/API/storage/recovery/security/scenario/adapter/calendar/resilience tests pass
+- API integration coverage proves live adapter runtime state survives across repeated preview requests
+- fresh cache falls back to degraded
+- expired cache becomes stale
+- no-cache failure becomes error with an increasing error streak
+- degraded cached snapshots are rejected by the simulator ingest boundary
+- configured live adapter identity is reused only while configuration is unchanged
+- 3 real Chromium Playwright E2Es pass
+- production TypeScript/Vite build passes
+- production npm audit reports 0 vulnerabilities
+- Python compile passes
+- v0.10 calendar, v0.9 DAG/recovery, and v0.8 provenance ownership guarantees remain covered by regression tests
+
 ## Next engineering milestone
 
-v0.11 should focus on adapter resilience, deeper capacity modeling, and deployment:
+v0.12 should focus on deeper capacity modeling, cross-resource recovery, and deployment:
 
 - richer crane/cargo multi-resource capacity constraints
 - cross-resource recovery optimization across multiple incident classes
 - adapter freshness impact on decision confidence
-- adapter retry/backoff and cached-last-good policy
-- last-success / consecutive-error feed health state
+- retry/backoff scheduling beyond on-demand snapshot requests
+- richer crane/cargo multi-resource capacity constraints
+- cross-resource recovery optimization across multiple incident classes
 - optional OIDC-compatible production identity adapter
 - hosted portfolio deployment with a real public demo

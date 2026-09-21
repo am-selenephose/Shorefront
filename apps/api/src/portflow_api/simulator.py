@@ -330,12 +330,7 @@ class HarborSimulator:
         ingested_role: OperatorRole | None = None,
     ) -> int:
         provenance = snapshot.provenance
-        if provenance.stale or provenance.health in {
-            AdapterHealth.STALE,
-            AdapterHealth.OFFLINE,
-            AdapterHealth.ERROR,
-            AdapterHealth.UNCONFIGURED,
-        }:
+        if provenance.stale or provenance.health != AdapterHealth.HEALTHY:
             raise ValueError(
                 f"Adapter {snapshot.adapter_id} is not ingestible: {provenance.health.value}"
             )

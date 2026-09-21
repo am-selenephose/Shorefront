@@ -70,7 +70,7 @@ export function DataSourcesPanel({
       </div>
 
       <div className="available-adapters">
-        <span className="section-kicker">RECORDED FIXTURE ADAPTERS</span>
+        <span className="section-kicker">AVAILABLE ADAPTERS</span>
         <div className="adapter-list">
           {adapters.map(adapter => {
             const p = adapter.provenance
@@ -83,6 +83,12 @@ export function DataSourcesPanel({
                     {p.record_count} records · freshness {ageLabel(p.freshness_seconds)}
                     {' · '}stale after {ageLabel(p.stale_after_seconds)}
                   </span>
+                  {(p.using_cached_records || p.consecutive_errors > 0) && (
+                    <span className="adapter-resilience">
+                      {p.using_cached_records ? 'LAST-KNOWN-GOOD CACHE' : 'LIVE FETCH FAILURE'}
+                      {' · '}{p.consecutive_errors} consecutive error{p.consecutive_errors === 1 ? '' : 's'}
+                    </span>
+                  )}
                   <small>{p.detail}</small>
                 </div>
                 <div className="adapter-row-actions">
@@ -91,13 +97,17 @@ export function DataSourcesPanel({
                     disabled={disabled}
                     onClick={() => onIngest(adapter.adapter_id)}
                   >
-                    {p.stale
-                      ? 'Stale blocked'
-                      : !identity
-                        ? 'Authenticate'
-                        : canIngest
-                          ? 'Ingest fixture'
-                          : 'View only'}
+                    {p.using_cached_records
+                      ? 'Cached preview'
+                      : p.stale
+                        ? 'Stale blocked'
+                        : p.health === 'error'
+                          ? 'Feed unavailable'
+                          : !identity
+                            ? 'Authenticate'
+                            : canIngest
+                              ? p.mode === 'live' ? 'Ingest live' : 'Ingest fixture'
+                              : 'View only'}
                   </button>
                 </div>
               </div>

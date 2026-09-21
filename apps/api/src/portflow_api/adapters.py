@@ -1,9 +1,10 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 import json
 import os
+from threading import Lock
 from typing import Callable, Protocol
 from urllib.parse import urlparse
 from urllib.request import Request, urlopen
@@ -99,7 +100,7 @@ def _http_json_loader(url: str, timeout_seconds: float) -> dict:
     return payload
 
 
-@dataclass(frozen=True)
+@dataclass
 class HttpJsonAdapter:
     adapter_id: str
     domain: DataDomain
@@ -108,69 +109,137 @@ class HttpJsonAdapter:
     stale_after_seconds: int
     timeout_seconds: float = 2.0
     loader: JsonLoader = _http_json_loader
+    _last_good_snapshot: AdapterSnapshot | None = field(default=None, init=False, repr=False, compare=False)
+    _last_success_at: datetime | None = field(default=None, init=False, repr=False, compare=False)
+    _consecutive_errors: int = field(default=0, init=False, repr=False, compare=False)
+    _lock: Lock = field(default_factory=Lock, init=False, repr=False, compare=False)
+
+    def config_key(self) -> tuple:
+        return (
+            self.adapter_id,
+            self.domain,
+            self.provider,
+            self.url,
+            self.stale_after_seconds,
+            self.timeout_seconds,
+        )
 
     def snapshot(self, now: datetime | None = None) -> AdapterSnapshot:
         received_at = (now or datetime.now(timezone.utc)).replace(microsecond=0)
 
-        try:
-            payload = self.loader(self.url, self.timeout_seconds)
-            observed_raw = payload.get("observed_at")
-            records = payload.get("records")
+        with self._lock:
+            try:
+                payload = self.loader(self.url, self.timeout_seconds)
+                observed_raw = payload.get("observed_at")
+                records = payload.get("records")
 
-            if not isinstance(observed_raw, str):
-                raise ValueError("Live adapter payload requires observed_at")
-            if not isinstance(records, list):
-                raise ValueError("Live adapter payload requires records array")
-            if not all(isinstance(item, dict) for item in records):
-                raise ValueError("Live adapter records must be JSON objects")
+                if not isinstance(observed_raw, str):
+                    raise ValueError("Live adapter payload requires observed_at")
+                if not isinstance(records, list):
+                    raise ValueError("Live adapter payload requires records array")
+                if not all(isinstance(item, dict) for item in records):
+                    raise ValueError("Live adapter records must be JSON objects")
 
-            observed_at = _parse_datetime(observed_raw)
-            freshness = max(0, int((received_at - observed_at).total_seconds()))
-            stale = freshness > self.stale_after_seconds
-            health = AdapterHealth.STALE if stale else AdapterHealth.HEALTHY
-            detail = (
-                "Live HTTP JSON adapter."
-                if not stale
-                else "Live HTTP JSON adapter responded, but the observation is stale."
-            )
+                observed_at = _parse_datetime(observed_raw)
+                freshness = max(0, int((received_at - observed_at).total_seconds()))
+                stale = freshness > self.stale_after_seconds
+                health = AdapterHealth.STALE if stale else AdapterHealth.HEALTHY
+                self._consecutive_errors = 0
 
-            return AdapterSnapshot(
-                adapter_id=self.adapter_id,
-                provenance=DataSourceProvenance(
-                    source_id=self.adapter_id,
-                    domain=self.domain,
-                    mode=DataSourceMode.LIVE,
-                    provider=self.provider,
-                    observed_at=observed_at,
-                    received_at=received_at,
-                    freshness_seconds=freshness,
-                    stale_after_seconds=self.stale_after_seconds,
-                    stale=stale,
-                    health=health,
-                    record_count=len(records),
-                    detail=detail,
-                ),
-                records=[dict(item) for item in records],
-            )
-        except Exception as exc:
-            return AdapterSnapshot(
-                adapter_id=self.adapter_id,
-                provenance=DataSourceProvenance(
-                    source_id=self.adapter_id,
-                    domain=self.domain,
-                    mode=DataSourceMode.LIVE,
-                    provider=self.provider,
-                    observed_at=received_at,
-                    received_at=received_at,
-                    freshness_seconds=0,
-                    stale_after_seconds=self.stale_after_seconds,
-                    stale=True,
-                    health=AdapterHealth.ERROR,
-                    record_count=0,
-                    detail=f"Live adapter unavailable: {type(exc).__name__}",
-                ),
-                records=[],
-            )
+                snapshot = AdapterSnapshot(
+                    adapter_id=self.adapter_id,
+                    provenance=DataSourceProvenance(
+                        source_id=self.adapter_id,
+                        domain=self.domain,
+                        mode=DataSourceMode.LIVE,
+                        provider=self.provider,
+                        observed_at=observed_at,
+                        received_at=received_at,
+                        freshness_seconds=freshness,
+                        stale_after_seconds=self.stale_after_seconds,
+                        stale=stale,
+                        health=health,
+                        record_count=len(records),
+                        detail=(
+                            "Live HTTP JSON adapter."
+                            if not stale
+                            else "Live HTTP JSON adapter responded, but the observation is stale."
+                        ),
+                        last_success_at=self._last_success_at,
+                        consecutive_errors=0,
+                        using_cached_records=False,
+                    ),
+                    records=[dict(item) for item in records],
+                )
+
+                if health == AdapterHealth.HEALTHY:
+                    self._last_success_at = received_at
+                    snapshot.provenance.last_success_at = received_at
+                    self._last_good_snapshot = snapshot.model_copy(deep=True)
+
+                return snapshot
+
+            except Exception as exc:
+                self._consecutive_errors += 1
+
+                if self._last_good_snapshot is not None:
+                    cached = self._last_good_snapshot.model_copy(deep=True)
+                    freshness = max(
+                        0,
+                        int((received_at - cached.provenance.observed_at).total_seconds()),
+                    )
+                    stale = freshness > self.stale_after_seconds
+                    health = AdapterHealth.STALE if stale else AdapterHealth.DEGRADED
+                    return AdapterSnapshot(
+                        adapter_id=self.adapter_id,
+                        provenance=DataSourceProvenance(
+                            source_id=self.adapter_id,
+                            domain=self.domain,
+                            mode=DataSourceMode.LIVE,
+                            provider=self.provider,
+                            observed_at=cached.provenance.observed_at,
+                            received_at=received_at,
+                            freshness_seconds=freshness,
+                            stale_after_seconds=self.stale_after_seconds,
+                            stale=stale,
+                            health=health,
+                            record_count=len(cached.records),
+                            detail=(
+                                f"Live adapter unavailable: {type(exc).__name__}; "
+                                "showing last-known-good preview only."
+                            ),
+                            last_success_at=self._last_success_at,
+                            consecutive_errors=self._consecutive_errors,
+                            using_cached_records=True,
+                        ),
+                        records=[dict(item) for item in cached.records],
+                    )
+
+                return AdapterSnapshot(
+                    adapter_id=self.adapter_id,
+                    provenance=DataSourceProvenance(
+                        source_id=self.adapter_id,
+                        domain=self.domain,
+                        mode=DataSourceMode.LIVE,
+                        provider=self.provider,
+                        observed_at=received_at,
+                        received_at=received_at,
+                        freshness_seconds=0,
+                        stale_after_seconds=self.stale_after_seconds,
+                        stale=True,
+                        health=AdapterHealth.ERROR,
+                        record_count=0,
+                        detail=f"Live adapter unavailable: {type(exc).__name__}",
+                        last_success_at=None,
+                        consecutive_errors=self._consecutive_errors,
+                        using_cached_records=False,
+                    ),
+                    records=[],
+                )
+
+
+_LIVE_ADAPTERS: dict[str, HttpJsonAdapter] = {}
+_LIVE_ADAPTERS_LOCK = Lock()
 
 
 def configured_live_adapters() -> dict[str, HttpJsonAdapter]:
@@ -201,19 +270,31 @@ def configured_live_adapters() -> dict[str, HttpJsonAdapter]:
         ),
     )
 
-    adapters: dict[str, HttpJsonAdapter] = {}
-    for adapter_id, domain, url_env, provider_env, provider_default, stale_after in specs:
-        url = os.getenv(url_env, "").strip()
-        if not url:
-            continue
-        adapters[adapter_id] = HttpJsonAdapter(
-            adapter_id=adapter_id,
-            domain=domain,
-            provider=os.getenv(provider_env, provider_default).strip() or provider_default,
-            url=url,
-            stale_after_seconds=stale_after,
-        )
-    return adapters
+    desired: dict[str, HttpJsonAdapter] = {}
+    with _LIVE_ADAPTERS_LOCK:
+        for adapter_id, domain, url_env, provider_env, provider_default, stale_after in specs:
+            url = os.getenv(url_env, "").strip()
+            if not url:
+                continue
+
+            provider = os.getenv(provider_env, provider_default).strip() or provider_default
+            candidate = HttpJsonAdapter(
+                adapter_id=adapter_id,
+                domain=domain,
+                provider=provider,
+                url=url,
+                stale_after_seconds=stale_after,
+            )
+            existing = _LIVE_ADAPTERS.get(adapter_id)
+            desired[adapter_id] = (
+                existing
+                if existing is not None and existing.config_key() == candidate.config_key()
+                else candidate
+            )
+
+        _LIVE_ADAPTERS.clear()
+        _LIVE_ADAPTERS.update(desired)
+        return dict(_LIVE_ADAPTERS)
 
 
 def all_adapters() -> dict[str, ExternalDataAdapter]:

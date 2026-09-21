@@ -155,6 +155,9 @@ export interface DataSourceProvenance {
   health: AdapterHealth
   record_count: number
   detail?: string | null
+  last_success_at?: string | null
+  consecutive_errors: number
+  using_cached_records: boolean
 }
 
 export interface AdapterSnapshot {

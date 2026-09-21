@@ -1,6 +1,6 @@
 # PortFlow architecture
 
-## v0.10
+## v0.11
 
 Synthetic operations and scenario injection feed a deterministic HarborSimulator.
 
@@ -572,3 +572,36 @@ backend calendar + operational state
   -> canonical mutation + receipt
 
 The Resource Board currently displays the first modeled outage interval for operator awareness. Future versions can expose richer calendars without moving scheduling authority into the frontend.
+
+
+## v0.11 live-adapter resilience boundary
+
+A live adapter is a stateful runtime object while its deployment configuration is stable.
+
+healthy upstream response
+  -> validate transport shape
+  -> AdapterSnapshot(healthy)
+  -> update last-known-good cache
+  -> last_success_at = received_at
+  -> consecutive_errors = 0
+
+later transport/shape failure
+  -> consecutive_errors += 1
+  -> if fresh cache exists: DEGRADED cached preview
+  -> if expired cache exists: STALE cached preview
+  -> if no cache exists: ERROR with zero records
+
+The cache is a preview/fault-tolerance surface only.
+
+Canonical mutation requires:
+
+    provenance.health == HEALTHY
+    and provenance.stale == false
+
+DEGRADED is therefore explicitly non-ingestible.
+
+The configured adapter registry preserves an HttpJsonAdapter instance only when its effective configuration tuple remains identical. Changing adapter URL/provider configuration replaces the runtime object and resets its cache/error streak.
+
+Per-adapter locks serialize live snapshot state transitions. A registry lock serializes configuration reconciliation.
+
+The browser projects resilience metadata but does not own retry policy, cache policy, or ingest authority.

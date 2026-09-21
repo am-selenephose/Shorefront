@@ -29,6 +29,7 @@ os.environ["PORTFLOW_APPROVERS_JSON"] = json.dumps([
     },
 ])
 
+from portflow_api.adapters import configured_live_adapters
 from portflow_api.main import app
 
 
@@ -410,3 +411,45 @@ def test_bunker_loss_scenario_blocks_departure_and_returns_recovery_options():
         assert len(bunker_proposals) >= 2
         assert bunker_proposals[0]["projected_blocked_services"] == 0
         assert bunker_proposals[0]["disruption_score"] < bunker_proposals[1]["disruption_score"]
+
+
+def test_live_adapter_preview_reuses_last_good_across_api_requests(monkeypatch):
+    from datetime import datetime, timezone
+
+    base = datetime.now(timezone.utc).replace(microsecond=0)
+    monkeypatch.setenv("PORTFLOW_AIS_URL", "https://example.invalid/ais")
+    monkeypatch.setenv("PORTFLOW_AIS_PROVIDER", "Persistent API AIS")
+
+    adapter = configured_live_adapters()["live-ais"]
+    calls = {"count": 0}
+
+    def loader(url, timeout):
+        calls["count"] += 1
+        if calls["count"] == 1:
+            return {
+                "observed_at": base.isoformat(),
+                "records": [{
+                    "vessel_id": "v-aurora",
+                    "lat": 51.982,
+                    "lon": 3.995,
+                    "speed_knots": 10.9,
+                    "heading_deg": 94.0,
+                }],
+            }
+        raise TimeoutError("fixture outage")
+
+    adapter.loader = loader
+
+    with TestClient(app) as client:
+        first = client.get("/api/v1/adapters/live-ais/preview")
+        second = client.get("/api/v1/adapters/live-ais/preview")
+
+    assert first.status_code == 200
+    assert first.json()["provenance"]["health"] == "healthy"
+    assert first.json()["provenance"]["last_success_at"] is not None
+
+    assert second.status_code == 200
+    assert second.json()["provenance"]["health"] == "degraded"
+    assert second.json()["provenance"]["using_cached_records"] is True
+    assert second.json()["provenance"]["consecutive_errors"] == 1
+    assert second.json()["records"] == first.json()["records"]

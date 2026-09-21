@@ -128,6 +128,9 @@ class DataSourceProvenance(BaseModel):
     health: AdapterHealth = AdapterHealth.HEALTHY
     record_count: int = 0
     detail: str | None = None
+    last_success_at: datetime | None = None
+    consecutive_errors: int = 0
+    using_cached_records: bool = False
 
 
 class AdapterSnapshot(BaseModel):
