@@ -4,7 +4,7 @@ PortFlow is a port-call operations control tower for live vessel, berth, weather
 
 ## Status
 
-Private portfolio build, v0.5 constrained recovery + deployable operations core.
+Private portfolio build, v0.6 identity-bound recovery authority core.
 
 ## Product principles
 
@@ -119,7 +119,7 @@ The production compose intentionally requires PORTFLOW_DB_PASSWORD instead of sh
 
 Current local verification target:
 
-- 26 backend/domain/API/storage/recovery tests
+- 32 backend/domain/API/storage/recovery/security tests
 - production web build
 - zero production npm vulnerabilities
 
@@ -127,6 +127,7 @@ GitHub Actions workflow is committed. The linked GitHub account currently has Ac
 
 ## API highlights
 
+- GET /api/v1/auth/me
 - GET /healthz
 - GET /api/v1/harbor
 - GET /api/v1/events
@@ -354,16 +355,136 @@ The stack returned the PortFlow UI, six synthetic vessels, four port calls, serv
 
 On the current Raptor host, Docker build-stage DNS required manual verification with --network=host. That is a host Docker DNS issue, not an application dependency or Dockerfile requirement.
 
+## v0.6 proof
+
+### Identity-bound recovery authority
+
+Recovery proposal visibility remains read-only by default.
+
+Execution now requires an authenticated identity with one of these roles:
+
+- viewer: can inspect authenticated recovery audit receipts but cannot approve
+- operator: can approve and apply recovery proposals
+- supervisor: can approve and apply recovery proposals
+
+Authorization behavior is enforced by FastAPI dependencies rather than UI-only controls.
+
+Verified HTTP authority matrix:
+
+- anonymous GET /api/v1/auth/me -> 401
+- invalid bearer credential -> 401
+- viewer GET /api/v1/auth/me -> 200
+- anonymous recovery apply -> 401
+- viewer recovery apply -> 403
+- operator recovery apply -> 200
+- anonymous recovery receipt read -> 401
+- viewer recovery receipt read -> 200
+- supervisor recovery apply -> 200
+
+### Credential handling
+
+PortFlow's current portfolio authentication layer uses opaque bearer credentials.
+
+The server configuration stores only SHA-256 token digests in PORTFLOW_APPROVERS_JSON. Raw operator credentials are not stored in the repository or .env.example.
+
+Digest comparison uses hmac.compare_digest.
+
+The browser keeps the active credential in sessionStorage rather than localStorage so it does not intentionally persist across browser sessions.
+
+This is a bounded portfolio authentication layer, not a claim of enterprise SSO. A production customer deployment should replace or front it with an organization identity provider / OIDC layer.
+
+Generate a digest without putting the raw credential in shell history:
+
+    python -c "import getpass,hashlib; print(hashlib.sha256(getpass.getpass('Operator token: ').encode()).hexdigest())"
+
+Production compose requires both:
+
+- PORTFLOW_DB_PASSWORD
+- PORTFLOW_APPROVERS_JSON
+
+Malformed auth configuration fails during API startup.
+
+### Identity-bound receipts
+
+RecoveryApplicationReceipt now records:
+
+- proposal id
+- state fingerprint
+- target port call
+- exact applied actions
+- resulting conflicts / blocked services / delay / modeled cost
+- operator id
+- operator role
+- operator display name
+- application timestamp
+
+Runtime proof recorded:
+
+operator approval:
+
+- operator id: operator-17
+- role: operator
+- display name: Mina Torres
+- apply: 200
+
+supervisor approval:
+
+- operator id: supervisor-02
+- role: supervisor
+- display name: Alex Chen
+- apply: 200
+
+A viewer can read the resulting audit receipt but cannot create it.
+
+### Operator session UI
+
+The Recovery Plans panel now includes an explicit Operator Session surface.
+
+Unauthenticated state:
+
+- proposals remain visible
+- apply controls are disabled
+- receipt history is hidden behind authentication
+- no automatic approval path exists
+
+Viewer state:
+
+- identity and viewer role are visible
+- proposals remain inspectable
+- apply remains disabled
+
+Operator / supervisor state:
+
+- verified identity is visible
+- explicit Approve & apply action is enabled
+- receipt display identifies the approving person and role
+- End session clears the session credential
+
+The v0.6 auth/recovery UI was rendered in the real incident state as part of visual QA.
+
+### v0.6 verification
+
+Current verification:
+
+- 32 backend/domain/API/storage/recovery/security tests pass
+- production TypeScript/Vite build passes
+- production npm audit reports 0 vulnerabilities
+- FastAPI /healthz reports v0.6.0 and authorization_configured=true when approvers are present
+- v0.6 API Docker image builds successfully
+- v0.6 Nginx web image builds successfully
+- docker-compose.prod.yml validates with required authorization configuration
+
+The authorization matrix was runtime-proven against the API process. Full Docker deployment of the auth matrix was not claimed because the execution environment blocked passing test credential configuration into the privileged Docker verification step.
+
 ## Next engineering milestone
 
-v0.6 should focus on operator identity and external-data boundaries:
+v0.7 should focus on deterministic operational scenarios and external-data boundaries:
 
-- authenticated operator roles for recovery approval
-- approval receipts bound to operator identity and role
 - deterministic scenario fixture packs
-- browser E2E tests
+- browser E2E tests for incident -> proposal -> authenticated approval -> receipt
 - richer multi-resource / multi-call optimization
 - bunker, stores, gate, and additional customs dependencies
 - adapter interfaces for AIS, weather/tide, and port-call feeds
 - explicit live-vs-synthetic data provenance at adapter boundaries
-- deployment configuration for a real hosted demo
+- deployment configuration for a hosted portfolio demo
+- optional OIDC-compatible production authentication adapter

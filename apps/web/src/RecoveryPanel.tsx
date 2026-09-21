@@ -1,4 +1,9 @@
-import type { RecoveryProposal, RecoveryReceipt } from './types'
+import { useState } from 'react'
+import type {
+  OperatorIdentity,
+  RecoveryProposal,
+  RecoveryReceipt,
+} from './types'
 
 const usd = (value: number) =>
   new Intl.NumberFormat('en-US', {
@@ -24,28 +29,96 @@ function actionLabel(action: RecoveryProposal['actions'][number]) {
 export function RecoveryPanel({
   proposals,
   receipts,
+  identity,
   busy,
+  authBusy,
   onApply,
   onRefresh,
+  onConnect,
+  onDisconnect,
 }: {
   proposals: RecoveryProposal[]
   receipts: RecoveryReceipt[]
+  identity: OperatorIdentity | null
   busy: boolean
+  authBusy: boolean
   onApply: (proposalId: string) => Promise<void>
   onRefresh: () => Promise<void>
+  onConnect: (token: string) => Promise<boolean>
+  onDisconnect: () => void
 }) {
+  const [tokenInput, setTokenInput] = useState('')
+  const canApprove = identity?.role === 'operator' || identity?.role === 'supervisor'
+
+  async function connect() {
+    const token = tokenInput.trim()
+    if (!token) return
+    const ok = await onConnect(token)
+    if (ok) setTokenInput('')
+  }
+
   return (
     <div className="recovery-panel">
       <div className="recovery-head">
         <div>
           <span>RECOVERY PLANS</span>
-          <b>Operator-approved mitigation proposals</b>
+          <b>Identity-bound human approval</b>
         </div>
         <div className="recovery-head-actions">
           <small>AUTO-APPLY OFF</small>
           <button disabled={busy} onClick={onRefresh}>Recalculate</button>
         </div>
       </div>
+
+      <div className="operator-session">
+        <div className="operator-session-copy">
+          <span>OPERATOR SESSION</span>
+          {identity ? (
+            <>
+              <b>{identity.display_name}</b>
+              <small>{identity.operator_id} · {identity.role}</small>
+            </>
+          ) : (
+            <>
+              <b>Not authenticated</b>
+              <small>Proposal visibility is read-only until an operator session is verified.</small>
+            </>
+          )}
+        </div>
+
+        {identity ? (
+          <div className="operator-connected">
+            <span className={'role-badge ' + identity.role}>{identity.role}</span>
+            <button disabled={authBusy || busy} onClick={onDisconnect}>End session</button>
+          </div>
+        ) : (
+          <div className="operator-login">
+            <input
+              aria-label="Operator access token"
+              type="password"
+              autoComplete="off"
+              placeholder="Operator access token"
+              value={tokenInput}
+              onChange={event => setTokenInput(event.target.value)}
+              onKeyDown={event => {
+                if (event.key === 'Enter') void connect()
+              }}
+            />
+            <button
+              disabled={authBusy || !tokenInput.trim()}
+              onClick={() => void connect()}
+            >
+              {authBusy ? 'Verifying...' : 'Verify'}
+            </button>
+          </div>
+        )}
+      </div>
+
+      {identity?.role === 'viewer' && (
+        <div className="authority-note viewer">
+          Viewer session active. Recovery proposals are inspectable, but approval is blocked by role policy.
+        </div>
+      )}
 
       {proposals.length === 0 ? (
         <div className="recovery-empty">
@@ -90,13 +163,21 @@ export function RecoveryPanel({
               <div className="recovery-approval">
                 <div>
                   <span>AUTHORITY</span>
-                  <b>Human operator</b>
+                  <b>
+                    {identity
+                      ? identity.display_name + ' · ' + identity.role
+                      : 'Operator / supervisor required'}
+                  </b>
                 </div>
                 <button
-                  disabled={busy || !proposal.requires_approval}
+                  disabled={busy || !proposal.requires_approval || !canApprove}
                   onClick={() => onApply(proposal.id)}
                 >
-                  Approve & apply
+                  {!identity
+                    ? 'Authenticate to apply'
+                    : canApprove
+                      ? 'Approve & apply'
+                      : 'View only'}
                 </button>
               </div>
             </article>
@@ -105,8 +186,13 @@ export function RecoveryPanel({
       )}
 
       <div className="recovery-receipts">
-        <span className="section-kicker">RECENT OPERATOR RECEIPTS · {receipts.length}</span>
-        {receipts.length === 0 ? (
+        <span className="section-kicker">
+          RECENT OPERATOR RECEIPTS · {identity ? receipts.length : 'AUTH REQUIRED'}
+        </span>
+
+        {!identity ? (
+          <p>Authenticate to inspect identity-bound recovery receipts.</p>
+        ) : receipts.length === 0 ? (
           <p>No recovery action has been approved in this demo state.</p>
         ) : (
           receipts.slice(0, 4).map(receipt => (
@@ -120,7 +206,10 @@ export function RecoveryPanel({
                 <span>{receipt.resulting_blocked_services} blocked</span>
                 <span>{receipt.resulting_total_delay_minutes}m delay</span>
               </div>
-              <small>{receipt.approved_by.replace('_', ' ')}</small>
+              <small>
+                {(receipt.approved_display_name || receipt.approved_by) +
+                  ' · ' + receipt.approved_role}
+              </small>
             </div>
           ))
         )}

@@ -1,5 +1,39 @@
+import hashlib
+import json
+import os
+
 from fastapi.testclient import TestClient
+
+VIEWER_TOKEN = "viewer-test-token"
+OPERATOR_TOKEN = "operator-test-token"
+SUPERVISOR_TOKEN = "supervisor-test-token"
+
+os.environ["PORTFLOW_APPROVERS_JSON"] = json.dumps([
+    {
+        "token_sha256": hashlib.sha256(VIEWER_TOKEN.encode()).hexdigest(),
+        "operator_id": "viewer-01",
+        "display_name": "Read Only",
+        "role": "viewer",
+    },
+    {
+        "token_sha256": hashlib.sha256(OPERATOR_TOKEN.encode()).hexdigest(),
+        "operator_id": "operator-17",
+        "display_name": "Mina Torres",
+        "role": "operator",
+    },
+    {
+        "token_sha256": hashlib.sha256(SUPERVISOR_TOKEN.encode()).hexdigest(),
+        "operator_id": "supervisor-02",
+        "display_name": "Alex Chen",
+        "role": "supervisor",
+    },
+])
+
 from portflow_api.main import app
+
+
+def auth_headers(token: str) -> dict[str, str]:
+    return {"Authorization": "Bearer " + token}
 
 def test_healthz():
     with TestClient(app) as client:
@@ -104,56 +138,110 @@ def test_offline_replay_api_contract():
         assert len(receipts) >= 2
 
 
-def test_recovery_api_requires_explicit_apply():
+def create_berth_recovery(client: TestClient) -> tuple[list[dict], str]:
+    client.post("/api/v1/demo/reset")
+    incident = client.post(
+        "/api/v1/incidents",
+        json={
+            "incident_type": "berth_overrun",
+            "target_port_call_id": "pc-glory",
+            "impact_minutes": 90,
+        },
+    )
+    assert incident.status_code == 200
+
+    before = client.get("/api/v1/berth-conflicts").json()
+    assert before
+
+    payload = client.get("/api/v1/recovery/proposals?call_id=pc-nova").json()
+    assert payload["auto_apply"] is False
+    assert payload["count"] >= 1
+    return before, payload["proposals"][0]["id"]
+
+
+def test_auth_me_contract():
     with TestClient(app) as client:
-        client.post("/api/v1/demo/reset")
-        client.post(
-            "/api/v1/incidents",
-            json={
-                "incident_type": "berth_overrun",
-                "target_port_call_id": "pc-glory",
-                "impact_minutes": 90,
-            },
+        assert client.get("/api/v1/auth/me").status_code == 401
+        assert client.get(
+            "/api/v1/auth/me",
+            headers=auth_headers("wrong-token"),
+        ).status_code == 401
+
+        viewer = client.get(
+            "/api/v1/auth/me",
+            headers=auth_headers(VIEWER_TOKEN),
         )
+        assert viewer.status_code == 200
+        assert viewer.json() == {
+            "operator_id": "viewer-01",
+            "display_name": "Read Only",
+            "role": "viewer",
+        }
 
-        before = client.get("/api/v1/berth-conflicts").json()
-        assert before
 
-        response = client.get("/api/v1/recovery/proposals?call_id=pc-nova")
-        assert response.status_code == 200
-        payload = response.json()
-        assert payload["auto_apply"] is False
-        assert payload["authority"] == "human_operator"
-        assert payload["count"] >= 1
+def test_recovery_apply_requires_authenticated_approver():
+    with TestClient(app) as client:
+        before, proposal_id = create_berth_recovery(client)
+
+        missing = client.post(f"/api/v1/recovery/proposals/{proposal_id}/apply")
+        assert missing.status_code == 401
+
+        invalid = client.post(
+            f"/api/v1/recovery/proposals/{proposal_id}/apply",
+            headers=auth_headers("invalid"),
+        )
+        assert invalid.status_code == 401
+
+        viewer = client.post(
+            f"/api/v1/recovery/proposals/{proposal_id}/apply",
+            headers=auth_headers(VIEWER_TOKEN),
+        )
+        assert viewer.status_code == 403
 
         unchanged = client.get("/api/v1/berth-conflicts").json()
         assert unchanged == before
 
-        proposal_id = payload["proposals"][0]["id"]
-        applied = client.post(f"/api/v1/recovery/proposals/{proposal_id}/apply")
+
+def test_operator_can_apply_and_receipt_binds_identity():
+    with TestClient(app) as client:
+        _, proposal_id = create_berth_recovery(client)
+
+        applied = client.post(
+            f"/api/v1/recovery/proposals/{proposal_id}/apply",
+            headers=auth_headers(OPERATOR_TOKEN),
+        )
         assert applied.status_code == 200
-        assert applied.json()["approved_by"] == "human_operator"
+        receipt = applied.json()
+        assert receipt["approved_by"] == "operator-17"
+        assert receipt["approved_role"] == "operator"
+        assert receipt["approved_display_name"] == "Mina Torres"
 
         after = client.get("/api/v1/berth-conflicts").json()
         assert after == []
 
-
-def test_recovery_receipt_api_exposes_operator_decision():
-    with TestClient(app) as client:
-        client.post("/api/v1/demo/reset")
-        client.post(
-            "/api/v1/incidents",
-            json={
-                "incident_type": "berth_overrun",
-                "target_port_call_id": "pc-glory",
-                "impact_minutes": 90,
-            },
+        assert client.get("/api/v1/recovery/receipts").status_code == 401
+        receipts = client.get(
+            "/api/v1/recovery/receipts",
+            headers=auth_headers(VIEWER_TOKEN),
         )
-        payload = client.get("/api/v1/recovery/proposals?call_id=pc-nova").json()
-        proposal_id = payload["proposals"][0]["id"]
-        client.post(f"/api/v1/recovery/proposals/{proposal_id}/apply")
+        assert receipts.status_code == 200
+        rows = receipts.json()
+        assert len(rows) == 1
+        assert rows[0]["proposal_id"] == proposal_id
+        assert rows[0]["approved_by"] == "operator-17"
+        assert rows[0]["approved_role"] == "operator"
 
-        receipts = client.get("/api/v1/recovery/receipts").json()
-        assert len(receipts) == 1
-        assert receipts[0]["proposal_id"] == proposal_id
-        assert receipts[0]["approved_by"] == "human_operator"
+
+def test_supervisor_can_apply_recovery():
+    with TestClient(app) as client:
+        _, proposal_id = create_berth_recovery(client)
+
+        applied = client.post(
+            f"/api/v1/recovery/proposals/{proposal_id}/apply",
+            headers=auth_headers(SUPERVISOR_TOKEN),
+        )
+        assert applied.status_code == 200
+        receipt = applied.json()
+        assert receipt["approved_by"] == "supervisor-02"
+        assert receipt["approved_role"] == "supervisor"
+        assert receipt["approved_display_name"] == "Alex Chen"

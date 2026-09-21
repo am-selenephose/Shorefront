@@ -3,13 +3,14 @@ from __future__ import annotations
 import asyncio
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import Depends, FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
 from .domain import detect_berth_conflicts, score_port_call
-from .models import IncidentType, LinkMode
+from .models import IncidentType, LinkMode, OperatorIdentity
 from .simulator import HarborSimulator
+from .security import configured_approvers, current_operator, recovery_approver
 from .storage import OperationsStore
 
 
@@ -36,6 +37,7 @@ sim = build_simulator()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    configured_approvers()
     stop = asyncio.Event()
 
     async def runner():
@@ -49,7 +51,7 @@ async def lifespan(app: FastAPI):
     task.cancel()
 
 
-app = FastAPI(title="PortFlow API", version="0.5.0", lifespan=lifespan)
+app = FastAPI(title="PortFlow API", version="0.6.0", lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
@@ -74,9 +76,15 @@ def healthz():
     return {
         "ok": True,
         "service": "portflow-api",
-        "version": "0.5.0",
+        "version": "0.6.0",
         "persistence": True,
+        "authorization_configured": bool(configured_approvers()),
     }
+
+
+@app.get("/api/v1/auth/me")
+def auth_me(identity: OperatorIdentity = Depends(current_operator)):
+    return identity
 
 
 @app.get("/api/v1/harbor")
@@ -127,20 +135,31 @@ def recovery_proposals(call_id: str | None = None):
         "count": len(proposals),
         "proposals": proposals,
         "auto_apply": False,
-        "authority": "human_operator",
+        "authority": "operator_or_supervisor",
     }
 
 
 @app.post("/api/v1/recovery/proposals/{proposal_id}/apply")
-def apply_recovery_proposal(proposal_id: str):
+def apply_recovery_proposal(
+    proposal_id: str,
+    identity: OperatorIdentity = Depends(recovery_approver),
+):
     try:
-        return sim.apply_recovery_proposal(proposal_id)
+        return sim.apply_recovery_proposal(
+            proposal_id,
+            approved_by=identity.operator_id,
+            approved_role=identity.role,
+            approved_display_name=identity.display_name,
+        )
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
 @app.get("/api/v1/recovery/receipts")
-def recovery_receipts(limit: int = 100):
+def recovery_receipts(
+    limit: int = 100,
+    identity: OperatorIdentity = Depends(current_operator),
+):
     return store.list_recovery_receipts(limit=limit)
 
 

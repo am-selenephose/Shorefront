@@ -5,6 +5,14 @@ export type ServiceKind = 'pilot' | 'tug' | 'berth' | 'crane' | 'cargo' | 'custo
 export type ServiceState = 'ready' | 'assigned' | 'delayed' | 'blocked' | 'completed'
 export type ResourceStatus = 'available' | 'assigned' | 'delayed' | 'unavailable'
 export type RecoveryActionType = 'reassign_resource' | 'move_berth' | 'shift_window'
+export type OperatorRole = 'viewer' | 'operator' | 'supervisor'
+
+
+export interface OperatorIdentity {
+  operator_id: string
+  display_name: string
+  role: OperatorRole
+}
 
 export interface Coordinate { lat: number; lon: number }
 
@@ -176,4 +184,6 @@ export interface RecoveryReceipt {
   resulting_total_delay_minutes: number
   resulting_modeled_cost_usd: number
   approved_by: string
+  approved_role: OperatorRole
+  approved_display_name?: string | null
 }

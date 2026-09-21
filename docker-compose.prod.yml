@@ -19,6 +19,7 @@ services:
       context: ./apps/api
     environment:
       DATABASE_URL: postgresql+psycopg://portflow:${PORTFLOW_DB_PASSWORD:?PORTFLOW_DB_PASSWORD is required}@postgres:5432/portflow
+      PORTFLOW_APPROVERS_JSON: ${PORTFLOW_APPROVERS_JSON:?PORTFLOW_APPROVERS_JSON is required}
     depends_on:
       postgres:
         condition: service_healthy

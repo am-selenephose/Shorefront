@@ -78,6 +78,18 @@ class RecoveryActionType(StrEnum):
     SHIFT_WINDOW = "shift_window"
 
 
+class OperatorRole(StrEnum):
+    VIEWER = "viewer"
+    OPERATOR = "operator"
+    SUPERVISOR = "supervisor"
+
+
+class OperatorIdentity(BaseModel):
+    operator_id: str
+    display_name: str
+    role: OperatorRole
+
+
 class Coordinate(BaseModel):
     lat: float
     lon: float
@@ -227,7 +239,9 @@ class RecoveryApplicationReceipt(BaseModel):
     resulting_blocked_services: int
     resulting_total_delay_minutes: int
     resulting_modeled_cost_usd: float
-    approved_by: str = "human_operator"
+    approved_by: str = "legacy_operator"
+    approved_role: OperatorRole = OperatorRole.OPERATOR
+    approved_display_name: str | None = None
 
 
 class ReplayReceipt(BaseModel):

@@ -15,7 +15,7 @@ from .models import (
     Incident, IncidentStatus, IncidentType, LinkMode, OperationsEvent,
     PortCall, PortCallStage, RecoveryAction, RecoveryActionType,
     RecoveryApplicationReceipt, RecoveryProposal, ResourceStatus, RiskLevel,
-    ServiceKind, ServiceResource, ServiceState, ServiceStep, Vessel, VesselStatus,
+    OperatorRole, ServiceKind, ServiceResource, ServiceState, ServiceStep, Vessel, VesselStatus,
     WeatherState,
 )
 
@@ -961,7 +961,15 @@ class HarborSimulator:
     def apply_recovery_proposal(
         self,
         proposal_id: str,
+        approved_by: str,
+        approved_role: OperatorRole,
+        approved_display_name: str | None = None,
     ) -> RecoveryApplicationReceipt:
+        if approved_role not in {OperatorRole.OPERATOR, OperatorRole.SUPERVISOR}:
+            raise ValueError("Operator or supervisor role required for recovery approval")
+        if not approved_by.strip():
+            raise ValueError("Recovery approval requires a non-empty operator identity")
+
         proposal = next(
             (
                 item for item in self.generate_recovery_proposals()
@@ -985,7 +993,9 @@ class HarborSimulator:
             resulting_blocked_services=metrics["blocked"],
             resulting_total_delay_minutes=metrics["total_delay"],
             resulting_modeled_cost_usd=metrics["modeled_cost"],
-            approved_by="human_operator",
+            approved_by=approved_by,
+            approved_role=approved_role,
+            approved_display_name=approved_display_name,
         )
 
         if self.recovery_receipt_sink:
@@ -998,7 +1008,7 @@ class HarborSimulator:
             RiskLevel.LOW if metrics["conflicts"] == 0 and metrics["blocked"] == 0 else RiskLevel.MEDIUM,
             f"Recovery applied: {proposal.title}",
             (
-                f"Operator-approved proposal {proposal.id}; "
+                f"Approved recovery proposal {proposal.id}; "
                 f"{metrics['conflicts']} conflict(s), {metrics['blocked']} blocked service(s), "
                 f"{metrics['total_delay']} total modeled delay minutes remain."
             ),

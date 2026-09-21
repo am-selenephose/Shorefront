@@ -1,6 +1,6 @@
 # PortFlow architecture
 
-## v0.5
+## v0.6
 
 Synthetic operations and scenario injection feed a deterministic HarborSimulator.
 
@@ -205,3 +205,58 @@ client
 PostgreSQL is not exposed externally in docker-compose.prod.yml.
 
 The public web surface uses one origin, avoiding a production dependency on browser cross-origin API access.
+
+
+## Identity and approval boundary
+
+Recovery authority is enforced server-side.
+
+Authentication flow:
+
+opaque bearer credential
+  -> SHA-256
+  -> constant-time digest comparison
+  -> OperatorIdentity
+  -> role authorization
+  -> recovery apply
+
+Roles:
+
+- viewer: authenticated audit read
+- operator: recovery approval
+- supervisor: recovery approval
+
+The UI reflects this boundary but does not define it. Calling the API directly cannot bypass the role dependency.
+
+Recovery proposals themselves remain readable without approval authority so planning and execution remain separate capabilities.
+
+## Credential configuration
+
+PORTFLOW_APPROVERS_JSON is a JSON array of records containing:
+
+- token_sha256
+- operator_id
+- display_name
+- role
+
+Only the digest is configured server-side.
+
+docker-compose.prod.yml requires PORTFLOW_APPROVERS_JSON so a production-shaped stack cannot silently start with an open recovery approval path.
+
+The API validates approver configuration at startup.
+
+## Identity-bound audit receipts
+
+RecoveryApplicationReceipt persists the identity and role that authorized the state mutation.
+
+The authority chain is therefore:
+
+observed state
+  -> deterministic proposal
+  -> state fingerprint
+  -> authenticated identity
+  -> role authorization
+  -> explicit apply
+  -> identity-bound durable receipt
+
+This keeps decision support, authority, mutation, and audit as distinct stages.

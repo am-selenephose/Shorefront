@@ -1,7 +1,7 @@
 from pathlib import Path
 
 from portflow_api.domain import detect_berth_conflicts
-from portflow_api.models import IncidentType, LinkMode
+from portflow_api.models import IncidentType, LinkMode, OperatorRole
 from portflow_api.simulator import HarborSimulator
 from portflow_api.storage import OperationsStore
 
@@ -158,7 +158,7 @@ def test_tug_recovery_proposal_requires_approval_and_unblocks_target(tmp_path):
     assert best.requires_approval is True
     assert any(action.action_type.value == "reassign_resource" for action in best.actions)
 
-    receipt = sim.apply_recovery_proposal(best.id)
+    receipt = sim.apply_recovery_proposal(best.id, approved_by="test-operator", approved_role=OperatorRole.OPERATOR, approved_display_name="Test Operator")
     assert receipt.proposal_id == best.id
 
     graph = sim.dependency_graph("pc-aurora")
@@ -189,7 +189,7 @@ def test_berth_recovery_prefers_free_compatible_berth(tmp_path):
         for action in best.actions
     )
 
-    receipt = sim.apply_recovery_proposal(best.id)
+    receipt = sim.apply_recovery_proposal(best.id, approved_by="test-operator", approved_role=OperatorRole.OPERATOR, approved_display_name="Test Operator")
     assert receipt.resulting_berth_conflicts == 0
 
     nova = next(call for call in sim.port_calls if call.id == "pc-nova")
@@ -218,10 +218,10 @@ def test_recovery_proposals_are_deterministic_and_stale_after_apply(tmp_path):
     assert [item.id for item in first] == [item.id for item in second]
 
     proposal_id = first[0].id
-    sim.apply_recovery_proposal(proposal_id)
+    sim.apply_recovery_proposal(proposal_id, approved_by="test-operator", approved_role=OperatorRole.OPERATOR, approved_display_name="Test Operator")
 
     try:
-        sim.apply_recovery_proposal(proposal_id)
+        sim.apply_recovery_proposal(proposal_id, approved_by="test-operator", approved_role=OperatorRole.OPERATOR, approved_display_name="Test Operator")
     except ValueError as exc:
         assert "stale" in str(exc).lower() or "already applied" in str(exc).lower()
     else:
@@ -242,12 +242,14 @@ def test_recovery_application_receipt_is_persisted(tmp_path):
 
     sim.inject_incident(IncidentType.BERTH_OVERRUN, "pc-glory", 90)
     proposal = sim.generate_recovery_proposals(call_id="pc-nova")[0]
-    receipt = sim.apply_recovery_proposal(proposal.id)
+    receipt = sim.apply_recovery_proposal(proposal.id, approved_by="test-operator", approved_role=OperatorRole.OPERATOR, approved_display_name="Test Operator")
 
     stored = store.list_recovery_receipts(limit=10)
     assert len(stored) == 1
     assert stored[0].proposal_id == receipt.proposal_id
-    assert stored[0].approved_by == "human_operator"
+    assert stored[0].approved_by == "test-operator"
+    assert stored[0].approved_role == OperatorRole.OPERATOR
+    assert stored[0].approved_display_name == "Test Operator"
     assert stored[0].resulting_berth_conflicts == 0
 
 
@@ -265,7 +267,7 @@ def test_compound_tug_recovery_clears_global_service_blocks(tmp_path):
 
     sim.inject_incident(IncidentType.TUG_UNAVAILABLE, "pc-aurora", 40)
     proposal = sim.generate_recovery_proposals(call_id="pc-aurora")[0]
-    receipt = sim.apply_recovery_proposal(proposal.id)
+    receipt = sim.apply_recovery_proposal(proposal.id, approved_by="test-operator", approved_role=OperatorRole.OPERATOR, approved_display_name="Test Operator")
 
     assert receipt.resulting_blocked_services == 0
     assert len([a for a in proposal.actions if a.action_type.value == "reassign_resource"]) >= 2
@@ -296,7 +298,7 @@ def test_recovery_proposal_id_changes_when_relevant_state_changes(tmp_path):
     assert all(item.id != old_id for item in second)
 
     try:
-        sim.apply_recovery_proposal(old_id)
+        sim.apply_recovery_proposal(old_id, approved_by="test-operator", approved_role=OperatorRole.OPERATOR, approved_display_name="Test Operator")
     except ValueError as exc:
         assert "stale" in str(exc).lower() or "unavailable" in str(exc).lower()
     else:
@@ -333,3 +335,35 @@ def test_recovery_ranks_later_free_tug_above_busier_tug(tmp_path):
         if action.action_type.value == "shift_window"
     ]
     assert shifts == [20]
+
+
+def test_domain_rejects_viewer_recovery_approval(tmp_path):
+    store = make_store(tmp_path)
+    sim = HarborSimulator(
+        event_sink=store.append_event,
+        incident_sink=store.upsert_incident,
+        snapshot_sink=store.save_snapshot,
+        spool_sink=store.queue_outbound_event,
+        replay_sink=lambda: len(store.replay_outbound_events(lambda event: True)),
+        pending_count=store.pending_outbound_count,
+        recovery_receipt_sink=store.save_recovery_receipt,
+    )
+
+    sim.inject_incident(IncidentType.BERTH_OVERRUN, "pc-glory", 90)
+    proposal = sim.generate_recovery_proposals(call_id="pc-nova")[0]
+    conflicts_before = detect_berth_conflicts(sim.port_calls)
+
+    try:
+        sim.apply_recovery_proposal(
+            proposal.id,
+            approved_by="viewer-direct",
+            approved_role=OperatorRole.VIEWER,
+            approved_display_name="Read Only",
+        )
+    except ValueError as exc:
+        assert "operator or supervisor" in str(exc).lower()
+    else:
+        raise AssertionError("Viewer must not be able to approve recovery in domain layer")
+
+    assert detect_berth_conflicts(sim.port_calls) == conflicts_before
+    assert store.list_recovery_receipts(limit=10) == []

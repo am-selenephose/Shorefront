@@ -7,6 +7,7 @@ import type {
   HarborState,
   IncidentType,
   LinkMode,
+  OperatorIdentity,
   PortCall,
   RecoveryProposal,
   RecoveryReceipt,
@@ -16,6 +17,15 @@ import './styles.css'
 const HarborMap = lazy(() =>
   import('./HarborMap').then(module => ({ default: module.HarborMap })),
 )
+
+
+function storedOperatorToken() {
+  try {
+    return sessionStorage.getItem('portflow.operator_token') || ''
+  } catch {
+    return ''
+  }
+}
 
 
 const fmtTime = (value: string) =>
@@ -87,7 +97,10 @@ export default function App() {
   const [state, setState] = useState<HarborState | null>(null)
   const [online, setOnline] = useState(false)
   const [busy, setBusy] = useState(false)
+  const [authBusy, setAuthBusy] = useState(false)
   const [actionError, setActionError] = useState<string | null>(null)
+  const [operatorToken, setOperatorToken] = useState(storedOperatorToken)
+  const [operatorIdentity, setOperatorIdentity] = useState<OperatorIdentity | null>(null)
   const [recoveryProposals, setRecoveryProposals] = useState<RecoveryProposal[]>([])
   const [recoveryReceipts, setRecoveryReceipts] = useState<RecoveryReceipt[]>([])
 
@@ -111,16 +124,17 @@ export default function App() {
       .then(setState)
       .catch(() => {})
 
-    fetch('/api/v1/recovery/receipts?limit=20')
-      .then(response => response.json())
-      .then(setRecoveryReceipts)
-      .catch(() => {})
-
     connect()
 
     return () => {
       dead = true
       ws?.close()
+    }
+  }, [])
+
+  useEffect(() => {
+    if (operatorToken) {
+      void connectOperator(operatorToken)
     }
   }, [])
 
@@ -159,18 +173,79 @@ export default function App() {
     if (response.ok) setState(await response.json())
   }
 
-  async function loadRecovery() {
-    const [proposalResponse, receiptResponse] = await Promise.all([
-      fetch('/api/v1/recovery/proposals'),
-      fetch('/api/v1/recovery/receipts?limit=20'),
-    ])
-
+  async function loadRecovery(token = operatorToken) {
+    const proposalResponse = await fetch('/api/v1/recovery/proposals')
     if (proposalResponse.ok) {
       const payload = await proposalResponse.json()
       setRecoveryProposals(payload.proposals || [])
     }
+
+    if (!token) {
+      setRecoveryReceipts([])
+      return
+    }
+
+    const receiptResponse = await fetch('/api/v1/recovery/receipts?limit=20', {
+      headers: { Authorization: 'Bearer ' + token },
+    })
+
     if (receiptResponse.ok) {
       setRecoveryReceipts(await receiptResponse.json())
+    } else if (receiptResponse.status === 401) {
+      setRecoveryReceipts([])
+    }
+  }
+
+  async function connectOperator(token: string): Promise<boolean> {
+    setAuthBusy(true)
+    setActionError(null)
+    try {
+      const response = await fetch('/api/v1/auth/me', {
+        headers: { Authorization: 'Bearer ' + token },
+      })
+      if (!response.ok) {
+        throw new Error(
+          response.status === 401
+            ? 'Operator credential was not accepted.'
+            : await response.text(),
+        )
+      }
+
+      const identity = await response.json() as OperatorIdentity
+      setOperatorToken(token)
+      setOperatorIdentity(identity)
+      try {
+        sessionStorage.setItem('portflow.operator_token', token)
+      } catch {
+        // Session still works even if browser storage is unavailable.
+      }
+      await loadRecovery(token)
+      return true
+    } catch (error) {
+      setOperatorIdentity(null)
+      setOperatorToken('')
+      setRecoveryReceipts([])
+      try {
+        sessionStorage.removeItem('portflow.operator_token')
+      } catch {
+        // Ignore unavailable browser storage.
+      }
+      setActionError(error instanceof Error ? error.message : 'Operator verification failed')
+      return false
+    } finally {
+      setAuthBusy(false)
+    }
+  }
+
+  function disconnectOperator() {
+    setOperatorIdentity(null)
+    setOperatorToken('')
+    setRecoveryReceipts([])
+    setActionError(null)
+    try {
+      sessionStorage.removeItem('portflow.operator_token')
+    } catch {
+      // Ignore unavailable browser storage.
     }
   }
 
@@ -222,13 +297,26 @@ export default function App() {
 
   async function applyRecovery(proposalId: string) {
     await runAction(async () => {
+      if (!operatorToken || !operatorIdentity) {
+        throw new Error('Authenticate an operator or supervisor before applying a recovery plan.')
+      }
+      if (!['operator', 'supervisor'].includes(operatorIdentity.role)) {
+        throw new Error('Current session is read-only and cannot approve recovery actions.')
+      }
+
       const response = await fetch(
         '/api/v1/recovery/proposals/' + proposalId + '/apply',
-        { method: 'POST' },
+        {
+          method: 'POST',
+          headers: { Authorization: 'Bearer ' + operatorToken },
+        },
       )
-      if (!response.ok) throw new Error(await response.text())
+      if (!response.ok) {
+        if (response.status === 401) disconnectOperator()
+        throw new Error(await response.text())
+      }
       await refreshHarbor()
-      await loadRecovery()
+      await loadRecovery(operatorToken)
     })
   }
 
@@ -446,9 +534,13 @@ export default function App() {
           <RecoveryPanel
             proposals={recoveryProposals}
             receipts={recoveryReceipts}
+            identity={operatorIdentity}
             busy={busy}
+            authBusy={authBusy}
             onApply={applyRecovery}
             onRefresh={loadRecovery}
+            onConnect={connectOperator}
+            onDisconnect={disconnectOperator}
           />
         </section>
 
