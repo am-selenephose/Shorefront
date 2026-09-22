@@ -341,6 +341,15 @@ class RecoveryProposal(BaseModel):
     requires_approval: bool = True
 
 
+class RecoveryProposalEvidenceBatch(BaseModel):
+    evidence_id: str
+    generated_at: datetime
+    requested_call_id: str | None = None
+    trigger: str = "planning"
+    stale_parent_proposal_id: str | None = None
+    proposals: list[RecoveryProposal] = Field(default_factory=list)
+
+
 class RecoveryContingency(BaseModel):
     stale_proposal_id: str
     target_port_call_id: str
@@ -409,3 +418,11 @@ class HarborOverview(BaseModel):
     data_sources: list[DataSourceProvenance] = Field(default_factory=list)
     metrics: dict[str, float | int]
     data_disclaimer: str
+
+
+class ScenarioRunEvidence(BaseModel):
+    run_id: str
+    ran_at: datetime
+    scenario: ScenarioFixture
+    harbor: HarborOverview
+    recovery_proposals: list[RecoveryProposal] = Field(default_factory=list)

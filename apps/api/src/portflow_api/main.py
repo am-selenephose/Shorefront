@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import json
 import os
+from uuid import uuid4
 from datetime import datetime, timezone
 from contextlib import asynccontextmanager
 
@@ -14,7 +17,7 @@ from .domain import detect_berth_conflicts, score_port_call
 from .observability import metrics, observe_http
 from .models import (
     AdapterHealth, DataDomain, DataSourceMode, DataSourceProvenance, IncidentType,
-    LinkMode, OperatorIdentity, ServiceDurationCalibration, ServiceKind,
+    LinkMode, OperatorIdentity, ScenarioRunEvidence, ServiceDurationCalibration, ServiceKind,
 )
 from .simulator import HarborSimulator, RecoveryProposalStaleError
 from .security import configured_approvers, current_operator, recovery_approver
@@ -30,6 +33,12 @@ _schema_mode = "uninitialized"
 
 def build_simulator() -> HarborSimulator:
     snapshot = store.load_snapshot()
+    evidence_batches = store.list_recovery_proposal_evidence(limit=200)
+    proposal_history = [
+        proposal
+        for batch in reversed(evidence_batches)
+        for proposal in batch.proposals
+    ]
     return HarborSimulator(
         initial=snapshot,
         event_sink=store.append_event,
@@ -39,6 +48,8 @@ def build_simulator() -> HarborSimulator:
         replay_sink=lambda: len(store.replay_outbound_events(lambda event: True)),
         pending_count=store.pending_outbound_count,
         recovery_receipt_sink=store.save_recovery_receipt,
+        recovery_proposal_evidence_sink=store.save_recovery_proposal_evidence,
+        proposal_history=proposal_history,
     )
 
 
@@ -291,6 +302,7 @@ def run_scenario(scenario_id: str):
         replay_sink=lambda: len(store.replay_outbound_events(lambda event: True)),
         pending_count=store.pending_outbound_count,
         recovery_receipt_sink=store.save_recovery_receipt,
+        recovery_proposal_evidence_sink=store.save_recovery_proposal_evidence,
     )
 
     for action in scenario.actions:
@@ -307,11 +319,25 @@ def run_scenario(scenario_id: str):
                 impact_minutes=action.impact_minutes,
             )
 
+    harbor = sim.overview()
+    proposals = sim.generate_recovery_proposals(
+        evidence_trigger="scenario",
+    )
+    scenario_evidence = ScenarioRunEvidence(
+        run_id=f"scenario-run-{uuid4().hex[:20]}",
+        ran_at=datetime.now(timezone.utc).replace(microsecond=0),
+        scenario=scenario,
+        harbor=harbor,
+        recovery_proposals=proposals,
+    )
+    store.save_scenario_run_evidence(scenario_evidence)
     metrics.inc("portflow_scenario_runs_total")
+
     return {
         "scenario": scenario,
-        "harbor": sim.overview(),
-        "recovery_proposals": sim.generate_recovery_proposals(),
+        "harbor": harbor,
+        "recovery_proposals": proposals,
+        "evidence_run_id": scenario_evidence.run_id,
     }
 
 
@@ -403,6 +429,63 @@ def recovery_receipts(
     return store.list_recovery_receipts(limit=limit)
 
 
+@app.get("/api/v1/evidence/recovery-proposals")
+def recovery_proposal_evidence(
+    limit: int = 100,
+    identity: OperatorIdentity = Depends(current_operator),
+):
+    return {
+        "count": len(store.list_recovery_proposal_evidence(limit=limit)),
+        "evidence": store.list_recovery_proposal_evidence(limit=limit),
+    }
+
+
+@app.get("/api/v1/evidence/scenario-runs")
+def scenario_run_evidence(
+    limit: int = 100,
+    scenario_id: str | None = None,
+    identity: OperatorIdentity = Depends(current_operator),
+):
+    evidence = store.list_scenario_run_evidence(
+        limit=limit,
+        scenario_id=scenario_id,
+    )
+    return {
+        "count": len(evidence),
+        "evidence": evidence,
+    }
+
+
+@app.get("/api/v1/evidence/scenario-runs/{run_id}/pack")
+def scenario_run_evidence_pack(
+    run_id: str,
+    identity: OperatorIdentity = Depends(current_operator),
+):
+    evidence = store.get_scenario_run_evidence(run_id)
+    if evidence is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Unknown scenario evidence run: {run_id}",
+        )
+
+    scenario_run = evidence.model_dump(mode="json")
+    canonical = json.dumps(
+        scenario_run,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    digest = hashlib.sha256(canonical.encode()).hexdigest()
+    return {
+        "pack_version": "portflow-evidence-v1",
+        "sha256": digest,
+        "scenario_run": evidence,
+        "replay_input": {
+            "scenario_id": evidence.scenario.id,
+            "actions": evidence.scenario.actions,
+        },
+    }
+
+
 @app.get("/api/v1/replay/pending")
 def replay_pending():
     return {
@@ -465,6 +548,7 @@ def reset_demo():
         replay_sink=lambda: len(store.replay_outbound_events(lambda event: True)),
         pending_count=store.pending_outbound_count,
         recovery_receipt_sink=store.save_recovery_receipt,
+        recovery_proposal_evidence_sink=store.save_recovery_proposal_evidence,
     )
     return sim.overview()
 

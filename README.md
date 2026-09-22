@@ -112,7 +112,7 @@ Production startup is migration-gated:
 
     postgres healthy
       -> one-shot migrate service
-      -> schema version 1 stamped/verified
+      -> schema version 2 stamped/verified
       -> API starts with PORTFLOW_SCHEMA_MODE=verify
       -> /readyz becomes healthy
       -> web starts
@@ -1584,7 +1584,7 @@ The next v0.15 increment is deployment hardening: migrations/startup checks, pro
 
 ### Versioned schema boundary
 
-PortFlow persistence now has an explicit schema_version table and CURRENT_SCHEMA_VERSION=1.
+PortFlow persistence has an explicit schema_version table. The current evidence build uses CURRENT_SCHEMA_VERSION=2.
 
 OperationsStore exposes:
 
@@ -1593,7 +1593,7 @@ OperationsStore exposes:
 - schema_status()
 - database_ping()
 
-The v0 -> v1 migration is intentionally conservative: the previously unversioned schema is structurally compatible, so v1 creates any missing canonical tables and stamps schema version 1. Future unknown versions fail closed rather than being silently rewritten.
+The original v0 -> v1 migration was intentionally conservative. The evidence increment adds an explicit additive v1 -> v2 migration for immutable recovery-proposal and scenario-run evidence tables. Unknown/newer versions still fail closed rather than being silently rewritten.
 
 init_schema() remains only as a backward-compatible test/dev helper.
 
@@ -1651,8 +1651,8 @@ Observed chain:
 - API mode: verify
 - /readyz: ok=true
 - database_reachable=true
-- expected_version=1
-- current_version=1
+- expected_version=2
+- current_version=2
 - missing_tables=[]
 - compatible=true
 - web origin exposed readiness successfully
@@ -1669,7 +1669,7 @@ Measured round-trip:
 - restore script executed pg_restore, migration verification, and API/web restart
 - active incidents after restore: 1
 - persisted incident rows after restore: 1
-- schema remained version 1 and compatible
+- schema remained at the then-current compatible version; the evidence increment later advances this contract to version 2
 
 This proves both canonical harbor snapshot state and durable incident storage survive a dump/reset/restore cycle.
 
@@ -1802,3 +1802,151 @@ Current gate:
 - GitHub CI validates both base and TLS Compose configurations
 
 The remaining v0.15 work is durable proposal/evidence snapshots, then a public portfolio deployment while preserving synthetic-data labeling.
+
+
+## v0.15 durable decision evidence proof
+
+### Immutable recovery-proposal evidence batches
+
+Recovery planning is no longer represented only by the simulator's bounded in-memory proposal history.
+
+Every generated recovery batch now produces a durable RecoveryProposalEvidenceBatch containing:
+
+- evidence_id
+- generated_at
+- requested_call_id
+- trigger
+- optional stale_parent_proposal_id
+- the exact ranked RecoveryProposal list shown for that state
+
+The evidence id is content-derived from:
+
+- trigger
+- requested call
+- stale parent proposal id
+- recovery-state fingerprint material
+- ordered proposal ids
+
+Repeated polling of the same recovery state therefore deduplicates instead of creating unbounded duplicate evidence rows.
+
+Changed operational state creates a new evidence id even when there are zero viable proposals.
+
+Current evidence triggers include:
+
+- planning
+- scenario
+- contingency
+- explicitly named internal/test planning triggers
+
+The bounded in-memory proposal cache still exists for fast runtime access, but it is repopulated from recent durable evidence when the API starts.
+
+This means stale-plan context can survive an API process restart.
+
+### Durable scenario-run evidence
+
+Every canonical scenario run now stores a ScenarioRunEvidence record with:
+
+- unique run_id
+- ran_at
+- the exact stored ScenarioFixture definition and actions
+- the HarborOverview snapshot after applying the scenario
+- the ranked recovery proposals generated from that snapshot
+
+Demo reset deliberately does not delete decision evidence.
+
+Operational state can therefore be reset while the historical decision record remains available for audit.
+
+### Authenticated evidence APIs
+
+Evidence is an authenticated audit surface.
+
+Viewer, operator, and supervisor identities can read evidence. Anonymous access is rejected.
+
+APIs:
+
+- GET /api/v1/evidence/recovery-proposals
+- GET /api/v1/evidence/scenario-runs
+- GET /api/v1/evidence/scenario-runs/{run_id}/pack
+
+Scenario evidence can be filtered by scenario_id.
+
+### Content-addressed evidence packs
+
+The per-run pack endpoint returns:
+
+- pack_version = portflow-evidence-v1
+- canonical SHA-256 of the stored scenario-run payload
+- full ScenarioRunEvidence
+- replay_input containing the stored scenario id and exact stored actions
+
+The checksum is stable across repeated reads of the same immutable run.
+
+The pack is designed to be portable and tamper-detectable. It contains enough input/output context to reproduce or independently inspect the modeled scenario path without pretending that a later wall-clock replay must produce byte-identical timestamps or ids.
+
+### Schema v2
+
+Evidence persistence advances the production schema contract from version 1 to version 2.
+
+v2 adds:
+
+- recovery_proposal_evidence
+- scenario_run_evidence
+
+The migration is additive.
+
+Runtime migration proof used the previous v1 production API image to create a real Postgres v1 database, then used the current image to migrate that same database to v2.
+
+Observed:
+
+- schema before migration: 1
+- evidence tables absent before migration
+- schema after migration: 2
+- recovery_proposal_evidence present
+- scenario_run_evidence present
+- /readyz in verify mode reported version 2 compatible
+
+### Restart-proof contingency evidence
+
+Runtime proof:
+
+1. create v1 Postgres with the previous production image
+2. migrate the same database to v2
+3. start the current API in verify mode
+4. run the canonical bunker-loss scenario
+5. persist its scenario evidence and proposal evidence
+6. capture the Bunker Barge 12 recovery proposal id
+7. make Bunker Barge 12 unavailable before approval
+8. restart the API process without changing the database
+9. retrieve the same scenario evidence pack after restart
+10. apply the old Barge 12 proposal id
+11. receive structured HTTP 409 stale contingency
+12. recover Bunker Barge 9 as the ranked replacement
+
+Measured proof:
+
+- evidence pack survived restart
+- pack SHA-256 length: 64 hex characters
+- stale apply after restart: HTTP 409
+- unavailable resource: bunker-barge-12
+- replacement includes bunker-barge-9
+- durable recovery-proposal evidence rows: 3
+- durable scenario-run evidence rows: 1
+
+This closes the earlier gap where a process restart could erase the context required to explain a stale recovery proposal.
+
+### v0.15 evidence gate
+
+Current local gate:
+
+- 94 backend/domain/API/storage/recovery/security/scenario/adapter/calendar/resilience/confidence/capacity/compound/calibration/backoff/contingency/schema/readiness/observability/evidence tests
+- Python compile passes
+- production TypeScript/Vite build passes
+- npm audit reports 0 vulnerabilities
+- 5 real Chromium E2Es pass
+- real Postgres v1 -> v2 migration passes
+- API verify-mode schema v2 readiness passes
+- scenario evidence survives API restart
+- stale recovery context survives API restart
+- content-addressed evidence pack survives API restart
+
+The remaining productization work is public portfolio deployment and the documented event/API boundary for a future vessel-side intelligence runtime.

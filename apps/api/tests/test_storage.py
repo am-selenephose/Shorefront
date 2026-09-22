@@ -1,6 +1,8 @@
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+from sqlalchemy import text
+
 from portflow_api.adapters import HttpJsonAdapter, configured_live_adapters, get_adapter_snapshot
 from portflow_api.domain import detect_berth_conflicts
 from portflow_api.models import AdapterHealth, DataDomain, DataSourceMode, DataSourceProvenance, IncidentType, LinkMode, OperatorRole, ResourceUnavailableWindow, ServiceDurationCalibration, ServiceKind
@@ -1598,7 +1600,7 @@ def test_explicit_schema_migration_stamps_version_and_verify(tmp_path):
 
     migrated = store.migrate_schema()
     assert migrated["compatible"] is True
-    assert migrated["current_version"] == 1
+    assert migrated["current_version"] == 2
     assert migrated["missing_tables"] == []
 
     verified = store.verify_schema()
@@ -1616,3 +1618,141 @@ def test_verify_schema_rejects_unmigrated_database(tmp_path):
         assert "not compatible" in str(exc).lower()
     else:
         raise AssertionError("verify mode accepted an unmigrated database")
+
+
+def test_schema_v1_migrates_additively_to_v2(tmp_path):
+    store = OperationsStore(
+        f"sqlite:///{tmp_path / 'schema-v1.db'}"
+    )
+    with store.engine.begin() as connection:
+        connection.execute(text(
+            "CREATE TABLE schema_version ("
+            "id INTEGER PRIMARY KEY, "
+            "version INTEGER NOT NULL, "
+            "updated_at DATETIME NOT NULL)"
+        ))
+        connection.execute(
+            text(
+                "INSERT INTO schema_version "
+                "(id, version, updated_at) "
+                "VALUES (1, 1, :updated_at)"
+            ),
+            {"updated_at": datetime.now(timezone.utc)},
+        )
+
+    before = store.schema_status()
+    assert before["current_version"] == 1
+    assert before["compatible"] is False
+    assert "recovery_proposal_evidence" in before["missing_tables"]
+    assert "scenario_run_evidence" in before["missing_tables"]
+
+    after = store.migrate_schema()
+    assert after["compatible"] is True
+    assert after["current_version"] == 2
+    assert after["missing_tables"] == []
+
+
+def test_recovery_evidence_restores_stale_contingency_after_restart(tmp_path):
+    store = make_store(tmp_path)
+    sim = HarborSimulator(
+        event_sink=store.append_event,
+        incident_sink=store.upsert_incident,
+        snapshot_sink=store.save_snapshot,
+        spool_sink=store.queue_outbound_event,
+        replay_sink=lambda: len(
+            store.replay_outbound_events(lambda event: True)
+        ),
+        pending_count=store.pending_outbound_count,
+        recovery_receipt_sink=store.save_recovery_receipt,
+        recovery_proposal_evidence_sink=store.save_recovery_proposal_evidence,
+    )
+
+    sim.inject_incident(
+        IncidentType.BUNKER_UNAVAILABLE,
+        "pc-aurora",
+        45,
+    )
+    proposals = sim.generate_recovery_proposals(
+        call_id="pc-aurora",
+        evidence_trigger="test-planning",
+    )
+    stale = next(
+        proposal
+        for proposal in proposals
+        if any(
+            action.to_resource_id == "bunker-barge-12"
+            for action in proposal.actions
+        )
+    )
+
+    batches = store.list_recovery_proposal_evidence(limit=20)
+    planning_batch = next(
+        batch
+        for batch in batches
+        if batch.evidence_id
+        and stale.id in [proposal.id for proposal in batch.proposals]
+    )
+    assert planning_batch.trigger == "test-planning"
+
+    sim.inject_incident(
+        IncidentType.BUNKER_UNAVAILABLE,
+        "pc-aurora",
+        0,
+        target_resource_id="bunker-barge-12",
+    )
+
+    snapshot = store.load_snapshot()
+    assert snapshot is not None
+
+    stored_batches = store.list_recovery_proposal_evidence(limit=200)
+    proposal_history = [
+        proposal
+        for batch in reversed(stored_batches)
+        for proposal in batch.proposals
+    ]
+    restarted = HarborSimulator(
+        initial=snapshot,
+        event_sink=store.append_event,
+        incident_sink=store.upsert_incident,
+        snapshot_sink=store.save_snapshot,
+        recovery_receipt_sink=store.save_recovery_receipt,
+        recovery_proposal_evidence_sink=store.save_recovery_proposal_evidence,
+        proposal_history=proposal_history,
+    )
+
+    try:
+        restarted.apply_recovery_proposal(
+            stale.id,
+            approved_by="restart-operator",
+            approved_role=OperatorRole.OPERATOR,
+            approved_display_name="Restart Operator",
+        )
+    except RecoveryProposalStaleError as exc:
+        contingency = exc.contingency
+    else:
+        raise AssertionError(
+            "Restarted simulator must recover stale proposal context"
+        )
+
+    assert contingency.stale_proposal_id == stale.id
+    assert contingency.unavailable_resource_ids == ["bunker-barge-12"]
+    assert any(
+        any(
+            action.to_resource_id == "bunker-barge-9"
+            for action in proposal.actions
+        )
+        for proposal in contingency.replacement_proposals
+    )
+
+    contingency_batches = store.list_recovery_proposal_evidence(limit=20)
+    linked = next(
+        batch
+        for batch in contingency_batches
+        if batch.stale_parent_proposal_id == stale.id
+    )
+    assert linked.trigger == "contingency"
+
+    store.clear_demo_state()
+    retained = store.list_recovery_proposal_evidence(limit=20)
+    assert any(batch.evidence_id == planning_batch.evidence_id for batch in retained)
+    assert any(batch.evidence_id == linked.evidence_id for batch in retained)

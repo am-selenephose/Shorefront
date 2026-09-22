@@ -809,7 +809,7 @@ The schema authority chain is:
 
     PostgreSQL
       -> one-shot portflow_api.migrate
-      -> schema_version = 1
+      -> schema_version = 2
       -> API PORTFLOW_SCHEMA_MODE=verify
       -> OperationsStore.verify_schema()
       -> simulator restore
@@ -928,3 +928,83 @@ docker-compose.tls.yml mounts:
 The official Nginx entrypoint substitutes only the deployment HTTPS origin into the template before startup.
 
 The HTTPS server proxies health/readiness, REST, and WebSocket traffic while the port-80 server performs a permanent redirect preserving request_uri.
+
+
+## v0.15 durable evidence architecture
+
+Decision evidence is deliberately separate from the mutable canonical harbor snapshot.
+
+Persistence now contains two immutable evidence streams:
+
+    recovery_proposal_evidence
+    scenario_run_evidence
+
+The mutable operational state may be reset or updated without deleting these evidence rows.
+
+### Recovery evidence batch
+
+A recovery evidence batch is a content-addressed snapshot of one planning result.
+
+Its deterministic evidence id binds:
+
+    trigger
+    + requested_call_id
+    + stale_parent_proposal_id
+    + recovery-state fingerprint material
+    + ordered proposal ids
+
+The payload stores the exact ranked RecoveryProposal objects.
+
+Duplicate reads/planning calls for the same state become idempotent storage writes.
+
+A changed recovery state produces a new batch.
+
+Contingency generation records stale_parent_proposal_id, creating a durable lineage from the stale decision to the replacement batch.
+
+### Runtime cache restoration
+
+On API startup:
+
+    load recent recovery evidence batches
+      -> oldest to newest
+      -> flatten stored proposals
+      -> seed bounded simulator proposal history
+      -> restore HarborOverview
+      -> verify schema
+      -> runtime ready
+
+This preserves the existing fast bounded cache while making its source recoverable after restart.
+
+### Scenario evidence
+
+ScenarioRunEvidence stores:
+
+    run id
+    timestamp
+    stored scenario fixture + actions
+    resulting HarborOverview
+    ranked recovery proposals
+
+The stored fixture is copied into the evidence payload rather than looked up later, so a future edit to the scenario catalog cannot rewrite the historical input definition.
+
+### Evidence pack
+
+The evidence-pack API canonicalizes the stored scenario-run JSON with sorted keys and compact separators and returns its SHA-256.
+
+The digest covers the stored scenario, harbor snapshot, and ranked recovery proposals.
+
+The replay_input section repeats only the stored scenario id and action list for convenient replay tooling; it is derived from the immutable run payload.
+
+### Schema v2 migration
+
+Schema v2 is additive over v1.
+
+It creates only the two evidence tables and advances schema_version from 1 to 2.
+
+The migration path is explicitly accepted only from supported older versions. A database newer than the current application still fails closed.
+
+Production remains:
+
+    one-shot migrate
+      -> API verify mode
+      -> /readyz

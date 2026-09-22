@@ -16,7 +16,7 @@ from .models import (
     Coordinate, DataDomain, DataSourceMode, DataSourceProvenance, DecisionConfidence, HarborOverview,
     Incident, IncidentStatus, IncidentType, LinkMode, OperationsEvent,
     PortCall, PortCallStage, RecoveryAction, RecoveryActionType,
-    RecoveryApplicationReceipt, RecoveryContingency, RecoveryProposal, ResourceStatus, ResourceUnavailableWindow, RiskLevel,
+    RecoveryApplicationReceipt, RecoveryContingency, RecoveryProposal, RecoveryProposalEvidenceBatch, ResourceStatus, ResourceUnavailableWindow, RiskLevel,
     OperatorRole, ServiceDurationCalibration, ServiceKind, ServiceResource, ServiceState, ServiceStep, Vessel, VesselStatus,
     WeatherState,
 )
@@ -29,6 +29,7 @@ SpoolSink = Callable[[OperationsEvent], bool]
 ReplaySink = Callable[[], int]
 PendingCount = Callable[[], int]
 RecoveryReceiptSink = Callable[[RecoveryApplicationReceipt], bool]
+RecoveryProposalEvidenceSink = Callable[[RecoveryProposalEvidenceBatch], bool]
 
 
 class RecoveryProposalStaleError(ValueError):
@@ -49,6 +50,8 @@ class HarborSimulator:
         replay_sink: ReplaySink | None = None,
         pending_count: PendingCount | None = None,
         recovery_receipt_sink: RecoveryReceiptSink | None = None,
+        recovery_proposal_evidence_sink: RecoveryProposalEvidenceSink | None = None,
+        proposal_history: list[RecoveryProposal] | None = None,
     ):
         self.rng = random.Random(seed)
         self.event_sink = event_sink
@@ -58,8 +61,11 @@ class HarborSimulator:
         self.replay_sink = replay_sink
         self.pending_count = pending_count
         self.recovery_receipt_sink = recovery_receipt_sink
+        self.recovery_proposal_evidence_sink = recovery_proposal_evidence_sink
         self.tick_count = 0
         self._proposal_history: dict[str, RecoveryProposal] = {}
+        for proposal in (proposal_history or [])[-200:]:
+            self._proposal_history[proposal.id] = deepcopy(proposal)
 
         if initial is not None:
             self._restore(initial)
@@ -1675,6 +1681,8 @@ class HarborSimulator:
     def generate_recovery_proposals(
         self,
         call_id: str | None = None,
+        evidence_trigger: str = "planning",
+        stale_parent_proposal_id: str | None = None,
     ) -> list[RecoveryProposal]:
         proposals: list[RecoveryProposal] = []
 
@@ -1934,6 +1942,49 @@ class HarborSimulator:
             oldest_id = next(iter(self._proposal_history))
             del self._proposal_history[oldest_id]
 
+        if ranked:
+            evidence_state = [
+                (proposal.id, proposal.state_fingerprint)
+                for proposal in ranked
+            ]
+        elif call_id is not None:
+            evidence_state = [
+                (call_id, self._recovery_state_fingerprint(call_id))
+            ]
+        else:
+            evidence_state = [
+                (
+                    call.id,
+                    self._recovery_state_fingerprint(call.id),
+                )
+                for call in sorted(self.port_calls, key=lambda item: item.id)
+            ]
+
+        evidence_material = json.dumps(
+            {
+                "trigger": evidence_trigger,
+                "requested_call_id": call_id,
+                "stale_parent_proposal_id": stale_parent_proposal_id,
+                "state": evidence_state,
+                "proposal_ids": [proposal.id for proposal in ranked],
+            },
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        evidence = RecoveryProposalEvidenceBatch(
+            evidence_id=(
+                "rpe-"
+                + hashlib.sha256(evidence_material.encode()).hexdigest()[:20]
+            ),
+            generated_at=datetime.now(timezone.utc).replace(microsecond=0),
+            requested_call_id=call_id,
+            trigger=evidence_trigger,
+            stale_parent_proposal_id=stale_parent_proposal_id,
+            proposals=[deepcopy(proposal) for proposal in ranked],
+        )
+        if self.recovery_proposal_evidence_sink:
+            self.recovery_proposal_evidence_sink(evidence)
+
         return ranked
 
     def recovery_contingency(self, stale_proposal_id: str) -> RecoveryContingency:
@@ -1945,6 +1996,8 @@ class HarborSimulator:
 
         current = self.generate_recovery_proposals(
             call_id=stale.target_port_call_id,
+            evidence_trigger="contingency",
+            stale_parent_proposal_id=stale_proposal_id,
         )
         stale_incident_ids = set(stale.incident_ids)
         stale_service_kinds = {

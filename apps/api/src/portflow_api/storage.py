@@ -13,11 +13,13 @@ from .models import (
     Incident,
     OperationsEvent,
     RecoveryApplicationReceipt,
+    RecoveryProposalEvidenceBatch,
     ReplayReceipt,
+    ScenarioRunEvidence,
 )
 
 
-CURRENT_SCHEMA_VERSION = 1
+CURRENT_SCHEMA_VERSION = 2
 
 
 class Base(DeclarativeBase):
@@ -61,6 +63,23 @@ class RecoveryReceiptRow(Base):
     proposal_id: Mapped[str] = mapped_column(String(96), primary_key=True)
     applied_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True, nullable=False)
     target_port_call_id: Mapped[str] = mapped_column(String(80), index=True, nullable=False)
+    payload: Mapped[str] = mapped_column(Text, nullable=False)
+
+
+class RecoveryProposalEvidenceRow(Base):
+    __tablename__ = "recovery_proposal_evidence"
+    evidence_id: Mapped[str] = mapped_column(String(96), primary_key=True)
+    generated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True, nullable=False)
+    requested_call_id: Mapped[str | None] = mapped_column(String(80), index=True, nullable=True)
+    stale_parent_proposal_id: Mapped[str | None] = mapped_column(String(96), index=True, nullable=True)
+    payload: Mapped[str] = mapped_column(Text, nullable=False)
+
+
+class ScenarioRunEvidenceRow(Base):
+    __tablename__ = "scenario_run_evidence"
+    run_id: Mapped[str] = mapped_column(String(96), primary_key=True)
+    scenario_id: Mapped[str] = mapped_column(String(80), index=True, nullable=False)
+    ran_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True, nullable=False)
     payload: Mapped[str] = mapped_column(Text, nullable=False)
 
 
@@ -152,9 +171,9 @@ class OperationsStore:
                         f"{CURRENT_SCHEMA_VERSION}"
                     )
 
-        # v0 -> v1: the pre-versioned PortFlow schema is structurally
-        # compatible with v1. create_all only creates missing tables here;
-        # it does not alter existing tables.
+        # v0 -> v1 and v1 -> v2 are additive migrations.
+        # v2 adds immutable recovery-proposal and scenario-run evidence tables.
+        # create_all only creates missing tables here; it does not alter existing tables.
         Base.metadata.create_all(self.engine)
 
         now = datetime.now(timezone.utc)
@@ -169,7 +188,7 @@ class OperationsStore:
                     )
                 )
             elif row.version < CURRENT_SCHEMA_VERSION:
-                if row.version != 0:
+                if row.version not in {0, 1}:
                     raise RuntimeError(
                         "No migration path registered from schema version "
                         f"{row.version} to {CURRENT_SCHEMA_VERSION}"
@@ -290,6 +309,89 @@ class OperationsStore:
                 RecoveryApplicationReceipt.model_validate_json(row.payload)
                 for row in rows
             ]
+
+    def save_recovery_proposal_evidence(
+        self,
+        evidence: RecoveryProposalEvidenceBatch,
+    ) -> bool:
+        with Session(self.engine) as session:
+            if session.get(RecoveryProposalEvidenceRow, evidence.evidence_id) is not None:
+                return False
+            session.add(
+                RecoveryProposalEvidenceRow(
+                    evidence_id=evidence.evidence_id,
+                    generated_at=evidence.generated_at,
+                    requested_call_id=evidence.requested_call_id,
+                    stale_parent_proposal_id=evidence.stale_parent_proposal_id,
+                    payload=evidence.model_dump_json(),
+                )
+            )
+            session.commit()
+            return True
+
+    def list_recovery_proposal_evidence(
+        self,
+        limit: int = 100,
+    ) -> list[RecoveryProposalEvidenceBatch]:
+        with Session(self.engine) as session:
+            rows = session.scalars(
+                select(RecoveryProposalEvidenceRow)
+                .order_by(RecoveryProposalEvidenceRow.generated_at.desc())
+                .limit(max(1, min(limit, 1000)))
+            ).all()
+            return [
+                RecoveryProposalEvidenceBatch.model_validate_json(row.payload)
+                for row in rows
+            ]
+
+    def save_scenario_run_evidence(
+        self,
+        evidence: ScenarioRunEvidence,
+    ) -> bool:
+        with Session(self.engine) as session:
+            if session.get(ScenarioRunEvidenceRow, evidence.run_id) is not None:
+                return False
+            session.add(
+                ScenarioRunEvidenceRow(
+                    run_id=evidence.run_id,
+                    scenario_id=evidence.scenario.id,
+                    ran_at=evidence.ran_at,
+                    payload=evidence.model_dump_json(),
+                )
+            )
+            session.commit()
+            return True
+
+    def list_scenario_run_evidence(
+        self,
+        limit: int = 100,
+        scenario_id: str | None = None,
+    ) -> list[ScenarioRunEvidence]:
+        with Session(self.engine) as session:
+            query = select(ScenarioRunEvidenceRow)
+            if scenario_id is not None:
+                query = query.where(
+                    ScenarioRunEvidenceRow.scenario_id == scenario_id
+                )
+            rows = session.scalars(
+                query
+                .order_by(ScenarioRunEvidenceRow.ran_at.desc())
+                .limit(max(1, min(limit, 1000)))
+            ).all()
+            return [
+                ScenarioRunEvidence.model_validate_json(row.payload)
+                for row in rows
+            ]
+
+    def get_scenario_run_evidence(
+        self,
+        run_id: str,
+    ) -> ScenarioRunEvidence | None:
+        with Session(self.engine) as session:
+            row = session.get(ScenarioRunEvidenceRow, run_id)
+            if row is None:
+                return None
+            return ScenarioRunEvidence.model_validate_json(row.payload)
 
     def queue_outbound_event(self, event: OperationsEvent) -> bool:
         envelope_id = f"out-{event.id}"

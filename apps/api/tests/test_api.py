@@ -710,8 +710,8 @@ def test_readiness_reports_runtime_and_schema_contract():
         assert payload["schema_mode"] == "migrate"
         assert payload["schema"]["database_reachable"] is True
         assert payload["schema"]["compatible"] is True
-        assert payload["schema"]["current_version"] == 1
-        assert payload["schema"]["expected_version"] == 1
+        assert payload["schema"]["current_version"] == 2
+        assert payload["schema"]["expected_version"] == 2
 
 
 def _metric_value(payload: str, name: str) -> float:
@@ -782,3 +782,88 @@ def test_http_request_log_is_structured_json(caplog):
     assert isinstance(health["duration_ms"], (int, float))
     assert health["duration_ms"] >= 0
     assert health["timestamp"].endswith("+00:00")
+
+
+def test_scenario_and_recovery_evidence_are_durable_authenticated_audit_surfaces():
+    with TestClient(app) as client:
+        client.post("/api/v1/demo/reset")
+
+        run = client.post("/api/v1/scenarios/bunker-loss/run")
+        assert run.status_code == 200
+        run_payload = run.json()
+        run_id = run_payload["evidence_run_id"]
+        assert run_id.startswith("scenario-run-")
+
+        anonymous = client.get("/api/v1/evidence/scenario-runs")
+        assert anonymous.status_code == 401
+
+        scenario_evidence = client.get(
+            "/api/v1/evidence/scenario-runs",
+            params={"scenario_id": "bunker-loss", "limit": 50},
+            headers=auth_headers(VIEWER_TOKEN),
+        )
+        assert scenario_evidence.status_code == 200
+        runs = scenario_evidence.json()["evidence"]
+        matched = next(item for item in runs if item["run_id"] == run_id)
+        assert matched["scenario"]["id"] == "bunker-loss"
+        assert matched["harbor"]["metrics"]["active_incidents"] == 1
+        assert matched["recovery_proposals"]
+
+        proposal_evidence = client.get(
+            "/api/v1/evidence/recovery-proposals",
+            params={"limit": 100},
+            headers=auth_headers(VIEWER_TOKEN),
+        )
+        assert proposal_evidence.status_code == 200
+        batches = proposal_evidence.json()["evidence"]
+        scenario_batches = [
+            batch
+            for batch in batches
+            if batch["trigger"] == "scenario"
+        ]
+        assert scenario_batches
+        assert any(
+            proposal["id"]
+            in {
+                expected["id"]
+                for expected in matched["recovery_proposals"]
+            }
+            for batch in scenario_batches
+            for proposal in batch["proposals"]
+        )
+
+        pack = client.get(
+            f"/api/v1/evidence/scenario-runs/{run_id}/pack",
+            headers=auth_headers(VIEWER_TOKEN),
+        )
+        assert pack.status_code == 200
+        pack_payload = pack.json()
+        assert pack_payload["pack_version"] == "portflow-evidence-v1"
+        assert len(pack_payload["sha256"]) == 64
+        assert pack_payload["scenario_run"]["run_id"] == run_id
+        assert pack_payload["replay_input"]["scenario_id"] == "bunker-loss"
+        assert pack_payload["replay_input"]["actions"]
+
+        pack_again = client.get(
+            f"/api/v1/evidence/scenario-runs/{run_id}/pack",
+            headers=auth_headers(VIEWER_TOKEN),
+        )
+        assert pack_again.json()["sha256"] == pack_payload["sha256"]
+
+        client.post("/api/v1/demo/reset")
+
+        after_reset = client.get(
+            "/api/v1/evidence/scenario-runs",
+            params={"scenario_id": "bunker-loss", "limit": 50},
+            headers=auth_headers(VIEWER_TOKEN),
+        )
+        assert any(
+            item["run_id"] == run_id
+            for item in after_reset.json()["evidence"]
+        )
+
+        missing_pack = client.get(
+            "/api/v1/evidence/scenario-runs/does-not-exist/pack",
+            headers=auth_headers(VIEWER_TOKEN),
+        )
+        assert missing_pack.status_code == 404
