@@ -89,6 +89,7 @@ export PORTFLOW_SCHEMA_MODE=verify
 export PORTFLOW_STATIC_DIR="$ROOT/apps/web/dist"
 export PORTFLOW_PUBLIC_MODE=1
 export PORTFLOW_APPROVERS_JSON="${PORTFLOW_APPROVERS_JSON:-[]}"
+export PORTFLOW_INTEGRATIONS_JSON="${PORTFLOW_INTEGRATIONS_JSON:-[]}"
 
 cd "$ROOT/apps/api"
 "$VENV/bin/python" -m portflow_api.migrate

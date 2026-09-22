@@ -1061,3 +1061,31 @@ The hook is POSIX-sh compatible and guarded by /workspace/.portflow-boot.lock.
 The lock stores the boot/server PID. If a second wake hook starts while that PID is alive, it exits without launching a duplicate server. After a real sleep/restart, a stale PID is detected and the lock is safely replaced before boot.
 
 This keeps auto-wake idempotent while preserving the single-process Uvicorn deployment.
+
+
+## v0.15 vessel-runtime integration boundary
+
+PortFlow now exposes a versioned, authenticated integration seam for a future separate vessel-side runtime.
+
+The detailed contract is in docs/VESSEL_RUNTIME_BOUNDARY.md.
+
+Inbound direction:
+
+    vessel runtime
+      -> normalized portflow.vessel-event.v1
+      -> integration credential + vessel allowlist
+      -> immutable vessel_runtime_event ledger
+      -> PortFlow coordination/evidence plane
+
+Return direction:
+
+    PortFlow canonical state
+      -> portflow.coordination.v1
+      -> vessel runtime or human interface
+      -> no direct actuation
+
+Machine integration credentials and human operator credentials are separate.
+
+Schema v3 adds vessel_runtime_event as an immutable integration ledger.
+
+The event boundary does not silently mutate the canonical harbor model. Mapping vessel events into canonical state remains an explicit future adapter/domain decision so arbitrary machine payloads cannot bypass provenance or human-approval controls.

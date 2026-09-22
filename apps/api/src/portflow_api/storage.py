@@ -16,10 +16,12 @@ from .models import (
     RecoveryProposalEvidenceBatch,
     ReplayReceipt,
     ScenarioRunEvidence,
+    VesselRuntimeEvent,
+    VesselRuntimeEventRecord,
 )
 
 
-CURRENT_SCHEMA_VERSION = 2
+CURRENT_SCHEMA_VERSION = 3
 
 
 class Base(DeclarativeBase):
@@ -80,6 +82,18 @@ class ScenarioRunEvidenceRow(Base):
     run_id: Mapped[str] = mapped_column(String(96), primary_key=True)
     scenario_id: Mapped[str] = mapped_column(String(80), index=True, nullable=False)
     ran_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True, nullable=False)
+    payload: Mapped[str] = mapped_column(Text, nullable=False)
+
+
+class VesselRuntimeEventRow(Base):
+    __tablename__ = "vessel_runtime_event"
+    event_id: Mapped[str] = mapped_column(String(96), primary_key=True)
+    integration_id: Mapped[str] = mapped_column(String(96), index=True, nullable=False)
+    vessel_id: Mapped[str] = mapped_column(String(80), index=True, nullable=False)
+    port_call_id: Mapped[str | None] = mapped_column(String(80), index=True, nullable=True)
+    event_type: Mapped[str] = mapped_column(String(40), index=True, nullable=False)
+    occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True, nullable=False)
+    received_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True, nullable=False)
     payload: Mapped[str] = mapped_column(Text, nullable=False)
 
 
@@ -183,8 +197,9 @@ class OperationsStore:
                         f"{CURRENT_SCHEMA_VERSION}"
                     )
 
-        # v0 -> v1 and v1 -> v2 are additive migrations.
-        # v2 adds immutable recovery-proposal and scenario-run evidence tables.
+        # v0 -> v1, v1 -> v2, and v2 -> v3 are additive migrations.
+        # v2 adds immutable recovery/scenario evidence tables.
+        # v3 adds immutable vessel-runtime integration events.
         # create_all only creates missing tables here; it does not alter existing tables.
         Base.metadata.create_all(self.engine)
 
@@ -200,7 +215,7 @@ class OperationsStore:
                     )
                 )
             elif row.version < CURRENT_SCHEMA_VERSION:
-                if row.version not in {0, 1}:
+                if row.version not in {0, 1, 2}:
                     raise RuntimeError(
                         "No migration path registered from schema version "
                         f"{row.version} to {CURRENT_SCHEMA_VERSION}"
@@ -404,6 +419,65 @@ class OperationsStore:
             if row is None:
                 return None
             return ScenarioRunEvidence.model_validate_json(row.payload)
+
+    def save_vessel_runtime_event(
+        self,
+        record: VesselRuntimeEventRecord,
+    ) -> bool:
+        event = record.event
+        with Session(self.engine) as session:
+            if session.get(VesselRuntimeEventRow, event.event_id) is not None:
+                return False
+            session.add(
+                VesselRuntimeEventRow(
+                    event_id=event.event_id,
+                    integration_id=record.integration_id,
+                    vessel_id=event.vessel_id,
+                    port_call_id=event.port_call_id,
+                    event_type=event.event_type.value,
+                    occurred_at=event.occurred_at,
+                    received_at=record.received_at,
+                    payload=record.model_dump_json(),
+                )
+            )
+            session.commit()
+            return True
+
+    def get_vessel_runtime_event(
+        self,
+        event_id: str,
+    ) -> VesselRuntimeEventRecord | None:
+        with Session(self.engine) as session:
+            row = session.get(VesselRuntimeEventRow, event_id)
+            if row is None:
+                return None
+            return VesselRuntimeEventRecord.model_validate_json(row.payload)
+
+    def list_vessel_runtime_events(
+        self,
+        limit: int = 100,
+        integration_id: str | None = None,
+        vessel_id: str | None = None,
+    ) -> list[VesselRuntimeEventRecord]:
+        with Session(self.engine) as session:
+            query = select(VesselRuntimeEventRow)
+            if integration_id is not None:
+                query = query.where(
+                    VesselRuntimeEventRow.integration_id == integration_id
+                )
+            if vessel_id is not None:
+                query = query.where(
+                    VesselRuntimeEventRow.vessel_id == vessel_id
+                )
+            rows = session.scalars(
+                query
+                .order_by(VesselRuntimeEventRow.received_at.desc())
+                .limit(max(1, min(limit, 1000)))
+            ).all()
+            return [
+                VesselRuntimeEventRecord.model_validate_json(row.payload)
+                for row in rows
+            ]
 
     def queue_outbound_event(self, event: OperationsEvent) -> bool:
         envelope_id = f"out-{event.id}"

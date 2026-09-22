@@ -3,12 +3,14 @@ import hashlib
 import json
 import logging
 import os
+from uuid import uuid4
 
 from fastapi.testclient import TestClient
 
 VIEWER_TOKEN = "viewer-test-token"
 OPERATOR_TOKEN = "operator-test-token"
 SUPERVISOR_TOKEN = "supervisor-test-token"
+INTEGRATION_TOKEN = "vessel-runtime-test-token"
 
 os.environ["PORTFLOW_APPROVERS_JSON"] = json.dumps([
     {
@@ -29,6 +31,15 @@ os.environ["PORTFLOW_APPROVERS_JSON"] = json.dumps([
         "display_name": "Alex Chen",
         "role": "supervisor",
     },
+])
+
+os.environ["PORTFLOW_INTEGRATIONS_JSON"] = json.dumps([
+    {
+        "token_sha256": hashlib.sha256(INTEGRATION_TOKEN.encode()).hexdigest(),
+        "integration_id": "vessel-runtime-aurora",
+        "display_name": "Aurora Runtime",
+        "vessel_ids": ["v-aurora"],
+    }
 ])
 
 from portflow_api.adapters import configured_live_adapters
@@ -710,8 +721,8 @@ def test_readiness_reports_runtime_and_schema_contract():
         assert payload["schema_mode"] == "migrate"
         assert payload["schema"]["database_reachable"] is True
         assert payload["schema"]["compatible"] is True
-        assert payload["schema"]["current_version"] == 2
-        assert payload["schema"]["expected_version"] == 2
+        assert payload["schema"]["current_version"] == 3
+        assert payload["schema"]["expected_version"] == 3
 
 
 def _metric_value(payload: str, name: str) -> float:
@@ -874,3 +885,139 @@ def test_public_portfolio_mode_hides_metrics(monkeypatch):
     with TestClient(app) as client:
         response = client.get("/metrics")
     assert response.status_code == 404
+
+
+def test_vessel_runtime_contract_is_advisory_and_versioned():
+    with TestClient(app) as client:
+        response = client.get("/api/v1/integration/contracts")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["event_contract"] == "portflow.vessel-event.v1"
+    assert payload["coordination_contract"] == "portflow.coordination.v1"
+    assert payload["invariants"]["raw_sensor_streams_owned_by_vessel_runtime"] is True
+    assert payload["invariants"]["portflow_accepts_normalized_events_only"] is True
+    assert payload["invariants"]["coordination_is_advisory_only"] is True
+    assert payload["invariants"]["human_approval_required_for_recovery"] is True
+    assert payload["invariants"]["direct_actuation_allowed"] is False
+
+
+def test_vessel_runtime_event_ingest_is_scoped_durable_and_idempotent():
+    event = {
+        "contract_version": "portflow.vessel-event.v1",
+        "event_id": f"evt-aurora-{uuid4().hex[:16]}",
+        "occurred_at": datetime.now(timezone.utc).isoformat(),
+        "vessel_id": "v-aurora",
+        "port_call_id": "pc-aurora",
+        "event_type": "readiness",
+        "sequence": 41,
+        "source_system": "aurora-edge-runtime",
+        "payload": {
+            "navigation_ready": True,
+            "cargo_ready": False,
+            "normalized_note": "awaiting terminal release",
+        },
+        "evidence_refs": ["edge-log-41"],
+    }
+
+    with TestClient(app) as client:
+        missing = client.post(
+            "/api/v1/integration/vessel-events",
+            json=event,
+        )
+        assert missing.status_code == 401
+
+        first = client.post(
+            "/api/v1/integration/vessel-events",
+            headers=auth_headers(INTEGRATION_TOKEN),
+            json=event,
+        )
+        assert first.status_code == 200
+        assert first.json()["duplicate"] is False
+
+        duplicate = client.post(
+            "/api/v1/integration/vessel-events",
+            headers=auth_headers(INTEGRATION_TOKEN),
+            json=event,
+        )
+        assert duplicate.status_code == 200
+        assert duplicate.json()["duplicate"] is True
+        assert duplicate.json()["accepted_at"] == first.json()["accepted_at"]
+
+        listed = client.get(
+            "/api/v1/integration/vessel-events",
+            headers=auth_headers(INTEGRATION_TOKEN),
+        )
+        assert listed.status_code == 200
+        rows = listed.json()["events"]
+        match = next(
+            row for row in rows
+            if row["event"]["event_id"] == event["event_id"]
+        )
+        assert match["integration_id"] == "vessel-runtime-aurora"
+        assert match["event"]["sequence"] == 41
+
+        changed = dict(event)
+        changed["payload"] = {"navigation_ready": False}
+        conflict = client.post(
+            "/api/v1/integration/vessel-events",
+            headers=auth_headers(INTEGRATION_TOKEN),
+            json=changed,
+        )
+        assert conflict.status_code == 409
+
+
+def test_vessel_runtime_identity_is_vessel_scoped_and_not_an_operator():
+    unauthorized = {
+        "contract_version": "portflow.vessel-event.v1",
+        "event_id": "evt-other-vessel-0001",
+        "occurred_at": datetime.now(timezone.utc).isoformat(),
+        "vessel_id": "v-glory",
+        "port_call_id": "pc-glory",
+        "event_type": "eta",
+        "sequence": 1,
+        "source_system": "other-edge-runtime",
+        "payload": {"eta_minutes": 12},
+    }
+
+    with TestClient(app) as client:
+        denied = client.post(
+            "/api/v1/integration/vessel-events",
+            headers=auth_headers(INTEGRATION_TOKEN),
+            json=unauthorized,
+        )
+        assert denied.status_code == 403
+
+        client.post("/api/v1/demo/reset")
+        scenario = client.post(
+            "/api/v1/scenarios/bunker-loss/run"
+        ).json()
+        proposal_id = scenario["recovery_proposals"][0]["id"]
+
+        apply_attempt = client.post(
+            f"/api/v1/recovery/proposals/{proposal_id}/apply",
+            headers=auth_headers(INTEGRATION_TOKEN),
+        )
+        assert apply_attempt.status_code == 401
+
+
+def test_vessel_coordination_snapshot_is_advisory_only():
+    with TestClient(app) as client:
+        client.post("/api/v1/demo/reset")
+        response = client.get(
+            "/api/v1/integration/port-calls/pc-aurora/coordination",
+            headers=auth_headers(INTEGRATION_TOKEN),
+        )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["contract_version"] == "portflow.coordination.v1"
+    assert payload["port_call_id"] == "pc-aurora"
+    assert payload["vessel_id"] == "v-aurora"
+    assert payload["advisory_only"] is True
+    assert payload["requires_human_approval"] is True
+    assert payload["actuation_allowed"] is False
+    assert all(
+        proposal["requires_approval"] is True
+        for proposal in payload["recovery_proposals"]
+    )

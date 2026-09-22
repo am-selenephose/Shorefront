@@ -17,11 +17,20 @@ from .adapters import get_adapter_snapshot, list_adapter_snapshots
 from .domain import detect_berth_conflicts, score_port_call
 from .observability import metrics, observe_http
 from .models import (
-    AdapterHealth, DataDomain, DataSourceMode, DataSourceProvenance, IncidentType,
-    LinkMode, OperatorIdentity, ScenarioRunEvidence, ServiceDurationCalibration, ServiceKind,
+    AdapterHealth, DataDomain, DataSourceMode, DataSourceProvenance,
+    IncidentStatus, IncidentType, IntegrationIdentity, LinkMode, OperationsEvent,
+    OperatorIdentity, RiskLevel, ScenarioRunEvidence, ServiceDurationCalibration,
+    ServiceKind, VesselCoordinationSnapshot, VesselRuntimeEvent,
+    VesselRuntimeEventReceipt, VesselRuntimeEventRecord, VesselRuntimeEventType,
 )
 from .simulator import HarborSimulator, RecoveryProposalStaleError
-from .security import configured_approvers, current_operator, recovery_approver
+from .security import (
+    configured_approvers,
+    configured_integrations,
+    current_integration,
+    current_operator,
+    recovery_approver,
+)
 from .scenarios import get_scenario, list_scenarios
 from .storage import OperationsStore
 
@@ -59,6 +68,7 @@ async def lifespan(app: FastAPI):
     global sim, _runtime_ready, _schema_mode
 
     configured_approvers()
+    configured_integrations()
     _schema_mode = os.getenv("PORTFLOW_SCHEMA_MODE", "migrate").strip().lower()
     if _schema_mode == "migrate":
         store.migrate_schema()
@@ -133,6 +143,7 @@ def healthz():
 def readyz():
     schema = store.schema_status()
     authorization_configured = bool(configured_approvers())
+    integration_authorization_configured = bool(configured_integrations())
     ready = (
         _runtime_ready
         and bool(schema["database_reachable"])
@@ -146,6 +157,9 @@ def readyz():
         "schema_mode": _schema_mode,
         "schema": schema,
         "authorization_configured": authorization_configured,
+        "integration_authorization_configured": (
+            integration_authorization_configured
+        ),
     }
     if not ready:
         raise HTTPException(status_code=503, detail=payload)
@@ -178,6 +192,219 @@ def prometheus_metrics():
 @app.get("/api/v1/auth/me")
 def auth_me(identity: OperatorIdentity = Depends(current_operator)):
     return identity
+
+
+def _require_integration_vessel(
+    identity: IntegrationIdentity,
+    vessel_id: str,
+) -> None:
+    if vessel_id not in identity.vessel_ids:
+        raise HTTPException(
+            status_code=403,
+            detail="Integration is not authorized for this vessel",
+        )
+
+
+@app.get("/api/v1/integration/contracts")
+def integration_contracts():
+    return {
+        "event_contract": "portflow.vessel-event.v1",
+        "event_receipt_contract": "portflow.vessel-event-receipt.v1",
+        "coordination_contract": "portflow.coordination.v1",
+        "event_types": [item.value for item in VesselRuntimeEventType],
+        "transports": {
+            "http_ingest": "POST /api/v1/integration/vessel-events",
+            "http_coordination": (
+                "GET /api/v1/integration/port-calls/{call_id}/coordination"
+            ),
+            "kafka": (
+                "Reserved for a future transport binding using the same "
+                "portflow.vessel-event.v1 envelope."
+            ),
+        },
+        "invariants": {
+            "raw_sensor_streams_owned_by_vessel_runtime": True,
+            "portflow_accepts_normalized_events_only": True,
+            "coordination_is_advisory_only": True,
+            "human_approval_required_for_recovery": True,
+            "direct_actuation_allowed": False,
+            "event_id_is_idempotency_key": True,
+        },
+        "schemas": {
+            "vessel_event": VesselRuntimeEvent.model_json_schema(),
+            "coordination": VesselCoordinationSnapshot.model_json_schema(),
+        },
+    }
+
+
+@app.post(
+    "/api/v1/integration/vessel-events",
+    response_model=VesselRuntimeEventReceipt,
+)
+def ingest_vessel_runtime_event(
+    event: VesselRuntimeEvent,
+    identity: IntegrationIdentity = Depends(current_integration),
+):
+    _require_integration_vessel(identity, event.vessel_id)
+
+    if not any(vessel.id == event.vessel_id for vessel in sim.vessels):
+        raise HTTPException(status_code=404, detail="Unknown vessel")
+
+    if event.port_call_id is not None:
+        call = next(
+            (
+                item for item in sim.port_calls
+                if item.id == event.port_call_id
+            ),
+            None,
+        )
+        if call is None:
+            raise HTTPException(status_code=404, detail="Unknown port call")
+        if call.vessel_id != event.vessel_id:
+            raise HTTPException(
+                status_code=409,
+                detail="Port call does not belong to the event vessel",
+            )
+
+    encoded = event.model_dump_json().encode("utf-8")
+    if len(encoded) > 65_536:
+        raise HTTPException(
+            status_code=413,
+            detail="Normalized vessel event exceeds 64 KiB contract limit",
+        )
+
+    existing = store.get_vessel_runtime_event(event.event_id)
+    if existing is not None:
+        if (
+            existing.integration_id != identity.integration_id
+            or existing.event != event
+        ):
+            raise HTTPException(
+                status_code=409,
+                detail="event_id already exists with different content",
+            )
+        return VesselRuntimeEventReceipt(
+            event_id=event.event_id,
+            accepted_at=existing.received_at,
+            duplicate=True,
+        )
+
+    received_at = datetime.now(timezone.utc).replace(microsecond=0)
+    record = VesselRuntimeEventRecord(
+        event=event,
+        integration_id=identity.integration_id,
+        received_at=received_at,
+    )
+    stored = store.save_vessel_runtime_event(record)
+    if not stored:
+        existing = store.get_vessel_runtime_event(event.event_id)
+        if (
+            existing is None
+            or existing.integration_id != identity.integration_id
+            or existing.event != event
+        ):
+            raise HTTPException(
+                status_code=409,
+                detail="event_id was concurrently claimed with different content",
+            )
+        return VesselRuntimeEventReceipt(
+            event_id=event.event_id,
+            accepted_at=existing.received_at,
+            duplicate=True,
+        )
+
+    store.append_event(
+        OperationsEvent(
+            id=f"vessel-runtime-{event.event_id}",
+            occurred_at=received_at,
+            category="vessel_runtime",
+            severity=RiskLevel.LOW,
+            title=f"Vessel runtime event: {event.event_type.value}",
+            message=(
+                f"Accepted normalized {event.event_type.value} event "
+                f"{event.event_id} from integration {identity.integration_id}; "
+                f"sequence {event.sequence}."
+            ),
+            vessel_id=event.vessel_id,
+            port_call_id=event.port_call_id,
+            source_id=identity.integration_id,
+        )
+    )
+    metrics.inc("portflow_vessel_events_total")
+
+    return VesselRuntimeEventReceipt(
+        event_id=event.event_id,
+        accepted_at=received_at,
+        duplicate=False,
+    )
+
+
+@app.get("/api/v1/integration/vessel-events")
+def vessel_runtime_events(
+    limit: int = 100,
+    vessel_id: str | None = None,
+    identity: IntegrationIdentity = Depends(current_integration),
+):
+    if vessel_id is not None:
+        _require_integration_vessel(identity, vessel_id)
+
+    rows = store.list_vessel_runtime_events(
+        limit=limit,
+        integration_id=identity.integration_id,
+        vessel_id=vessel_id,
+    )
+    allowed = set(identity.vessel_ids)
+    rows = [row for row in rows if row.event.vessel_id in allowed]
+    return {"count": len(rows), "events": rows}
+
+
+@app.get(
+    "/api/v1/integration/port-calls/{call_id}/coordination",
+    response_model=VesselCoordinationSnapshot,
+)
+def vessel_coordination(
+    call_id: str,
+    identity: IntegrationIdentity = Depends(current_integration),
+):
+    call = next((item for item in sim.port_calls if item.id == call_id), None)
+    if call is None:
+        raise HTTPException(status_code=404, detail="Unknown port call")
+
+    _require_integration_vessel(identity, call.vessel_id)
+
+    active_incidents = [
+        incident
+        for incident in sim.incidents
+        if (
+            incident.status == IncidentStatus.ACTIVE
+            and incident.target_port_call_id in {None, call.id}
+        )
+    ]
+    proposals = sim.generate_recovery_proposals(
+        call_id=call.id,
+        evidence_trigger="integration_coordination",
+    )
+
+    return VesselCoordinationSnapshot(
+        generated_at=datetime.now(timezone.utc).replace(microsecond=0),
+        port_call_id=call.id,
+        vessel_id=call.vessel_id,
+        berth_id=call.berth_id,
+        arrival_eta=call.arrival_eta,
+        departure_eta=call.departure_eta,
+        delay_minutes=call.delay_minutes,
+        risk=call.risk,
+        stages=call.stages,
+        service_steps=[
+            step for step in sim.service_steps
+            if step.port_call_id == call.id
+        ],
+        active_incidents=active_incidents,
+        recovery_proposals=proposals,
+        advisory_only=True,
+        requires_human_approval=True,
+        actuation_allowed=False,
+    )
 
 
 @app.get("/api/v1/service-duration-calibrations")

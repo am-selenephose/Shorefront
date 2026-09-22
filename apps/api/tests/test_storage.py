@@ -1600,7 +1600,7 @@ def test_explicit_schema_migration_stamps_version_and_verify(tmp_path):
 
     migrated = store.migrate_schema()
     assert migrated["compatible"] is True
-    assert migrated["current_version"] == 2
+    assert migrated["current_version"] == 3
     assert migrated["missing_tables"] == []
 
     verified = store.verify_schema()
@@ -1620,7 +1620,7 @@ def test_verify_schema_rejects_unmigrated_database(tmp_path):
         raise AssertionError("verify mode accepted an unmigrated database")
 
 
-def test_schema_v1_migrates_additively_to_v2(tmp_path):
+def test_schema_v1_migrates_additively_to_v3(tmp_path):
     store = OperationsStore(
         f"sqlite:///{tmp_path / 'schema-v1.db'}"
     )
@@ -1648,7 +1648,7 @@ def test_schema_v1_migrates_additively_to_v2(tmp_path):
 
     after = store.migrate_schema()
     assert after["compatible"] is True
-    assert after["current_version"] == 2
+    assert after["current_version"] == 3
     assert after["missing_tables"] == []
 
 
@@ -1771,3 +1771,46 @@ def test_database_url_normalizes_postgres_to_psycopg_driver():
     assert normalize_database_url(
         "postgresql+psycopg://user:pass@example.invalid/portflow"
     ) == "postgresql+psycopg://user:pass@example.invalid/portflow"
+
+
+def test_schema_v2_migrates_additively_to_v3(tmp_path):
+    store = OperationsStore(
+        f"sqlite:///{tmp_path / 'schema-v2.db'}"
+    )
+    with store.engine.begin() as connection:
+        connection.execute(text(
+            "CREATE TABLE schema_version ("
+            "id INTEGER PRIMARY KEY, "
+            "version INTEGER NOT NULL, "
+            "updated_at DATETIME NOT NULL)"
+        ))
+        connection.execute(
+            text(
+                "INSERT INTO schema_version "
+                "(id, version, updated_at) "
+                "VALUES (1, 2, :updated_at)"
+            ),
+            {"updated_at": datetime.now(timezone.utc)},
+        )
+
+    before = store.schema_status()
+    assert before["current_version"] == 2
+    assert before["compatible"] is False
+    assert "vessel_runtime_event" in before["missing_tables"]
+
+    after = store.migrate_schema()
+    assert after["compatible"] is True
+    assert after["current_version"] == 3
+    assert after["missing_tables"] == []
+
+    with store.engine.connect() as connection:
+        tables = {
+            row[0]
+            for row in connection.execute(
+                text(
+                    "SELECT name FROM sqlite_master "
+                    "WHERE type='table'"
+                )
+            )
+        }
+    assert "vessel_runtime_event" in tables

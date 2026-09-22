@@ -2090,3 +2090,95 @@ Current gate:
 - live BasicDeploy PostgreSQL boot passes with psycopg v3 URL normalization
 
 The remaining v0.15 architecture work is the documented event/API boundary for a future vessel-side intelligence runtime without coupling repositories.
+
+
+## v0.15 vessel-runtime boundary proof
+
+PortFlow's final v0.15 architecture increment is a versioned integration boundary for a future separate vessel-side intelligence runtime.
+
+### Separate authority planes
+
+Human approvals use PORTFLOW_APPROVERS_JSON.
+
+Vessel-runtime integrations use PORTFLOW_INTEGRATIONS_JSON with independent token hashes and vessel allowlists.
+
+An integration token cannot approve recovery.
+
+Container proof returned HTTP 401 when a valid vessel integration token was presented to the recovery-apply endpoint.
+
+### Versioned contracts
+
+Inbound event: portflow.vessel-event.v1
+
+Receipt: portflow.vessel-event-receipt.v1
+
+Coordination snapshot: portflow.coordination.v1
+
+Contract discovery:
+
+    GET /api/v1/integration/contracts
+
+### Schema v3
+
+The vessel boundary advances the additive schema contract from v2 to v3.
+
+v3 adds vessel_runtime_event.
+
+Real PostgreSQL proof used the previous v2 evidence image and the current image against the same database:
+
+- v2 migration -> current_version=2
+- vessel_runtime_event absent
+- current migration -> current_version=3
+- vessel_runtime_event present
+- verify-mode readiness -> expected_version=3, current_version=3, compatible=true
+
+### Idempotent durable event proof
+
+A normalized Aurora readiness event was submitted with an authenticated integration token.
+
+Observed:
+
+- first delivery -> duplicate=false
+- exact retry -> duplicate=true with the same accepted_at
+- same event id with changed content -> HTTP 409
+- event remained queryable after API process restart
+
+### Advisory-only coordination proof
+
+The authenticated Aurora integration requested the pc-aurora coordination snapshot.
+
+Observed:
+
+- contract_version=portflow.coordination.v1
+- vessel_id=v-aurora
+- advisory_only=true
+- requires_human_approval=true
+- actuation_allowed=false
+- port-call stages and service dependencies included
+
+This boundary does not give PortFlow direct vessel actuation authority.
+
+### Repository boundary
+
+Raw ship sensors, local perception, machinery intelligence, navigation reasoning, actuator integration, and vessel-local safety interlocks remain outside PortFlow.
+
+They belong in the future vessel-runtime repository.
+
+PortFlow consumes only normalized operational events and returns port-side coordination/advisory state.
+
+See docs/VESSEL_RUNTIME_BOUNDARY.md for the full contract.
+
+### v0.15 vessel-boundary gate
+
+Current gate includes:
+
+- 101 backend tests across existing product behavior plus integration boundary coverage
+- Python compile
+- real PostgreSQL v2 -> v3 migration
+- authenticated event first/duplicate/conflict proof
+- integration-vessel allowlist enforcement
+- integration-token recovery denial
+- advisory-only coordination proof
+- integration ledger persistence across API restart
+
+With this boundary documented and executable, the v0.15 PortFlow productization roadmap is complete.

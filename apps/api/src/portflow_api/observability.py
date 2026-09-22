@@ -82,6 +82,7 @@ class MetricsRegistry:
             "portflow_recovery_contingencies_total",
             "portflow_replay_acks_total",
             "portflow_scenario_runs_total",
+            "portflow_vessel_events_total",
         )
         for name in counter_names:
             lines.extend([

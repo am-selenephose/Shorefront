@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from enum import StrEnum
+from typing import Literal
 from pydantic import BaseModel, Field, model_validator
 
 
@@ -101,6 +102,14 @@ class ScenarioActionType(StrEnum):
     CONNECTIVITY = "connectivity"
 
 
+class VesselRuntimeEventType(StrEnum):
+    POSITION = "position"
+    ETA = "eta"
+    READINESS = "readiness"
+    CONSTRAINT = "constraint"
+    CONNECTIVITY = "connectivity"
+
+
 class DataSourceMode(StrEnum):
     SYNTHETIC = "synthetic"
     RECORDED = "recorded"
@@ -154,6 +163,46 @@ class OperatorIdentity(BaseModel):
     operator_id: str
     display_name: str
     role: OperatorRole
+
+
+class IntegrationIdentity(BaseModel):
+    integration_id: str
+    display_name: str
+    vessel_ids: list[str] = Field(min_length=1)
+
+
+class VesselRuntimeEvent(BaseModel):
+    contract_version: Literal["portflow.vessel-event.v1"] = "portflow.vessel-event.v1"
+    event_id: str = Field(min_length=8, max_length=96)
+    occurred_at: datetime
+    vessel_id: str = Field(min_length=1, max_length=80)
+    port_call_id: str | None = Field(default=None, max_length=80)
+    event_type: VesselRuntimeEventType
+    sequence: int = Field(ge=0)
+    source_system: str = Field(min_length=1, max_length=120)
+    payload: dict[str, object] = Field(default_factory=dict)
+    evidence_refs: list[str] = Field(default_factory=list, max_length=32)
+
+    @model_validator(mode="after")
+    def validate_event_time(self):
+        if self.occurred_at.tzinfo is None:
+            raise ValueError("occurred_at must include a timezone")
+        return self
+
+
+class VesselRuntimeEventReceipt(BaseModel):
+    contract_version: Literal["portflow.vessel-event-receipt.v1"] = (
+        "portflow.vessel-event-receipt.v1"
+    )
+    event_id: str
+    accepted_at: datetime
+    duplicate: bool = False
+
+
+class VesselRuntimeEventRecord(BaseModel):
+    event: VesselRuntimeEvent
+    integration_id: str
+    received_at: datetime
 
 
 class ScenarioAction(BaseModel):
@@ -359,6 +408,25 @@ class RecoveryContingency(BaseModel):
     replacement_proposals: list[RecoveryProposal] = Field(default_factory=list)
     reason: str
     auto_apply: bool = False
+
+
+class VesselCoordinationSnapshot(BaseModel):
+    contract_version: Literal["portflow.coordination.v1"] = "portflow.coordination.v1"
+    generated_at: datetime
+    port_call_id: str
+    vessel_id: str
+    berth_id: str
+    arrival_eta: datetime
+    departure_eta: datetime
+    delay_minutes: int
+    risk: RiskLevel
+    stages: list[PortCallStage] = Field(default_factory=list)
+    service_steps: list[ServiceStep] = Field(default_factory=list)
+    active_incidents: list[Incident] = Field(default_factory=list)
+    recovery_proposals: list[RecoveryProposal] = Field(default_factory=list)
+    advisory_only: bool = True
+    requires_human_approval: bool = True
+    actuation_allowed: bool = False
 
 
 class RecoveryApplicationReceipt(BaseModel):
