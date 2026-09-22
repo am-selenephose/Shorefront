@@ -42,10 +42,15 @@ jobs:
       PORTFLOW_DB_PASSWORD: ci-placeholder
       PORTFLOW_APPROVERS_JSON: '[]'
       PORTFLOW_IMAGE_TAG: ci
+      PORTFLOW_HTTPS_PORT: 8443
+      PORTFLOW_PUBLIC_HTTPS_ORIGIN: https://localhost:8443
+      PORTFLOW_TLS_CERT_FILE: /tmp/portflow-ci.crt
+      PORTFLOW_TLS_KEY_FILE: /tmp/portflow-ci.key
     steps:
       - uses: actions/checkout@v4
       - run: bash -n ops/backup-postgres.sh
       - run: bash -n ops/restore-postgres.sh
       - run: docker compose -f docker-compose.prod.yml config >/dev/null
+      - run: docker compose -f docker-compose.prod.yml -f docker-compose.tls.yml config >/dev/null
       - run: docker build -t portflow-api:ci apps/api
       - run: docker build -t portflow-web:ci apps/web
