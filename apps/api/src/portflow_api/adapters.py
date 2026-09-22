@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
+import hashlib
 import json
 import os
 from threading import Lock
@@ -108,9 +109,15 @@ class HttpJsonAdapter:
     url: str
     stale_after_seconds: int
     timeout_seconds: float = 2.0
+    retry_base_seconds: int = 5
+    retry_max_seconds: int = 300
+    retry_jitter_fraction: float = 0.2
     loader: JsonLoader = _http_json_loader
     _last_good_snapshot: AdapterSnapshot | None = field(default=None, init=False, repr=False, compare=False)
     _last_success_at: datetime | None = field(default=None, init=False, repr=False, compare=False)
+    _last_attempt_at: datetime | None = field(default=None, init=False, repr=False, compare=False)
+    _next_retry_at: datetime | None = field(default=None, init=False, repr=False, compare=False)
+    _retry_delay_seconds: int = field(default=0, init=False, repr=False, compare=False)
     _consecutive_errors: int = field(default=0, init=False, repr=False, compare=False)
     _lock: Lock = field(default_factory=Lock, init=False, repr=False, compare=False)
 
@@ -122,12 +129,95 @@ class HttpJsonAdapter:
             self.url,
             self.stale_after_seconds,
             self.timeout_seconds,
+            self.retry_base_seconds,
+            self.retry_max_seconds,
+            self.retry_jitter_fraction,
+        )
+
+    def _retry_delay_for_error(self, error_count: int) -> int:
+        base = max(1, int(self.retry_base_seconds))
+        cap = max(base, int(self.retry_max_seconds))
+        exponent = min(max(error_count - 1, 0), 16)
+        raw = min(cap, base * (2 ** exponent))
+
+        jitter_fraction = min(max(float(self.retry_jitter_fraction), 0.0), 1.0)
+        if jitter_fraction == 0:
+            return int(raw)
+
+        digest = hashlib.sha256(
+            f"{self.adapter_id}:{error_count}".encode("utf-8")
+        ).digest()
+        unit = int.from_bytes(digest[:8], "big") / float((1 << 64) - 1)
+        multiplier = 1.0 + ((unit * 2.0) - 1.0) * jitter_fraction
+        return max(1, min(cap, int(round(raw * multiplier))))
+
+    def _resilience_snapshot(
+        self,
+        received_at: datetime,
+        detail: str,
+    ) -> AdapterSnapshot:
+        if self._last_good_snapshot is not None:
+            cached = self._last_good_snapshot.model_copy(deep=True)
+            freshness = max(
+                0,
+                int((received_at - cached.provenance.observed_at).total_seconds()),
+            )
+            stale = freshness > self.stale_after_seconds
+            health = AdapterHealth.STALE if stale else AdapterHealth.DEGRADED
+            observed_at = cached.provenance.observed_at
+            records = [dict(item) for item in cached.records]
+            using_cached_records = True
+        else:
+            freshness = 0
+            stale = True
+            health = AdapterHealth.ERROR
+            observed_at = received_at
+            records = []
+            using_cached_records = False
+
+        return AdapterSnapshot(
+            adapter_id=self.adapter_id,
+            provenance=DataSourceProvenance(
+                source_id=self.adapter_id,
+                domain=self.domain,
+                mode=DataSourceMode.LIVE,
+                provider=self.provider,
+                observed_at=observed_at,
+                received_at=received_at,
+                freshness_seconds=freshness,
+                stale_after_seconds=self.stale_after_seconds,
+                stale=stale,
+                health=health,
+                record_count=len(records),
+                detail=detail,
+                last_success_at=self._last_success_at,
+                last_attempt_at=self._last_attempt_at,
+                next_retry_at=self._next_retry_at,
+                retry_delay_seconds=self._retry_delay_seconds,
+                consecutive_errors=self._consecutive_errors,
+                using_cached_records=using_cached_records,
+            ),
+            records=records,
         )
 
     def snapshot(self, now: datetime | None = None) -> AdapterSnapshot:
         received_at = (now or datetime.now(timezone.utc)).replace(microsecond=0)
 
         with self._lock:
+            if (
+                self._next_retry_at is not None
+                and received_at < self._next_retry_at
+            ):
+                return self._resilience_snapshot(
+                    received_at,
+                    (
+                        "Retry backoff active; next live attempt at "
+                        f"{self._next_retry_at.isoformat()}."
+                    ),
+                )
+
+            self._last_attempt_at = received_at
+
             try:
                 payload = self.loader(self.url, self.timeout_seconds)
                 observed_raw = payload.get("observed_at")
@@ -144,7 +234,10 @@ class HttpJsonAdapter:
                 freshness = max(0, int((received_at - observed_at).total_seconds()))
                 stale = freshness > self.stale_after_seconds
                 health = AdapterHealth.STALE if stale else AdapterHealth.HEALTHY
+
                 self._consecutive_errors = 0
+                self._next_retry_at = None
+                self._retry_delay_seconds = 0
 
                 snapshot = AdapterSnapshot(
                     adapter_id=self.adapter_id,
@@ -166,6 +259,9 @@ class HttpJsonAdapter:
                             else "Live HTTP JSON adapter responded, but the observation is stale."
                         ),
                         last_success_at=self._last_success_at,
+                        last_attempt_at=self._last_attempt_at,
+                        next_retry_at=None,
+                        retry_delay_seconds=0,
                         consecutive_errors=0,
                         using_cached_records=False,
                     ),
@@ -181,60 +277,18 @@ class HttpJsonAdapter:
 
             except Exception as exc:
                 self._consecutive_errors += 1
-
-                if self._last_good_snapshot is not None:
-                    cached = self._last_good_snapshot.model_copy(deep=True)
-                    freshness = max(
-                        0,
-                        int((received_at - cached.provenance.observed_at).total_seconds()),
-                    )
-                    stale = freshness > self.stale_after_seconds
-                    health = AdapterHealth.STALE if stale else AdapterHealth.DEGRADED
-                    return AdapterSnapshot(
-                        adapter_id=self.adapter_id,
-                        provenance=DataSourceProvenance(
-                            source_id=self.adapter_id,
-                            domain=self.domain,
-                            mode=DataSourceMode.LIVE,
-                            provider=self.provider,
-                            observed_at=cached.provenance.observed_at,
-                            received_at=received_at,
-                            freshness_seconds=freshness,
-                            stale_after_seconds=self.stale_after_seconds,
-                            stale=stale,
-                            health=health,
-                            record_count=len(cached.records),
-                            detail=(
-                                f"Live adapter unavailable: {type(exc).__name__}; "
-                                "showing last-known-good preview only."
-                            ),
-                            last_success_at=self._last_success_at,
-                            consecutive_errors=self._consecutive_errors,
-                            using_cached_records=True,
-                        ),
-                        records=[dict(item) for item in cached.records],
-                    )
-
-                return AdapterSnapshot(
-                    adapter_id=self.adapter_id,
-                    provenance=DataSourceProvenance(
-                        source_id=self.adapter_id,
-                        domain=self.domain,
-                        mode=DataSourceMode.LIVE,
-                        provider=self.provider,
-                        observed_at=received_at,
-                        received_at=received_at,
-                        freshness_seconds=0,
-                        stale_after_seconds=self.stale_after_seconds,
-                        stale=True,
-                        health=AdapterHealth.ERROR,
-                        record_count=0,
-                        detail=f"Live adapter unavailable: {type(exc).__name__}",
-                        last_success_at=None,
-                        consecutive_errors=self._consecutive_errors,
-                        using_cached_records=False,
+                self._retry_delay_seconds = self._retry_delay_for_error(
+                    self._consecutive_errors
+                )
+                self._next_retry_at = received_at + timedelta(
+                    seconds=self._retry_delay_seconds
+                )
+                return self._resilience_snapshot(
+                    received_at,
+                    (
+                        f"Live adapter unavailable: {type(exc).__name__}; "
+                        f"retry scheduled at {self._next_retry_at.isoformat()}."
                     ),
-                    records=[],
                 )
 
 

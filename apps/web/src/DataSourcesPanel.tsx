@@ -13,6 +13,7 @@ function ageLabel(seconds: number) {
 function domainLabel(domain: string) {
   if (domain === 'weather_tide') return 'WEATHER / TIDE'
   if (domain === 'berth_plan') return 'BERTH PLAN'
+  if (domain === 'service_calibration') return 'SERVICE CALIBRATION'
   return domain.toUpperCase()
 }
 
@@ -83,10 +84,16 @@ export function DataSourcesPanel({
                     {p.record_count} records · freshness {ageLabel(p.freshness_seconds)}
                     {' · '}stale after {ageLabel(p.stale_after_seconds)}
                   </span>
-                  {(p.using_cached_records || p.consecutive_errors > 0) && (
+                  {(p.using_cached_records || p.consecutive_errors > 0 || p.next_retry_at) && (
                     <span className="adapter-resilience">
                       {p.using_cached_records ? 'LAST-KNOWN-GOOD CACHE' : 'LIVE FETCH FAILURE'}
                       {' · '}{p.consecutive_errors} consecutive error{p.consecutive_errors === 1 ? '' : 's'}
+                      {p.next_retry_at && (
+                        <>
+                          {' · '}RETRY BACKOFF {p.retry_delay_seconds}s
+                          {' · '}next {new Date(p.next_retry_at).toLocaleTimeString()}
+                        </>
+                      )}
                     </span>
                   )}
                   <small>{p.detail}</small>
@@ -97,17 +104,19 @@ export function DataSourcesPanel({
                     disabled={disabled}
                     onClick={() => onIngest(adapter.adapter_id)}
                   >
-                    {p.using_cached_records
-                      ? 'Cached preview'
-                      : p.stale
-                        ? 'Stale blocked'
-                        : p.health === 'error'
-                          ? 'Feed unavailable'
-                          : !identity
-                            ? 'Authenticate'
-                            : canIngest
-                              ? p.mode === 'live' ? 'Ingest live' : 'Ingest fixture'
-                              : 'View only'}
+                    {p.next_retry_at
+                      ? 'Retry scheduled'
+                      : p.using_cached_records
+                        ? 'Cached preview'
+                        : p.stale
+                          ? 'Stale blocked'
+                          : p.health === 'error'
+                            ? 'Feed unavailable'
+                            : !identity
+                              ? 'Authenticate'
+                              : canIngest
+                                ? p.mode === 'live' ? 'Ingest live' : 'Ingest fixture'
+                                : 'View only'}
                   </button>
                 </div>
               </div>

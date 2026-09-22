@@ -32,6 +32,7 @@ export function RecoveryPanel({
   identity,
   busy,
   authBusy,
+  contingencyNotice,
   onApply,
   onRefresh,
   onConnect,
@@ -42,6 +43,7 @@ export function RecoveryPanel({
   identity: OperatorIdentity | null
   busy: boolean
   authBusy: boolean
+  contingencyNotice: string | null
   onApply: (proposalId: string) => Promise<void>
   onRefresh: () => Promise<void>
   onConnect: (token: string) => Promise<boolean>
@@ -117,6 +119,12 @@ export function RecoveryPanel({
       {identity?.role === 'viewer' && (
         <div className="authority-note viewer">
           Viewer session active. Recovery proposals are inspectable, but approval is blocked by role policy.
+        </div>
+      )}
+
+      {contingencyNotice && (
+        <div className="authority-note contingency">
+          {contingencyNotice}
         </div>
       )}
 

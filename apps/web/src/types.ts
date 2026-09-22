@@ -7,7 +7,7 @@ export type ResourceStatus = 'available' | 'assigned' | 'delayed' | 'unavailable
 export type RecoveryActionType = 'reassign_resource' | 'move_berth' | 'shift_window'
 export type OperatorRole = 'viewer' | 'operator' | 'supervisor'
 export type DataSourceMode = 'synthetic' | 'recorded' | 'live'
-export type DataDomain = 'ais' | 'weather_tide' | 'berth_plan'
+export type DataDomain = 'ais' | 'weather_tide' | 'berth_plan' | 'service_calibration'
 export type AdapterHealth = 'healthy' | 'degraded' | 'stale' | 'offline' | 'unconfigured' | 'error'
 export type DecisionConfidence = 'demo' | 'low' | 'medium' | 'high'
 
@@ -93,6 +93,7 @@ export interface Incident {
   started_at: string
   target_port_call_id?: string | null
   target_berth_id?: string | null
+  target_resource_id?: string | null
   impact_minutes: number
   details: string
   resolved_at?: string | null
@@ -144,6 +145,17 @@ export interface ServiceStep {
 }
 
 
+export interface ServiceDurationCalibration {
+  service_kind: ServiceKind
+  duration_minutes: number
+  source_id: string
+  mode: DataSourceMode
+  provider: string
+  observed_at: string
+  detail?: string | null
+}
+
+
 export interface DataSourceProvenance {
   source_id: string
   domain: DataDomain
@@ -158,6 +170,9 @@ export interface DataSourceProvenance {
   record_count: number
   detail?: string | null
   last_success_at?: string | null
+  last_attempt_at?: string | null
+  next_retry_at?: string | null
+  retry_delay_seconds: number
   consecutive_errors: number
   using_cached_records: boolean
 }
@@ -197,6 +212,7 @@ export interface HarborState {
   incidents: Incident[]
   service_resources: ServiceResource[]
   service_steps: ServiceStep[]
+  service_duration_calibrations: ServiceDurationCalibration[]
   events: Event[]
   data_sources: DataSourceProvenance[]
   metrics: Record<string, number>
@@ -234,6 +250,18 @@ export interface RecoveryProposal {
   rationale: string[]
   assumptions: string[]
   requires_approval: boolean
+}
+
+
+export interface RecoveryContingency {
+  stale_proposal_id: string
+  target_port_call_id: string
+  stale_state_fingerprint: string
+  current_state_fingerprint: string
+  unavailable_resource_ids: string[]
+  replacement_proposals: RecoveryProposal[]
+  reason: string
+  auto_apply: boolean
 }
 
 

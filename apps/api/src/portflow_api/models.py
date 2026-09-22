@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from enum import StrEnum
+from typing import Literal
 from pydantic import BaseModel, Field, model_validator
 
 
@@ -101,6 +102,14 @@ class ScenarioActionType(StrEnum):
     CONNECTIVITY = "connectivity"
 
 
+class VesselRuntimeEventType(StrEnum):
+    POSITION = "position"
+    ETA = "eta"
+    READINESS = "readiness"
+    CONSTRAINT = "constraint"
+    CONNECTIVITY = "connectivity"
+
+
 class DataSourceMode(StrEnum):
     SYNTHETIC = "synthetic"
     RECORDED = "recorded"
@@ -111,6 +120,7 @@ class DataDomain(StrEnum):
     AIS = "ais"
     WEATHER_TIDE = "weather_tide"
     BERTH_PLAN = "berth_plan"
+    SERVICE_CALIBRATION = "service_calibration"
 
 
 class AdapterHealth(StrEnum):
@@ -136,6 +146,9 @@ class DataSourceProvenance(BaseModel):
     record_count: int = 0
     detail: str | None = None
     last_success_at: datetime | None = None
+    last_attempt_at: datetime | None = None
+    next_retry_at: datetime | None = None
+    retry_delay_seconds: int = 0
     consecutive_errors: int = 0
     using_cached_records: bool = False
 
@@ -150,6 +163,46 @@ class OperatorIdentity(BaseModel):
     operator_id: str
     display_name: str
     role: OperatorRole
+
+
+class IntegrationIdentity(BaseModel):
+    integration_id: str
+    display_name: str
+    vessel_ids: list[str] = Field(min_length=1)
+
+
+class VesselRuntimeEvent(BaseModel):
+    contract_version: Literal["portflow.vessel-event.v1"] = "portflow.vessel-event.v1"
+    event_id: str = Field(min_length=8, max_length=96)
+    occurred_at: datetime
+    vessel_id: str = Field(min_length=1, max_length=80)
+    port_call_id: str | None = Field(default=None, max_length=80)
+    event_type: VesselRuntimeEventType
+    sequence: int = Field(ge=0)
+    source_system: str = Field(min_length=1, max_length=120)
+    payload: dict[str, object] = Field(default_factory=dict)
+    evidence_refs: list[str] = Field(default_factory=list, max_length=32)
+
+    @model_validator(mode="after")
+    def validate_event_time(self):
+        if self.occurred_at.tzinfo is None:
+            raise ValueError("occurred_at must include a timezone")
+        return self
+
+
+class VesselRuntimeEventReceipt(BaseModel):
+    contract_version: Literal["portflow.vessel-event-receipt.v1"] = (
+        "portflow.vessel-event-receipt.v1"
+    )
+    event_id: str
+    accepted_at: datetime
+    duplicate: bool = False
+
+
+class VesselRuntimeEventRecord(BaseModel):
+    event: VesselRuntimeEvent
+    integration_id: str
+    received_at: datetime
 
 
 class ScenarioAction(BaseModel):
@@ -295,6 +348,16 @@ class ServiceStep(BaseModel):
 
 
 
+class ServiceDurationCalibration(BaseModel):
+    service_kind: ServiceKind
+    duration_minutes: int = Field(ge=1, le=24 * 60)
+    source_id: str
+    mode: DataSourceMode
+    provider: str
+    observed_at: datetime
+    detail: str | None = None
+
+
 class RecoveryAction(BaseModel):
     action_type: RecoveryActionType
     port_call_id: str
@@ -325,6 +388,45 @@ class RecoveryProposal(BaseModel):
     rationale: list[str] = Field(default_factory=list)
     assumptions: list[str] = Field(default_factory=list)
     requires_approval: bool = True
+
+
+class RecoveryProposalEvidenceBatch(BaseModel):
+    evidence_id: str
+    generated_at: datetime
+    requested_call_id: str | None = None
+    trigger: str = "planning"
+    stale_parent_proposal_id: str | None = None
+    proposals: list[RecoveryProposal] = Field(default_factory=list)
+
+
+class RecoveryContingency(BaseModel):
+    stale_proposal_id: str
+    target_port_call_id: str
+    stale_state_fingerprint: str
+    current_state_fingerprint: str
+    unavailable_resource_ids: list[str] = Field(default_factory=list)
+    replacement_proposals: list[RecoveryProposal] = Field(default_factory=list)
+    reason: str
+    auto_apply: bool = False
+
+
+class VesselCoordinationSnapshot(BaseModel):
+    contract_version: Literal["portflow.coordination.v1"] = "portflow.coordination.v1"
+    generated_at: datetime
+    port_call_id: str
+    vessel_id: str
+    berth_id: str
+    arrival_eta: datetime
+    departure_eta: datetime
+    delay_minutes: int
+    risk: RiskLevel
+    stages: list[PortCallStage] = Field(default_factory=list)
+    service_steps: list[ServiceStep] = Field(default_factory=list)
+    active_incidents: list[Incident] = Field(default_factory=list)
+    recovery_proposals: list[RecoveryProposal] = Field(default_factory=list)
+    advisory_only: bool = True
+    requires_human_approval: bool = True
+    actuation_allowed: bool = False
 
 
 class RecoveryApplicationReceipt(BaseModel):
@@ -379,75 +481,16 @@ class HarborOverview(BaseModel):
     incidents: list[Incident] = Field(default_factory=list)
     service_resources: list[ServiceResource] = Field(default_factory=list)
     service_steps: list[ServiceStep] = Field(default_factory=list)
+    service_duration_calibrations: list[ServiceDurationCalibration] = Field(default_factory=list)
     events: list[OperationsEvent]
     data_sources: list[DataSourceProvenance] = Field(default_factory=list)
     metrics: dict[str, float | int]
     data_disclaimer: str
 
 
-class VesselRuntimeProjectedEvent(BaseModel):
-    source_sequence: int = Field(ge=1)
-    source_entry_hash: str
-    event: OperationsEvent
-
-
-class VesselRuntimeEnvelope(BaseModel):
-    schema_version: str = "maritime-runtime-portflow.v1"
-    vessel_runtime_id: str
-    source_mode: DataSourceMode
-    after_sequence: int = Field(ge=0)
-    base_source_hash: str
-    last_source_sequence: int = Field(ge=0)
-    source_head_hash: str
-    events: list[VesselRuntimeProjectedEvent] = Field(default_factory=list)
-    excluded_by_policy: int = Field(default=0, ge=0)
-
-    @staticmethod
-    def _valid_hash(value: str) -> bool:
-        return (
-            len(value) == 64
-            and all(ch in "0123456789abcdef" for ch in value.lower())
-        )
-
-    @model_validator(mode="after")
-    def validate_projection(self):
-        if self.schema_version != "maritime-runtime-portflow.v1":
-            raise ValueError("Unsupported vessel-runtime bridge schema")
-        if self.last_source_sequence < self.after_sequence:
-            raise ValueError("last_source_sequence cannot precede after_sequence")
-        if not self._valid_hash(self.base_source_hash):
-            raise ValueError("base_source_hash must be a 64-character hex digest")
-        if not self._valid_hash(self.source_head_hash):
-            raise ValueError("source_head_hash must be a 64-character hex digest")
-
-        previous = self.after_sequence
-        expected_source = f"maritime-runtime:{self.vessel_runtime_id}"
-        for item in self.events:
-            if item.source_sequence <= previous:
-                raise ValueError("Projected source sequences must be strictly increasing")
-            if item.source_sequence > self.last_source_sequence:
-                raise ValueError("Projected event exceeds envelope source head")
-            if not self._valid_hash(item.source_entry_hash):
-                raise ValueError("source_entry_hash must be a 64-character hex digest")
-            if item.event.vessel_id != self.vessel_runtime_id:
-                raise ValueError("Projected vessel_id must match vessel_runtime_id")
-            if item.event.source_id != expected_source:
-                raise ValueError("Projected source_id must match vessel runtime identity")
-            previous = item.source_sequence
-        return self
-
-
-class VesselRuntimeIngestStatus(StrEnum):
-    ACCEPTED = "accepted"
-    DUPLICATE = "duplicate"
-    GAP = "gap"
-    CONFLICT = "conflict"
-
-
-class VesselRuntimeIngestResult(BaseModel):
-    vessel_runtime_id: str
-    status: VesselRuntimeIngestStatus
-    accepted_events: int
-    last_source_sequence: int
-    source_head_hash: str
-    detail: str | None = None
+class ScenarioRunEvidence(BaseModel):
+    run_id: str
+    ran_at: datetime
+    scenario: ScenarioFixture
+    harbor: HarborOverview
+    recovery_proposals: list[RecoveryProposal] = Field(default_factory=list)

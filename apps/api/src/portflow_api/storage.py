@@ -5,7 +5,7 @@ from collections.abc import Callable
 from datetime import datetime, timezone
 from pathlib import Path
 
-from sqlalchemy import DateTime, Integer, String, Text, create_engine, select
+from sqlalchemy import DateTime, Integer, String, Text, create_engine, inspect, select, text
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column
 
 from .models import (
@@ -13,15 +13,26 @@ from .models import (
     Incident,
     OperationsEvent,
     RecoveryApplicationReceipt,
+    RecoveryProposalEvidenceBatch,
     ReplayReceipt,
-    VesselRuntimeEnvelope,
-    VesselRuntimeIngestResult,
-    VesselRuntimeIngestStatus,
+    ScenarioRunEvidence,
+    VesselRuntimeEvent,
+    VesselRuntimeEventRecord,
 )
+
+
+CURRENT_SCHEMA_VERSION = 3
 
 
 class Base(DeclarativeBase):
     pass
+
+
+class SchemaVersionRow(Base):
+    __tablename__ = "schema_version"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, default=1)
+    version: Mapped[int] = mapped_column(Integer, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
 
 class SnapshotRow(Base):
@@ -41,17 +52,6 @@ class EventRow(Base):
     payload: Mapped[str] = mapped_column(Text, nullable=False)
 
 
-
-
-class VesselRuntimeCursorRow(Base):
-    __tablename__ = "vessel_runtime_cursor"
-    vessel_runtime_id: Mapped[str] = mapped_column(String(120), primary_key=True)
-    source_mode: Mapped[str] = mapped_column(String(20), nullable=False)
-    last_source_sequence: Mapped[int] = mapped_column(Integer, nullable=False)
-    source_head_hash: Mapped[str] = mapped_column(String(64), nullable=False)
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
-
-
 class IncidentRow(Base):
     __tablename__ = "incident"
     incident_id: Mapped[str] = mapped_column(String(80), primary_key=True)
@@ -65,6 +65,35 @@ class RecoveryReceiptRow(Base):
     proposal_id: Mapped[str] = mapped_column(String(96), primary_key=True)
     applied_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True, nullable=False)
     target_port_call_id: Mapped[str] = mapped_column(String(80), index=True, nullable=False)
+    payload: Mapped[str] = mapped_column(Text, nullable=False)
+
+
+class RecoveryProposalEvidenceRow(Base):
+    __tablename__ = "recovery_proposal_evidence"
+    evidence_id: Mapped[str] = mapped_column(String(96), primary_key=True)
+    generated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True, nullable=False)
+    requested_call_id: Mapped[str | None] = mapped_column(String(80), index=True, nullable=True)
+    stale_parent_proposal_id: Mapped[str | None] = mapped_column(String(96), index=True, nullable=True)
+    payload: Mapped[str] = mapped_column(Text, nullable=False)
+
+
+class ScenarioRunEvidenceRow(Base):
+    __tablename__ = "scenario_run_evidence"
+    run_id: Mapped[str] = mapped_column(String(96), primary_key=True)
+    scenario_id: Mapped[str] = mapped_column(String(80), index=True, nullable=False)
+    ran_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True, nullable=False)
+    payload: Mapped[str] = mapped_column(Text, nullable=False)
+
+
+class VesselRuntimeEventRow(Base):
+    __tablename__ = "vessel_runtime_event"
+    event_id: Mapped[str] = mapped_column(String(96), primary_key=True)
+    integration_id: Mapped[str] = mapped_column(String(96), index=True, nullable=False)
+    vessel_id: Mapped[str] = mapped_column(String(80), index=True, nullable=False)
+    port_call_id: Mapped[str | None] = mapped_column(String(80), index=True, nullable=True)
+    event_type: Mapped[str] = mapped_column(String(40), index=True, nullable=False)
+    occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True, nullable=False)
+    received_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True, nullable=False)
     payload: Mapped[str] = mapped_column(Text, nullable=False)
 
 
@@ -87,10 +116,18 @@ class ReplayReceiptRow(Base):
     attempts: Mapped[int] = mapped_column(Integer, nullable=False)
 
 
+def normalize_database_url(url: str) -> str:
+    if url.startswith("postgres://"):
+        return "postgresql+psycopg://" + url[len("postgres://"):]
+    if url.startswith("postgresql://"):
+        return "postgresql+psycopg://" + url[len("postgresql://"):]
+    return url
+
+
 def default_database_url() -> str:
     configured = os.getenv("DATABASE_URL")
     if configured:
-        return configured
+        return normalize_database_url(configured)
     data_dir = Path(os.getenv("PORTFLOW_DATA_DIR", ".data"))
     data_dir.mkdir(parents=True, exist_ok=True)
     return f"sqlite:///{(data_dir / 'portflow.db').resolve()}"
@@ -98,14 +135,115 @@ def default_database_url() -> str:
 
 class OperationsStore:
     def __init__(self, database_url: str | None = None):
-        url = database_url or default_database_url()
+        url = (
+            normalize_database_url(database_url)
+            if database_url is not None
+            else default_database_url()
+        )
         kwargs = {"pool_pre_ping": True}
         if url.startswith("sqlite:"):
             kwargs["connect_args"] = {"check_same_thread": False}
         self.engine = create_engine(url, **kwargs)
 
-    def init_schema(self) -> None:
+    @property
+    def required_tables(self) -> set[str]:
+        return set(Base.metadata.tables)
+
+    def database_ping(self) -> bool:
+        try:
+            with self.engine.connect() as connection:
+                connection.execute(text("SELECT 1"))
+            return True
+        except Exception:
+            return False
+
+    def schema_status(self) -> dict[str, object]:
+        inspector = inspect(self.engine)
+        existing = set(inspector.get_table_names())
+        missing = sorted(self.required_tables - existing)
+        current_version: int | None = None
+
+        if "schema_version" in existing:
+            try:
+                with Session(self.engine) as session:
+                    row = session.get(SchemaVersionRow, 1)
+                    if row is not None:
+                        current_version = int(row.version)
+            except Exception:
+                current_version = None
+
+        return {
+            "database_reachable": self.database_ping(),
+            "expected_version": CURRENT_SCHEMA_VERSION,
+            "current_version": current_version,
+            "missing_tables": missing,
+            "compatible": (
+                not missing
+                and current_version == CURRENT_SCHEMA_VERSION
+            ),
+        }
+
+    def migrate_schema(self) -> dict[str, object]:
+        inspector = inspect(self.engine)
+        existing_before = set(inspector.get_table_names())
+
+        if "schema_version" in existing_before:
+            with Session(self.engine) as session:
+                row = session.get(SchemaVersionRow, 1)
+                if row is not None and row.version > CURRENT_SCHEMA_VERSION:
+                    raise RuntimeError(
+                        "Database schema version "
+                        f"{row.version} is newer than application version "
+                        f"{CURRENT_SCHEMA_VERSION}"
+                    )
+
+        # v0 -> v1, v1 -> v2, and v2 -> v3 are additive migrations.
+        # v2 adds immutable recovery/scenario evidence tables.
+        # v3 adds immutable vessel-runtime integration events.
+        # create_all only creates missing tables here; it does not alter existing tables.
         Base.metadata.create_all(self.engine)
+
+        now = datetime.now(timezone.utc)
+        with Session(self.engine) as session:
+            row = session.get(SchemaVersionRow, 1)
+            if row is None:
+                session.add(
+                    SchemaVersionRow(
+                        id=1,
+                        version=CURRENT_SCHEMA_VERSION,
+                        updated_at=now,
+                    )
+                )
+            elif row.version < CURRENT_SCHEMA_VERSION:
+                if row.version not in {0, 1, 2}:
+                    raise RuntimeError(
+                        "No migration path registered from schema version "
+                        f"{row.version} to {CURRENT_SCHEMA_VERSION}"
+                    )
+                row.version = CURRENT_SCHEMA_VERSION
+                row.updated_at = now
+            session.commit()
+
+        status = self.schema_status()
+        if not bool(status["compatible"]):
+            raise RuntimeError(f"Schema migration did not converge: {status}")
+        return status
+
+    def verify_schema(self) -> dict[str, object]:
+        status = self.schema_status()
+        if not bool(status["database_reachable"]):
+            raise RuntimeError("Database is not reachable")
+        if not bool(status["compatible"]):
+            raise RuntimeError(
+                "Database schema is not compatible with this PortFlow build: "
+                f"{status}"
+            )
+        return status
+
+    def init_schema(self) -> None:
+        # Backward-compatible test/dev helper. Production startup uses the
+        # explicit migrate command followed by verify mode.
+        self.migrate_schema()
 
     def save_snapshot(self, overview: HarborOverview) -> None:
         payload = overview.model_dump_json()
@@ -149,134 +287,6 @@ class OperationsStore:
                 .limit(max(1, min(limit, 1000)))
             ).all()
             return [OperationsEvent.model_validate_json(row.payload) for row in rows]
-
-
-    def ingest_vessel_runtime_envelope(
-        self,
-        envelope: VesselRuntimeEnvelope,
-    ) -> VesselRuntimeIngestResult:
-        genesis = "0" * 64
-        now = datetime.now(timezone.utc)
-
-        with Session(self.engine) as session:
-            cursor = session.get(
-                VesselRuntimeCursorRow,
-                envelope.vessel_runtime_id,
-            )
-            current_sequence = cursor.last_source_sequence if cursor else 0
-            current_hash = cursor.source_head_hash if cursor else genesis
-
-            if envelope.last_source_sequence == current_sequence:
-                if envelope.source_head_hash == current_hash:
-                    return VesselRuntimeIngestResult(
-                        vessel_runtime_id=envelope.vessel_runtime_id,
-                        status=VesselRuntimeIngestStatus.DUPLICATE,
-                        accepted_events=0,
-                        last_source_sequence=current_sequence,
-                        source_head_hash=current_hash,
-                        detail="Envelope head already accepted",
-                    )
-                return VesselRuntimeIngestResult(
-                    vessel_runtime_id=envelope.vessel_runtime_id,
-                    status=VesselRuntimeIngestStatus.CONFLICT,
-                    accepted_events=0,
-                    last_source_sequence=current_sequence,
-                    source_head_hash=current_hash,
-                    detail="Envelope source head conflicts with stored cursor",
-                )
-
-            if envelope.after_sequence > current_sequence:
-                return VesselRuntimeIngestResult(
-                    vessel_runtime_id=envelope.vessel_runtime_id,
-                    status=VesselRuntimeIngestStatus.GAP,
-                    accepted_events=0,
-                    last_source_sequence=current_sequence,
-                    source_head_hash=current_hash,
-                    detail="Envelope starts after the stored vessel-runtime cursor",
-                )
-
-            if envelope.after_sequence < current_sequence:
-                return VesselRuntimeIngestResult(
-                    vessel_runtime_id=envelope.vessel_runtime_id,
-                    status=VesselRuntimeIngestStatus.CONFLICT,
-                    accepted_events=0,
-                    last_source_sequence=current_sequence,
-                    source_head_hash=current_hash,
-                    detail="Envelope starts behind the stored vessel-runtime cursor",
-                )
-
-            if envelope.base_source_hash != current_hash:
-                return VesselRuntimeIngestResult(
-                    vessel_runtime_id=envelope.vessel_runtime_id,
-                    status=VesselRuntimeIngestStatus.CONFLICT,
-                    accepted_events=0,
-                    last_source_sequence=current_sequence,
-                    source_head_hash=current_hash,
-                    detail="Envelope base hash conflicts with stored vessel-runtime history",
-                )
-
-            accepted = 0
-            for projected in envelope.events:
-                event = projected.event
-                existing = session.scalar(
-                    select(EventRow).where(EventRow.event_id == event.id)
-                )
-                if existing is not None:
-                    stored = OperationsEvent.model_validate_json(existing.payload)
-                    if stored != event:
-                        session.rollback()
-                        return VesselRuntimeIngestResult(
-                            vessel_runtime_id=envelope.vessel_runtime_id,
-                            status=VesselRuntimeIngestStatus.CONFLICT,
-                            accepted_events=0,
-                            last_source_sequence=current_sequence,
-                            source_head_hash=current_hash,
-                            detail=f"Projected event id conflict: {event.id}",
-                        )
-                    continue
-
-                session.add(EventRow(
-                    event_id=event.id,
-                    occurred_at=event.occurred_at,
-                    category=event.category,
-                    severity=event.severity.value,
-                    payload=event.model_dump_json(),
-                ))
-                accepted += 1
-
-            if cursor is None:
-                cursor = VesselRuntimeCursorRow(
-                    vessel_runtime_id=envelope.vessel_runtime_id,
-                    source_mode=envelope.source_mode.value,
-                    last_source_sequence=envelope.last_source_sequence,
-                    source_head_hash=envelope.source_head_hash,
-                    updated_at=now,
-                )
-                session.add(cursor)
-            else:
-                cursor.source_mode = envelope.source_mode.value
-                cursor.last_source_sequence = envelope.last_source_sequence
-                cursor.source_head_hash = envelope.source_head_hash
-                cursor.updated_at = now
-
-            session.commit()
-            return VesselRuntimeIngestResult(
-                vessel_runtime_id=envelope.vessel_runtime_id,
-                status=VesselRuntimeIngestStatus.ACCEPTED,
-                accepted_events=accepted,
-                last_source_sequence=envelope.last_source_sequence,
-                source_head_hash=envelope.source_head_hash,
-            )
-
-    def vessel_runtime_cursor(
-        self,
-        vessel_runtime_id: str,
-    ) -> tuple[int, str] | None:
-        with Session(self.engine) as session:
-            cursor = session.get(VesselRuntimeCursorRow, vessel_runtime_id)
-            if cursor is None:
-                return None
-            return cursor.last_source_sequence, cursor.source_head_hash
 
     def upsert_incident(self, incident: Incident) -> None:
         with Session(self.engine) as session:
@@ -324,6 +334,148 @@ class OperationsStore:
             ).all()
             return [
                 RecoveryApplicationReceipt.model_validate_json(row.payload)
+                for row in rows
+            ]
+
+    def save_recovery_proposal_evidence(
+        self,
+        evidence: RecoveryProposalEvidenceBatch,
+    ) -> bool:
+        with Session(self.engine) as session:
+            if session.get(RecoveryProposalEvidenceRow, evidence.evidence_id) is not None:
+                return False
+            session.add(
+                RecoveryProposalEvidenceRow(
+                    evidence_id=evidence.evidence_id,
+                    generated_at=evidence.generated_at,
+                    requested_call_id=evidence.requested_call_id,
+                    stale_parent_proposal_id=evidence.stale_parent_proposal_id,
+                    payload=evidence.model_dump_json(),
+                )
+            )
+            session.commit()
+            return True
+
+    def list_recovery_proposal_evidence(
+        self,
+        limit: int = 100,
+    ) -> list[RecoveryProposalEvidenceBatch]:
+        with Session(self.engine) as session:
+            rows = session.scalars(
+                select(RecoveryProposalEvidenceRow)
+                .order_by(RecoveryProposalEvidenceRow.generated_at.desc())
+                .limit(max(1, min(limit, 1000)))
+            ).all()
+            return [
+                RecoveryProposalEvidenceBatch.model_validate_json(row.payload)
+                for row in rows
+            ]
+
+    def save_scenario_run_evidence(
+        self,
+        evidence: ScenarioRunEvidence,
+    ) -> bool:
+        with Session(self.engine) as session:
+            if session.get(ScenarioRunEvidenceRow, evidence.run_id) is not None:
+                return False
+            session.add(
+                ScenarioRunEvidenceRow(
+                    run_id=evidence.run_id,
+                    scenario_id=evidence.scenario.id,
+                    ran_at=evidence.ran_at,
+                    payload=evidence.model_dump_json(),
+                )
+            )
+            session.commit()
+            return True
+
+    def list_scenario_run_evidence(
+        self,
+        limit: int = 100,
+        scenario_id: str | None = None,
+    ) -> list[ScenarioRunEvidence]:
+        with Session(self.engine) as session:
+            query = select(ScenarioRunEvidenceRow)
+            if scenario_id is not None:
+                query = query.where(
+                    ScenarioRunEvidenceRow.scenario_id == scenario_id
+                )
+            rows = session.scalars(
+                query
+                .order_by(ScenarioRunEvidenceRow.ran_at.desc())
+                .limit(max(1, min(limit, 1000)))
+            ).all()
+            return [
+                ScenarioRunEvidence.model_validate_json(row.payload)
+                for row in rows
+            ]
+
+    def get_scenario_run_evidence(
+        self,
+        run_id: str,
+    ) -> ScenarioRunEvidence | None:
+        with Session(self.engine) as session:
+            row = session.get(ScenarioRunEvidenceRow, run_id)
+            if row is None:
+                return None
+            return ScenarioRunEvidence.model_validate_json(row.payload)
+
+    def save_vessel_runtime_event(
+        self,
+        record: VesselRuntimeEventRecord,
+    ) -> bool:
+        event = record.event
+        with Session(self.engine) as session:
+            if session.get(VesselRuntimeEventRow, event.event_id) is not None:
+                return False
+            session.add(
+                VesselRuntimeEventRow(
+                    event_id=event.event_id,
+                    integration_id=record.integration_id,
+                    vessel_id=event.vessel_id,
+                    port_call_id=event.port_call_id,
+                    event_type=event.event_type.value,
+                    occurred_at=event.occurred_at,
+                    received_at=record.received_at,
+                    payload=record.model_dump_json(),
+                )
+            )
+            session.commit()
+            return True
+
+    def get_vessel_runtime_event(
+        self,
+        event_id: str,
+    ) -> VesselRuntimeEventRecord | None:
+        with Session(self.engine) as session:
+            row = session.get(VesselRuntimeEventRow, event_id)
+            if row is None:
+                return None
+            return VesselRuntimeEventRecord.model_validate_json(row.payload)
+
+    def list_vessel_runtime_events(
+        self,
+        limit: int = 100,
+        integration_id: str | None = None,
+        vessel_id: str | None = None,
+    ) -> list[VesselRuntimeEventRecord]:
+        with Session(self.engine) as session:
+            query = select(VesselRuntimeEventRow)
+            if integration_id is not None:
+                query = query.where(
+                    VesselRuntimeEventRow.integration_id == integration_id
+                )
+            if vessel_id is not None:
+                query = query.where(
+                    VesselRuntimeEventRow.vessel_id == vessel_id
+                )
+            rows = session.scalars(
+                query
+                .order_by(VesselRuntimeEventRow.received_at.desc())
+                .limit(max(1, min(limit, 1000)))
+            ).all()
+            return [
+                VesselRuntimeEventRecord.model_validate_json(row.payload)
                 for row in rows
             ]
 
@@ -445,5 +597,4 @@ class OperationsStore:
             session.query(RecoveryReceiptRow).delete()
             session.query(OutboundEnvelopeRow).delete()
             session.query(ReplayReceiptRow).delete()
-            session.query(VesselRuntimeCursorRow).delete()
             session.commit()

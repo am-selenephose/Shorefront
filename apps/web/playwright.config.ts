@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto'
 import { defineConfig } from '@playwright/test'
 
 const e2eToken = 'portflow-e2e-test-only'
+const e2eDataDir = '/tmp/portflow-e2e-v015-' + process.pid
 const tokenDigest = createHash('sha256').update(e2eToken).digest('hex')
 process.env.PORTFLOW_E2E_OPERATOR_TOKEN = e2eToken
 
@@ -40,7 +41,9 @@ export default defineConfig({
       reuseExistingServer: false,
       env: {
         PORTFLOW_APPROVERS_JSON: approvers,
-        PORTFLOW_DATA_DIR: '/tmp/portflow-e2e-v07',
+        PORTFLOW_DATA_DIR: e2eDataDir,
+        PORTFLOW_AIS_URL: 'http://127.0.0.1:9/e2e-unavailable',
+        PORTFLOW_AIS_PROVIDER: 'E2E unavailable AIS',
       },
     },
     {

@@ -1,6 +1,6 @@
 # PortFlow architecture
 
-## v0.14
+## v0.15
 
 Synthetic operations and scenario injection feed a deterministic HarborSimulator.
 
@@ -700,37 +700,392 @@ The canonical dual-resource-loss scenario exercises simultaneous Tug 14 and Bunk
 
 The browser does not synthesize compound logic. It projects backend incident_ids and adds a visible COMPOUND · N INCIDENTS label. Authority remains server-side.
 
+## v0.15 provenance-bound service-duration calibration
 
-## Vessel Runtime -> PortFlow bridge
+Service occupancy duration is now backed by explicit ServiceDurationCalibration state.
 
-The edge/shoreside contract is intentionally asymmetric:
+The calibration chain is:
 
-    Maritime Runtime
-      full onboard operational ledger
-      + privacy policy
-      + source cursor/hash
-              |
-              v
-    maritime-runtime-portflow.v1 envelope
-              |
-              v
-    PortFlow authenticated ingest
-      sequence continuity
-      base-hash continuity
-      dedupe/conflict checks
-              |
-              v
-    PortFlow OperationsEvent ledger
+    evidence source
+      -> DataSourceProvenance(service_calibration)
+      -> ServiceDurationCalibration
+      -> ServiceStep.duration_minutes
+      -> interval-capacity feasibility
+      -> recovery projection
+      -> recovery state fingerprint + decision confidence
 
-PortFlow stores one durable cursor per vessel_runtime_id:
+Synthetic defaults remain available for deterministic portfolio behavior, but they are labeled as synthetic-service-calibration rather than treated as source-free constants.
 
-- last_source_sequence
-- source_head_hash
-- source_mode
-- updated_at
+Calibration changes are operational mutations. The API requires operator/supervisor authority, rejects stale or unhealthy provenance, writes an identity-bound service_calibration event, persists the updated snapshot, and updates every service step of the calibrated kind.
 
-A new envelope is accepted only when its after_sequence equals the stored cursor and base_source_hash equals the stored source head hash. Identical already-accepted heads are treated as duplicates. Forward sequence gaps and divergent history are rejected.
+Calibration source IDs are active provenance dependencies. They therefore participate in the same confidence classification as AIS, weather/tide, and berth-plan evidence.
 
-Projected event IDs are also deduplicated at the existing operations_event table. If an already-known event ID arrives with different payload, the ingest is treated as a conflict.
+A proposal cannot retain its old state fingerprint after calibration changes because the calibrated service durations are part of the service_schedule fingerprint payload.
 
-This channel is event ingestion, not machinery control. It cannot issue commands to the vessel runtime.
+Snapshots predating v0.15 migrate by synthesizing the canonical calibration set plus synthetic calibration provenance. This preserves old snapshot readability while making the previously implicit assumption explicit.
+
+The browser remains a projection layer. It labels service_calibration provenance in the Data Sources panel but does not calculate or authorize calibration values.
+
+
+## v0.15 live-adapter retry/backoff
+
+HttpJsonAdapter now carries temporal retry state across previews while its effective configuration remains unchanged.
+
+On an attempted live request:
+
+    attempt
+      -> success
+         -> consecutive_errors = 0
+         -> retry_delay_seconds = 0
+         -> next_retry_at = null
+         -> healthy/stale transport result
+      -> failure
+         -> consecutive_errors += 1
+         -> deterministic bounded exponential delay
+         -> next_retry_at = attempt time + delay
+         -> cached DEGRADED/STALE preview when possible
+         -> ERROR with no records otherwise
+
+Before next_retry_at:
+
+    preview request
+      -> no upstream call
+      -> no new error count
+      -> last_attempt_at remains unchanged
+      -> existing resilience state is projected
+
+The default retry schedule starts at 5 seconds, doubles per attempted failure, and caps at 300 seconds. Deterministic jitter is bounded to ±20% and keyed by adapter id plus error count.
+
+Retry state is preview/fault-tolerance state only. It does not make a degraded, stale, or error snapshot ingestible.
+
+The browser projects retry metadata but does not schedule retries itself. The adapter object remains the authority for whether an upstream attempt is allowed.
+
+
+## v0.15 stale-plan contingency boundary
+
+Recovery proposal ids bind the state fingerprint, so any relevant operational-state change can invalidate a previously displayed plan.
+
+PortFlow now keeps a bounded runtime proposal-history cache solely to preserve enough context to explain and replace a stale decision.
+
+The stale-plan flow is:
+
+    generated proposal P(state A)
+      -> selected backup resource becomes unavailable
+      -> state fingerprint becomes B
+      -> operator attempts P
+      -> current proposal regeneration cannot find P
+      -> stale proposal context is loaded from bounded history
+      -> replacements are regenerated for the same target call
+      -> replacements are filtered to overlapping incident ids/service kinds
+      -> structured 409 RecoveryContingency
+      -> UI displays replacements
+      -> explicit operator/supervisor approval is required again
+
+RecoveryContingency carries:
+
+- stale_proposal_id
+- target_port_call_id
+- stale_state_fingerprint
+- current_state_fingerprint
+- unavailable_resource_ids selected by the stale plan
+- replacement_proposals
+- reason
+- auto_apply=false
+
+No contingency result mutates canonical harbor state.
+
+Explicit target_resource_id support on tug/bunker incidents lets PortFlow represent failure of a recovery candidate before it was assigned. In that case the resource is marked unavailable through incident truth, but the target port-call schedule is not shifted merely because a backup candidate disappeared.
+
+Assigned-resource failures keep the existing delay behavior.
+
+Proposal history is not yet durable evidence storage. Restarting the API discards it; durable proposal/evidence snapshots belong to the later deployment/evidence layer.
+
+
+## v0.15 deployment schema and readiness boundary
+
+Production persistence is now explicitly versioned.
+
+The schema authority chain is:
+
+    PostgreSQL
+      -> one-shot portflow_api.migrate
+      -> schema_version = 2
+      -> API PORTFLOW_SCHEMA_MODE=verify
+      -> OperationsStore.verify_schema()
+      -> simulator restore
+      -> runtime_ready = true
+      -> /readyz healthy
+
+The API process does not call create_all at module import.
+
+Development/test mode defaults to migrate for zero-friction local startup. Production Compose sets verify and depends on a successful one-shot migration service.
+
+schema_status() reports:
+
+- database_reachable
+- expected_version
+- current_version
+- missing_tables
+- compatible
+
+A newer unknown database schema or any incompatible/missing production schema fails closed.
+
+### Health model
+
+/healthz is a liveness endpoint and does not claim database readiness.
+
+/readyz is the deployment readiness endpoint. It requires runtime initialization, database reachability, and exact schema compatibility.
+
+This separation prevents a running Python process from being mistaken for a safe operational service when persistence is unavailable or mismatched.
+
+### Backup/restore boundary
+
+PostgreSQL backup uses custom-format pg_dump -Fc.
+
+Restore is explicitly destructive and requires PORTFLOW_RESTORE_CONFIRM=YES.
+
+The restore sequence is:
+
+    stop web/api
+      -> pg_restore --clean --if-exists --no-owner
+      -> run migration command
+      -> start api/web
+      -> API verify mode
+      -> /readyz
+
+The tested round-trip restored both the canonical snapshot and durable incident rows after a deliberate state wipe.
+
+
+## v0.15 TLS and observability boundary
+
+TLS termination is implemented as an optional Compose overlay around the existing Nginx web service.
+
+The external path is:
+
+    client
+      -> HTTP 308 redirect
+      -> Nginx TLS 1.2/1.3
+      -> secure response headers
+      -> static React / REST / WebSocket / readiness proxy
+      -> internal FastAPI service
+
+Certificate and key material remain deployment inputs and are never stored in the repository.
+
+HSTS exists only in the TLS server block. The base HTTP profile still emits the non-HSTS hardening headers.
+
+### Observability model
+
+FastAPI HTTP middleware records a low-cardinality request metric and a structured JSON log after every HTTP response.
+
+Request metrics use:
+
+    method + route template + status
+
+rather than raw URL paths.
+
+This ensures ids such as call ids, proposal ids, and adapter ids do not become unbounded metric label values.
+
+Domain counters are incremented at authoritative mutation boundaries rather than inferred from UI events:
+
+- calibration update after accepted canonical mutation
+- adapter ingest after accepted ingest
+- recovery approval after a successful apply
+- contingency when stale approval returns structured replacement state
+- replay ACK count from durable replay results
+- canonical scenario run after scenario execution
+
+Dynamic gauges are derived from runtime/readiness state and the already-canonical harbor overview. Scraping metrics does not call external adapters.
+
+### Metrics exposure policy
+
+FastAPI exposes /metrics on the internal API service.
+
+Both base and TLS Nginx configurations explicitly return 404 for public /metrics.
+
+This keeps operational telemetry off the public portfolio origin while preserving a standard internal Prometheus scrape surface.
+
+### Structured logs
+
+HTTP request JSON is emitted through the Uvicorn logging pipeline with:
+
+- timestamp
+- event
+- method
+- route template
+- status
+- duration_ms
+
+The middleware deliberately excludes request bodies, credentials, and query strings.
+
+### TLS overlay
+
+docker-compose.tls.yml mounts:
+
+- nginx.tls.conf.template
+- deployment certificate
+- deployment private key
+
+The official Nginx entrypoint substitutes only the deployment HTTPS origin into the template before startup.
+
+The HTTPS server proxies health/readiness, REST, and WebSocket traffic while the port-80 server performs a permanent redirect preserving request_uri.
+
+
+## v0.15 durable evidence architecture
+
+Decision evidence is deliberately separate from the mutable canonical harbor snapshot.
+
+Persistence now contains two immutable evidence streams:
+
+    recovery_proposal_evidence
+    scenario_run_evidence
+
+The mutable operational state may be reset or updated without deleting these evidence rows.
+
+### Recovery evidence batch
+
+A recovery evidence batch is a content-addressed snapshot of one planning result.
+
+Its deterministic evidence id binds:
+
+    trigger
+    + requested_call_id
+    + stale_parent_proposal_id
+    + recovery-state fingerprint material
+    + ordered proposal ids
+
+The payload stores the exact ranked RecoveryProposal objects.
+
+Duplicate reads/planning calls for the same state become idempotent storage writes.
+
+A changed recovery state produces a new batch.
+
+Contingency generation records stale_parent_proposal_id, creating a durable lineage from the stale decision to the replacement batch.
+
+### Runtime cache restoration
+
+On API startup:
+
+    load recent recovery evidence batches
+      -> oldest to newest
+      -> flatten stored proposals
+      -> seed bounded simulator proposal history
+      -> restore HarborOverview
+      -> verify schema
+      -> runtime ready
+
+This preserves the existing fast bounded cache while making its source recoverable after restart.
+
+### Scenario evidence
+
+ScenarioRunEvidence stores:
+
+    run id
+    timestamp
+    stored scenario fixture + actions
+    resulting HarborOverview
+    ranked recovery proposals
+
+The stored fixture is copied into the evidence payload rather than looked up later, so a future edit to the scenario catalog cannot rewrite the historical input definition.
+
+### Evidence pack
+
+The evidence-pack API canonicalizes the stored scenario-run JSON with sorted keys and compact separators and returns its SHA-256.
+
+The digest covers the stored scenario, harbor snapshot, and ranked recovery proposals.
+
+The replay_input section repeats only the stored scenario id and action list for convenient replay tooling; it is derived from the immutable run payload.
+
+### Schema v2 migration
+
+Schema v2 is additive over v1.
+
+It creates only the two evidence tables and advances schema_version from 1 to 2.
+
+The migration path is explicitly accepted only from supported older versions. A database newer than the current application still fails closed.
+
+Production remains:
+
+    one-shot migrate
+      -> API verify mode
+      -> /readyz
+
+
+## v0.15 public single-origin portfolio boundary
+
+The public portfolio deployment deliberately remains separate from the containerized production topology.
+
+BasicDeploy provides the outer HTTPS proxy and PostgreSQL service. PortFlow binds FastAPI directly to 0.0.0.0:8080 and optionally mounts the prebuilt React frontend at the root through PORTFLOW_STATIC_DIR.
+
+The public flow is:
+
+    public HTTPS request
+      -> BasicDeploy proxy
+      -> FastAPI :8080
+      -> API route / WebSocket / readiness
+      -> React StaticFiles fallback for frontend routes
+      -> PostgreSQL search_path=portflow_portfolio
+
+This profile avoids adding a second Nginx process inside a 256 MB Free container.
+
+### Public-mode boundary
+
+PORTFLOW_PUBLIC_MODE=1 changes only exposure policy, not domain behavior.
+
+In public mode:
+
+- /metrics returns 404
+- recovery approval still requires configured operator credentials
+- evidence access still requires an authenticated identity
+- synthetic scenario/reset surfaces remain available as a shared portfolio sandbox
+
+The public profile does not enable live adapters or silently upgrade data confidence.
+
+### Database URL portability
+
+Hosting providers commonly supply postgres:// or postgresql:// connection URLs.
+
+PortFlow standardizes both to the SQLAlchemy psycopg v3 dialect form:
+
+    postgresql+psycopg://
+
+The BasicDeploy boot additionally injects the isolated schema search_path into the normalized URL.
+
+### Wake lifecycle
+
+BasicDeploy Free containers may sleep when idle.
+
+The executable /workspace/.bd_boot.sh is the authoritative wake command.
+
+The hook is POSIX-sh compatible and guarded by /workspace/.portflow-boot.lock.
+
+The lock stores the boot/server PID. If a second wake hook starts while that PID is alive, it exits without launching a duplicate server. After a real sleep/restart, a stale PID is detected and the lock is safely replaced before boot.
+
+This keeps auto-wake idempotent while preserving the single-process Uvicorn deployment.
+
+
+## v0.15 vessel-runtime integration boundary
+
+PortFlow now exposes a versioned, authenticated integration seam for a future separate vessel-side runtime.
+
+The detailed contract is in docs/VESSEL_RUNTIME_BOUNDARY.md.
+
+Inbound direction:
+
+    vessel runtime
+      -> normalized portflow.vessel-event.v1
+      -> integration credential + vessel allowlist
+      -> immutable vessel_runtime_event ledger
+      -> PortFlow coordination/evidence plane
+
+Return direction:
+
+    PortFlow canonical state
+      -> portflow.coordination.v1
+      -> vessel runtime or human interface
+      -> no direct actuation
+
+Machine integration credentials and human operator credentials are separate.
+
+Schema v3 adds vessel_runtime_event as an immutable integration ledger.
+
+The event boundary does not silently mutate the canonical harbor model. Mapping vessel events into canonical state remains an explicit future adapter/domain decision so arbitrary machine payloads cannot bypass provenance or human-approval controls.

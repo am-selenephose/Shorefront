@@ -1,11 +1,13 @@
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
+
+from sqlalchemy import text
 
 from portflow_api.adapters import HttpJsonAdapter, configured_live_adapters, get_adapter_snapshot
 from portflow_api.domain import detect_berth_conflicts
-from portflow_api.models import AdapterHealth, DataDomain, DataSourceMode, DataSourceProvenance, IncidentType, LinkMode, OperatorRole, ResourceUnavailableWindow, ServiceKind
-from portflow_api.simulator import HarborSimulator
-from portflow_api.storage import OperationsStore
+from portflow_api.models import AdapterHealth, DataDomain, DataSourceMode, DataSourceProvenance, IncidentType, LinkMode, OperatorRole, ResourceUnavailableWindow, ServiceDurationCalibration, ServiceKind
+from portflow_api.simulator import HarborSimulator, RecoveryProposalStaleError
+from portflow_api.storage import OperationsStore, normalize_database_url
 
 
 def make_store(tmp_path: Path) -> OperationsStore:
@@ -1027,6 +1029,11 @@ def test_all_healthy_live_active_sources_can_be_high_confidence():
     for call in sim.port_calls:
         call.source_id = "live-berth-proof"
     sim.weather.source_id = "live-weather-proof"
+    for calibration in sim.service_duration_calibrations:
+        calibration.source_id = "live-calibration-proof"
+        calibration.mode = DataSourceMode.LIVE
+        calibration.provider = "Live Calibration Proof"
+        calibration.observed_at = now
 
     sim.data_sources = [
         DataSourceProvenance(
@@ -1061,6 +1068,17 @@ def test_all_healthy_live_active_sources_can_be_high_confidence():
             stale_after_seconds=600,
             health=AdapterHealth.HEALTHY,
             record_count=len(sim.port_calls),
+        ),
+        DataSourceProvenance(
+            source_id="live-calibration-proof",
+            domain=DataDomain.SERVICE_CALIBRATION,
+            mode=DataSourceMode.LIVE,
+            provider="Live Calibration Proof",
+            observed_at=now,
+            received_at=now,
+            stale_after_seconds=86_400,
+            health=AdapterHealth.HEALTHY,
+            record_count=len(sim.service_duration_calibrations),
         ),
     ]
 
@@ -1309,3 +1327,490 @@ def test_compound_recovery_generation_is_deterministic():
         return rows
 
     assert signature() == signature()
+
+
+def test_recorded_duration_calibration_updates_steps_provenance_and_fingerprint(tmp_path):
+    store = make_store(tmp_path)
+    sim = HarborSimulator(
+        event_sink=store.append_event,
+        incident_sink=store.upsert_incident,
+        snapshot_sink=store.save_snapshot,
+        recovery_receipt_sink=store.save_recovery_receipt,
+    )
+
+    sim.inject_incident(IncidentType.BUNKER_UNAVAILABLE, "pc-aurora", 45)
+    before = sim.generate_recovery_proposals(call_id="pc-aurora")[0]
+    now = datetime.now(timezone.utc).replace(microsecond=0)
+
+    calibration = ServiceDurationCalibration(
+        service_kind=ServiceKind.BUNKER,
+        duration_minutes=75,
+        source_id="recorded-bunker-calibration",
+        mode=DataSourceMode.RECORDED,
+        provider="Terminal service history replay",
+        observed_at=now,
+        detail="Recorded median bunker-service duration.",
+    )
+    provenance = DataSourceProvenance(
+        source_id=calibration.source_id,
+        domain=DataDomain.SERVICE_CALIBRATION,
+        mode=calibration.mode,
+        provider=calibration.provider,
+        observed_at=now,
+        received_at=now,
+        stale_after_seconds=86_400,
+        health=AdapterHealth.HEALTHY,
+        record_count=1,
+        detail=calibration.detail,
+    )
+
+    updated = sim.set_service_duration_calibration(
+        calibration,
+        provenance,
+        updated_by="operator-calibration",
+        updated_role=OperatorRole.OPERATOR,
+    )
+
+    assert updated.duration_minutes == 75
+    assert all(
+        step.duration_minutes == 75
+        for step in sim.service_steps
+        if step.kind == ServiceKind.BUNKER
+    )
+    source = next(
+        item for item in sim.data_sources
+        if item.source_id == "recorded-bunker-calibration"
+    )
+    assert source.domain == DataDomain.SERVICE_CALIBRATION
+    assert source.mode == DataSourceMode.RECORDED
+
+    after = sim.generate_recovery_proposals(call_id="pc-aurora")[0]
+    assert after.state_fingerprint != before.state_fingerprint
+    assert after.decision_confidence.value == "medium"
+    assert any(
+        "Recorded replay data is active" in warning
+        for warning in after.data_quality_warnings
+    )
+
+    event = next(
+        item for item in sim.events
+        if item.category == "service_calibration"
+    )
+    assert event.actor_id == "operator-calibration"
+    assert event.actor_role == OperatorRole.OPERATOR
+    assert event.source_id == "recorded-bunker-calibration"
+
+    snapshot = store.load_snapshot()
+    assert snapshot is not None
+    restored = HarborSimulator(initial=snapshot)
+    restored_calibration = next(
+        item for item in restored.service_duration_calibrations
+        if item.service_kind == ServiceKind.BUNKER
+    )
+    assert restored_calibration.duration_minutes == 75
+    assert restored_calibration.source_id == "recorded-bunker-calibration"
+
+
+def test_stale_duration_calibration_cannot_mutate_operational_truth():
+    sim = HarborSimulator()
+    now = datetime.now(timezone.utc).replace(microsecond=0)
+    before = [
+        step.duration_minutes
+        for step in sim.service_steps
+        if step.kind == ServiceKind.BUNKER
+    ]
+
+    calibration = ServiceDurationCalibration(
+        service_kind=ServiceKind.BUNKER,
+        duration_minutes=90,
+        source_id="stale-bunker-calibration",
+        mode=DataSourceMode.RECORDED,
+        provider="Expired terminal history",
+        observed_at=now - timedelta(days=2),
+    )
+    provenance = DataSourceProvenance(
+        source_id=calibration.source_id,
+        domain=DataDomain.SERVICE_CALIBRATION,
+        mode=calibration.mode,
+        provider=calibration.provider,
+        observed_at=calibration.observed_at,
+        received_at=now,
+        freshness_seconds=2 * 24 * 60 * 60,
+        stale_after_seconds=60,
+        stale=True,
+        health=AdapterHealth.STALE,
+        record_count=1,
+    )
+
+    try:
+        sim.set_service_duration_calibration(calibration, provenance)
+    except ValueError as exc:
+        assert "not usable" in str(exc)
+    else:
+        raise AssertionError("stale calibration unexpectedly mutated operational state")
+
+    after = [
+        step.duration_minutes
+        for step in sim.service_steps
+        if step.kind == ServiceKind.BUNKER
+    ]
+    assert after == before
+    assert not any(
+        source.source_id == "stale-bunker-calibration"
+        for source in sim.data_sources
+    )
+
+
+def test_pre_v015_snapshot_migrates_service_duration_calibration_state():
+    sim = HarborSimulator()
+    snapshot = sim.overview()
+    snapshot.service_duration_calibrations = []
+    snapshot.data_sources = [
+        source for source in snapshot.data_sources
+        if source.domain != DataDomain.SERVICE_CALIBRATION
+    ]
+    for step in snapshot.service_steps:
+        step.duration_minutes = 0
+
+    restored = HarborSimulator(initial=snapshot)
+
+    assert len(restored.service_duration_calibrations) == len(ServiceKind)
+    bunker = next(
+        item for item in restored.service_duration_calibrations
+        if item.service_kind == ServiceKind.BUNKER
+    )
+    assert bunker.duration_minutes == 60
+    assert bunker.source_id == "synthetic-service-calibration"
+    assert any(
+        source.source_id == "synthetic-service-calibration"
+        and source.domain == DataDomain.SERVICE_CALIBRATION
+        for source in restored.data_sources
+    )
+    assert all(step.duration_minutes > 0 for step in restored.service_steps)
+
+
+def test_failed_selected_recovery_resource_returns_ranked_contingency():
+    sim = HarborSimulator()
+    primary = sim.inject_incident(
+        IncidentType.BUNKER_UNAVAILABLE,
+        "pc-aurora",
+        45,
+    )
+    initial = sim.generate_recovery_proposals(call_id="pc-aurora")
+    stale = next(
+        proposal
+        for proposal in initial
+        if any(
+            action.to_resource_id == "bunker-barge-12"
+            for action in proposal.actions
+        )
+    )
+
+    alternate_failure = sim.inject_incident(
+        IncidentType.BUNKER_UNAVAILABLE,
+        "pc-aurora",
+        0,
+        target_resource_id="bunker-barge-12",
+    )
+    barge12 = next(
+        resource
+        for resource in sim.service_resources
+        if resource.id == "bunker-barge-12"
+    )
+    assert barge12.status.value == "unavailable"
+
+    aurora_bunker_before = next(
+        step
+        for step in sim.service_steps
+        if step.port_call_id == "pc-aurora"
+        and step.kind == ServiceKind.BUNKER
+    )
+    assert aurora_bunker_before.resource_id == "bunker-barge-4"
+
+    try:
+        sim.apply_recovery_proposal(
+            stale.id,
+            approved_by="contingency-operator",
+            approved_role=OperatorRole.OPERATOR,
+            approved_display_name="Contingency Operator",
+        )
+    except RecoveryProposalStaleError as exc:
+        contingency = exc.contingency
+    else:
+        raise AssertionError("stale recovery plan unexpectedly applied")
+
+    assert contingency.stale_proposal_id == stale.id
+    assert contingency.target_port_call_id == "pc-aurora"
+    assert contingency.stale_state_fingerprint == stale.state_fingerprint
+    assert contingency.current_state_fingerprint != stale.state_fingerprint
+    assert contingency.unavailable_resource_ids == ["bunker-barge-12"]
+    assert contingency.auto_apply is False
+    assert contingency.replacement_proposals
+    assert all(
+        action.to_resource_id != "bunker-barge-12"
+        for proposal in contingency.replacement_proposals
+        for action in proposal.actions
+    )
+
+    replacement = next(
+        proposal
+        for proposal in contingency.replacement_proposals
+        if any(
+            action.to_resource_id == "bunker-barge-9"
+            for action in proposal.actions
+        )
+    )
+
+    # Returning contingencies must not mutate the harbor by itself.
+    aurora_bunker_still = next(
+        step
+        for step in sim.service_steps
+        if step.port_call_id == "pc-aurora"
+        and step.kind == ServiceKind.BUNKER
+    )
+    assert aurora_bunker_still.resource_id == "bunker-barge-4"
+
+    receipt = sim.apply_recovery_proposal(
+        replacement.id,
+        approved_by="contingency-operator",
+        approved_role=OperatorRole.OPERATOR,
+        approved_display_name="Contingency Operator",
+    )
+    assert receipt.resulting_blocked_services == 0
+
+    active_ids = {
+        incident.id
+        for incident in sim.incidents
+        if incident.status.value == "active"
+    }
+    assert primary.id in active_ids
+    assert alternate_failure.id in active_ids
+
+
+def test_explicit_schema_migration_stamps_version_and_verify(tmp_path):
+    store = OperationsStore(
+        f"sqlite:///{tmp_path / 'schema-migration.db'}"
+    )
+
+    before = store.schema_status()
+    assert before["database_reachable"] is True
+    assert before["compatible"] is False
+    assert before["current_version"] is None
+    assert "schema_version" in before["missing_tables"]
+
+    migrated = store.migrate_schema()
+    assert migrated["compatible"] is True
+    assert migrated["current_version"] == 3
+    assert migrated["missing_tables"] == []
+
+    verified = store.verify_schema()
+    assert verified == migrated
+
+
+def test_verify_schema_rejects_unmigrated_database(tmp_path):
+    store = OperationsStore(
+        f"sqlite:///{tmp_path / 'schema-unmigrated.db'}"
+    )
+
+    try:
+        store.verify_schema()
+    except RuntimeError as exc:
+        assert "not compatible" in str(exc).lower()
+    else:
+        raise AssertionError("verify mode accepted an unmigrated database")
+
+
+def test_schema_v1_migrates_additively_to_v3(tmp_path):
+    store = OperationsStore(
+        f"sqlite:///{tmp_path / 'schema-v1.db'}"
+    )
+    with store.engine.begin() as connection:
+        connection.execute(text(
+            "CREATE TABLE schema_version ("
+            "id INTEGER PRIMARY KEY, "
+            "version INTEGER NOT NULL, "
+            "updated_at DATETIME NOT NULL)"
+        ))
+        connection.execute(
+            text(
+                "INSERT INTO schema_version "
+                "(id, version, updated_at) "
+                "VALUES (1, 1, :updated_at)"
+            ),
+            {"updated_at": datetime.now(timezone.utc)},
+        )
+
+    before = store.schema_status()
+    assert before["current_version"] == 1
+    assert before["compatible"] is False
+    assert "recovery_proposal_evidence" in before["missing_tables"]
+    assert "scenario_run_evidence" in before["missing_tables"]
+
+    after = store.migrate_schema()
+    assert after["compatible"] is True
+    assert after["current_version"] == 3
+    assert after["missing_tables"] == []
+
+
+def test_recovery_evidence_restores_stale_contingency_after_restart(tmp_path):
+    store = make_store(tmp_path)
+    sim = HarborSimulator(
+        event_sink=store.append_event,
+        incident_sink=store.upsert_incident,
+        snapshot_sink=store.save_snapshot,
+        spool_sink=store.queue_outbound_event,
+        replay_sink=lambda: len(
+            store.replay_outbound_events(lambda event: True)
+        ),
+        pending_count=store.pending_outbound_count,
+        recovery_receipt_sink=store.save_recovery_receipt,
+        recovery_proposal_evidence_sink=store.save_recovery_proposal_evidence,
+    )
+
+    sim.inject_incident(
+        IncidentType.BUNKER_UNAVAILABLE,
+        "pc-aurora",
+        45,
+    )
+    proposals = sim.generate_recovery_proposals(
+        call_id="pc-aurora",
+        evidence_trigger="test-planning",
+    )
+    stale = next(
+        proposal
+        for proposal in proposals
+        if any(
+            action.to_resource_id == "bunker-barge-12"
+            for action in proposal.actions
+        )
+    )
+
+    batches = store.list_recovery_proposal_evidence(limit=20)
+    planning_batch = next(
+        batch
+        for batch in batches
+        if batch.evidence_id
+        and stale.id in [proposal.id for proposal in batch.proposals]
+    )
+    assert planning_batch.trigger == "test-planning"
+
+    sim.inject_incident(
+        IncidentType.BUNKER_UNAVAILABLE,
+        "pc-aurora",
+        0,
+        target_resource_id="bunker-barge-12",
+    )
+
+    snapshot = store.load_snapshot()
+    assert snapshot is not None
+
+    stored_batches = store.list_recovery_proposal_evidence(limit=200)
+    proposal_history = [
+        proposal
+        for batch in reversed(stored_batches)
+        for proposal in batch.proposals
+    ]
+    restarted = HarborSimulator(
+        initial=snapshot,
+        event_sink=store.append_event,
+        incident_sink=store.upsert_incident,
+        snapshot_sink=store.save_snapshot,
+        recovery_receipt_sink=store.save_recovery_receipt,
+        recovery_proposal_evidence_sink=store.save_recovery_proposal_evidence,
+        proposal_history=proposal_history,
+    )
+
+    try:
+        restarted.apply_recovery_proposal(
+            stale.id,
+            approved_by="restart-operator",
+            approved_role=OperatorRole.OPERATOR,
+            approved_display_name="Restart Operator",
+        )
+    except RecoveryProposalStaleError as exc:
+        contingency = exc.contingency
+    else:
+        raise AssertionError(
+            "Restarted simulator must recover stale proposal context"
+        )
+
+    assert contingency.stale_proposal_id == stale.id
+    assert contingency.unavailable_resource_ids == ["bunker-barge-12"]
+    assert any(
+        any(
+            action.to_resource_id == "bunker-barge-9"
+            for action in proposal.actions
+        )
+        for proposal in contingency.replacement_proposals
+    )
+
+    contingency_batches = store.list_recovery_proposal_evidence(limit=20)
+    linked = next(
+        batch
+        for batch in contingency_batches
+        if batch.stale_parent_proposal_id == stale.id
+    )
+    assert linked.trigger == "contingency"
+
+    store.clear_demo_state()
+    retained = store.list_recovery_proposal_evidence(limit=20)
+    assert any(batch.evidence_id == planning_batch.evidence_id for batch in retained)
+    assert any(batch.evidence_id == linked.evidence_id for batch in retained)
+
+
+def test_database_url_normalizes_postgres_to_psycopg_driver():
+    assert normalize_database_url(
+        "postgres://user:pass@example.invalid:5432/portflow"
+    ) == "postgresql+psycopg://user:pass@example.invalid:5432/portflow"
+    assert normalize_database_url(
+        "postgresql://user:pass@example.invalid:5432/portflow?sslmode=require"
+    ) == (
+        "postgresql+psycopg://user:pass@example.invalid:5432/"
+        "portflow?sslmode=require"
+    )
+    assert normalize_database_url(
+        "postgresql+psycopg://user:pass@example.invalid/portflow"
+    ) == "postgresql+psycopg://user:pass@example.invalid/portflow"
+
+
+def test_schema_v2_migrates_additively_to_v3(tmp_path):
+    store = OperationsStore(
+        f"sqlite:///{tmp_path / 'schema-v2.db'}"
+    )
+    with store.engine.begin() as connection:
+        connection.execute(text(
+            "CREATE TABLE schema_version ("
+            "id INTEGER PRIMARY KEY, "
+            "version INTEGER NOT NULL, "
+            "updated_at DATETIME NOT NULL)"
+        ))
+        connection.execute(
+            text(
+                "INSERT INTO schema_version "
+                "(id, version, updated_at) "
+                "VALUES (1, 2, :updated_at)"
+            ),
+            {"updated_at": datetime.now(timezone.utc)},
+        )
+
+    before = store.schema_status()
+    assert before["current_version"] == 2
+    assert before["compatible"] is False
+    assert "vessel_runtime_event" in before["missing_tables"]
+
+    after = store.migrate_schema()
+    assert after["compatible"] is True
+    assert after["current_version"] == 3
+    assert after["missing_tables"] == []
+
+    with store.engine.connect() as connection:
+        tables = {
+            row[0]
+            for row in connection.execute(
+                text(
+                    "SELECT name FROM sqlite_master "
+                    "WHERE type='table'"
+                )
+            )
+        }
+    assert "vessel_runtime_event" in tables

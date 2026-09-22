@@ -4,7 +4,7 @@ PortFlow is a port-call operations control tower for continuously updated vessel
 
 ## Status
 
-Private portfolio build, v0.14 compound cross-resource recovery.
+Private portfolio build, v0.15 calibration + retry/backoff + contingency recovery + deployment hardening + TLS/observability.
 
 ## Product principles
 
@@ -108,6 +108,33 @@ Default external HTTP port is 8088 and can be changed with PORTFLOW_HTTP_PORT.
 
 The production compose intentionally requires PORTFLOW_DB_PASSWORD instead of shipping a fallback password.
 
+Production startup is migration-gated:
+
+    postgres healthy
+      -> one-shot migrate service
+      -> schema version 2 stamped/verified
+      -> API starts with PORTFLOW_SCHEMA_MODE=verify
+      -> /readyz becomes healthy
+      -> web starts
+
+The API process does not silently create or migrate production schema in verify mode.
+
+Liveness and readiness are separate:
+
+- /healthz proves the API process is alive and reports the application version.
+- /readyz verifies runtime initialization, database reachability, and exact schema compatibility.
+
+### PostgreSQL backup / restore
+
+The repository includes operator scripts:
+
+    ./ops/backup-postgres.sh
+    PORTFLOW_RESTORE_CONFIRM=YES ./ops/restore-postgres.sh /path/to/portflow.dump
+
+Optional PORTFLOW_ENV_FILE and PORTFLOW_COMPOSE_PROJECT variables let the scripts target a specific deployment.
+
+Restore is intentionally guarded by PORTFLOW_RESTORE_CONFIRM=YES because it is destructive. The restore flow stops API/web, restores PostgreSQL with pg_restore --clean --if-exists, reruns the migration command, then restarts API/web.
+
 ## Verification
 
     cd apps/api
@@ -134,6 +161,7 @@ GitHub Actions workflow is committed. The linked GitHub account currently has Ac
 - POST /api/v1/scenarios/{scenario_id}/run
 - GET /api/v1/auth/me
 - GET /healthz
+- GET /readyz
 - GET /api/v1/harbor
 - GET /api/v1/events
 - GET /api/v1/incidents
@@ -1352,35 +1380,805 @@ v0.15 should prioritize product realism and deployment rather than expanding Por
 - stronger scenario snapshots, replayability, and evidence controls
 - a documented future event/API boundary for vessel-side operational events without prematurely coupling the codebases
 
+## v0.15 proof
 
-## v0.15.0 — Vessel Runtime shore ingest
+### Provenance-bound service-duration calibration
 
-PortFlow can now receive privacy-filtered vessel-runtime operational projections from the companion Maritime Runtime.
+Service-duration assumptions are now canonical modeled state rather than anonymous constants.
 
-Receiver endpoint:
+Each service kind has a ServiceDurationCalibration containing:
 
-    POST /api/v1/vessel-runtime/ingest
-    Authorization: Bearer <vessel-runtime-token>
+- service kind
+- duration in minutes
+- source id
+- source mode: synthetic, recorded, or live
+- provider
+- observation time
+- optional source detail
 
-The ingest path is deliberately separate from operator authentication. Configure approved edge senders through PORTFLOW_VESSEL_RUNTIMES_JSON using SHA-256 token digests bound to a specific vessel_runtime_id.
+The default portfolio fixture remains explicitly synthetic. This preserves the existing demo behavior while making the calibration assumption inspectable.
 
-The receiver validates:
+### Calibration authority boundary
 
-- bridge schema version maritime-runtime-portflow.v1;
-- credential to vessel-runtime identity binding;
-- source sequence continuity;
-- base source hash against the last accepted vessel cursor;
-- source head hash progression;
-- projected event source/vessel identity;
-- event-id deduplication and payload consistency.
+The calibration catalog is readable without approval authority.
 
-Accepted projected events become normal PortFlow OperationsEvent records. Duplicate envelope replay is idempotent. Sequence gaps or divergent base/source hashes return HTTP 409 rather than silently mutating shore truth.
+Changing calibration requires the same operator/supervisor role used for other operational mutations.
 
-The bridge is intentionally privacy-filtered. Maritime Runtime excludes crew workload, duty/rest evidence, authentication/session detail, response-assignment internals and raw telemetry by default. PortFlow receives operational machine/workflow events such as equipment unavailability, dependency impact, permit completion and human-gated replan state.
+A calibration update:
 
-Local verification for this release path:
+- validates source identity, mode, observation time, and health against provenance
+- rejects stale or unhealthy evidence
+- updates every modeled service step of that kind
+- persists the changed calibration in HarborOverview snapshots
+- emits an identity-bound service_calibration event
+- changes the recovery state fingerprint
+- participates in recovery decision confidence
 
-- PortFlow API suite: **81 passed**;
-- cross-repo proof: Maritime Runtime generated a 12-sequence source envelope containing 9 shore events and 3 policy-excluded source events;
-- PortFlow accepted all 9 projected events;
-- a second delivery of the same envelope returned duplicate.
+This means PortFlow cannot claim HIGH decision confidence while schedule occupancy still depends on missing, stale, synthetic, or recorded calibration evidence.
+
+### Backward-compatible snapshot migration
+
+Snapshots created before v0.15 do not contain service_duration_calibrations.
+
+On restore, PortFlow creates the canonical synthetic calibration set and adds its provenance source. Legacy zero-duration service steps continue to migrate to the current calibrated duration.
+
+### API surface
+
+- GET /api/v1/service-duration-calibrations exposes the active calibration set
+- POST /api/v1/service-duration-calibrations requires operator/supervisor authority
+- stale calibration evidence returns 409 without mutating canonical state
+
+The Data Sources UI recognizes service_calibration as a first-class provenance domain.
+
+### v0.15 calibration increment verification
+
+Current gate for this increment:
+
+- 81 backend/domain/API/storage/recovery/security/scenario/adapter/calendar/resilience/confidence/capacity/compound/calibration tests
+- Python compile
+- production TypeScript/Vite build
+- npm audit
+- existing Chromium recovery E2Es
+- version metadata aligned at 0.15.0
+
+The next v0.15 increment after calibration is the retry/backoff state machine documented below.
+
+
+## v0.15 retry/backoff proof
+
+### Bounded live-adapter retry state
+
+Live HTTP adapters no longer attempt an upstream request on every preview refresh after a failure.
+
+After a transport or payload failure, PortFlow records:
+
+- last_attempt_at
+- consecutive_errors
+- retry_delay_seconds
+- next_retry_at
+- last_success_at
+- whether last-known-good records are being shown
+
+The first retry delay is based on a 5-second default. Repeated failures use exponential growth capped at 300 seconds.
+
+A deterministic ±20% jitter is derived from adapter id + error count. This spreads retries without introducing non-reproducible test behavior.
+
+### Retry suppression
+
+If a preview request arrives before next_retry_at:
+
+- the upstream loader is not called
+- consecutive_errors does not increase
+- last_attempt_at does not change
+- the existing cached/error state is returned
+- the response explicitly says retry backoff is active
+
+Once next_retry_at is reached, the next preview is allowed to contact the upstream provider.
+
+A successful live response clears:
+
+- consecutive_errors -> 0
+- next_retry_at -> null
+- retry_delay_seconds -> 0
+
+Healthy last-known-good cache semantics remain unchanged.
+
+### UI and API observability
+
+Adapter preview provenance exposes the retry state directly.
+
+The Data Sources UI shows:
+
+- RETRY BACKOFF
+- the current retry-delay window
+- the next scheduled retry time
+- Retry scheduled on the disabled ingest action
+
+The existing stale/degraded/non-ingestible boundary remains intact.
+
+### v0.15 retry increment verification
+
+Current gate after calibration + retry/backoff:
+
+- 84 backend/domain/API/storage/recovery/security/scenario/adapter/calendar/resilience/confidence/capacity/compound/calibration/backoff tests
+- Python compile
+- production TypeScript/Vite build
+- npm audit with 0 vulnerabilities
+- 4 real Chromium E2Es, including visible retry-backoff state for a deliberately unavailable live adapter
+- fresh API and WEB Docker builds pass
+- isolated runtime proof confirms immediate retry suppression and larger due-time backoff
+
+The next v0.15 increment after retry/backoff is contingency scheduling, documented below.
+
+
+## v0.15 contingency recovery proof
+
+### Stale recovery plans return replacements instead of a dead-end
+
+PortFlow now retains a bounded in-memory history of recently generated recovery proposals.
+
+If an operator tries to approve a proposal that is no longer valid under current harbor state, the backend does not auto-apply a substitute and does not return only a generic stale error.
+
+It returns a structured 409 contingency contract containing:
+
+- the stale proposal id
+- target port call
+- stale and current state fingerprints
+- selected recovery resources that are now unavailable
+- ranked replacement proposals relevant to the same incidents/service kinds
+- auto_apply=false
+- an explicit reason requiring a new operator approval
+
+Proposal history is intentionally ephemeral in this increment. Durable decision-evidence snapshots remain a later deployment/evidence milestone.
+
+### Recovery-resource failure before approval
+
+Existing tug_unavailable and bunker_unavailable incidents now accept an optional explicit target_resource_id.
+
+This supports the real contingency case where a backup resource fails after a recovery plan was generated but before approval.
+
+Rules:
+
+- the explicit resource must exist and match the incident service kind
+- failing an already assigned resource preserves the existing delay/propagation behavior
+- failing an unassigned backup marks availability truth without inventing a port-call delay
+- current proposal generation excludes UNAVAILABLE alternatives
+
+Canonical proof:
+
+    Bunker Barge 4 unavailable
+      -> preferred recovery selects Bunker Barge 12
+      -> Bunker Barge 12 becomes unavailable before approval
+      -> old plan returns structured 409
+      -> Bunker Barge 9 appears as ranked replacement
+      -> no automatic mutation occurs
+      -> operator explicitly approves Bunker Barge 9
+      -> bunker/departure blockage clears
+
+The original Bunker Barge 4 and Bunker Barge 12 incidents remain active; recovery adapts around failures rather than falsely resolving them.
+
+### Browser behavior
+
+The Recovery Plans UI recognizes the structured stale-plan response.
+
+It replaces the stale cards with ranked current alternatives and displays a visible CONTINGENCY notice naming unavailable selected resources and stating that a new explicit approval is required.
+
+The replacement still uses the normal identity-bound approval path.
+
+### v0.15 contingency increment verification
+
+Current gate after calibration + retry/backoff + contingency:
+
+- 86 backend/domain/API/storage/recovery/security/scenario/adapter/calendar/resilience/confidence/capacity/compound/calibration/backoff/contingency tests
+- Python compile
+- production TypeScript/Vite build
+- npm audit
+- 5 real Chromium E2Es, including a real stale Bunker Barge 12 plan -> Bunker Barge 9 contingency -> re-approval flow
+- fresh API and WEB Docker builds pass
+- isolated runtime proof confirms stale Barge 12 selection -> structured 409 -> Barge 9 replacement -> explicit re-approval -> 0 blocked services
+
+The next v0.15 increment is deployment hardening: migrations/startup checks, production PostgreSQL profile, readiness, observability, backup/restore, and hosted proof.
+
+
+## v0.15 deployment hardening proof
+
+### Versioned schema boundary
+
+PortFlow persistence has an explicit schema_version table. The current evidence build uses CURRENT_SCHEMA_VERSION=2.
+
+OperationsStore exposes:
+
+- migrate_schema()
+- verify_schema()
+- schema_status()
+- database_ping()
+
+The original v0 -> v1 migration was intentionally conservative. The evidence increment adds an explicit additive v1 -> v2 migration for immutable recovery-proposal and scenario-run evidence tables. Unknown/newer versions still fail closed rather than being silently rewritten.
+
+init_schema() remains only as a backward-compatible test/dev helper.
+
+### Explicit migration command
+
+Production migration is a separate command:
+
+    python -m portflow_api.migrate
+
+The production Compose stack runs this command in a one-shot migrate service before the API starts.
+
+The API then starts with:
+
+    PORTFLOW_SCHEMA_MODE=verify
+
+If PostgreSQL is unreachable, required tables are missing, or schema version differs from the application expectation, production API startup fails instead of mutating the database.
+
+### Liveness vs readiness
+
+/healthz is process liveness only.
+
+/readyz reports and validates:
+
+- runtime_ready
+- schema_mode
+- database reachability
+- expected schema version
+- current schema version
+- missing tables
+- compatibility
+- whether operator authorization is configured
+
+The production API healthcheck now targets /readyz.
+
+Nginx proxies both /healthz and /readyz through the single web origin.
+
+### Single API image for migration and runtime
+
+The API Docker image no longer performs a second source-dependent uv sync after copying application code.
+
+Runtime dependencies are installed from the lockfile before source copy and the application runs from PYTHONPATH=/app/src.
+
+This removes an unnecessary build-system fetch from the source layer and makes source-only rebuilds less network-sensitive.
+
+The same tagged API image is reused by both the migrate and api services.
+
+### PostgreSQL migration/readiness runtime proof
+
+An isolated production Compose project was booted from a clean PostgreSQL volume.
+
+Observed chain:
+
+- Postgres health: healthy
+- migrate container: exited 0
+- API mode: verify
+- /readyz: ok=true
+- database_reachable=true
+- expected_version=2
+- current_version=2
+- missing_tables=[]
+- compatible=true
+- web origin exposed readiness successfully
+
+### Backup/restore runtime proof
+
+The hardened production stack was given a persisted bunker-loss scenario.
+
+Measured round-trip:
+
+- active incidents before backup: 1
+- PostgreSQL custom-format dump size: 17,941 bytes
+- active incidents after destructive demo reset: 0
+- restore script executed pg_restore, migration verification, and API/web restart
+- active incidents after restore: 1
+- persisted incident rows after restore: 1
+- schema remained at the then-current compatible version; the evidence increment later advances this contract to version 2
+
+This proves both canonical harbor snapshot state and durable incident storage survive a dump/reset/restore cycle.
+
+### v0.15 deployment gate
+
+Current gate after calibration + retry/backoff + contingency + deployment hardening:
+
+- 89 backend/domain/API/storage/recovery/security/scenario/adapter/calendar/resilience/confidence/capacity/compound/calibration/backoff/contingency/schema/readiness tests
+- Python compile passes
+- production TypeScript/Vite build passes
+- npm audit reports 0 vulnerabilities
+- 5 real Chromium E2Es pass
+- production Compose config renders with migration dependency + verify mode + /readyz
+- hardened API and WEB Docker images build from current source
+- clean PostgreSQL migration/readiness boot passes
+- PostgreSQL backup/reset/restore round-trip passes
+- GitHub CI now validates production Compose, operator-script syntax, and both Docker images
+
+The next v0.15 deployment work after this checkpoint is durable proposal/evidence snapshots and public portfolio deployment.
+
+
+## v0.15 TLS and observability proof
+
+### Optional HTTPS overlay
+
+PortFlow now includes docker-compose.tls.yml as an opt-in production overlay.
+
+The base production stack remains usable on HTTP for local/private environments. Adding the TLS overlay provides:
+
+- HTTP -> HTTPS 308 redirect
+- TLS 1.2 and TLS 1.3 only
+- mounted deployment certificate/private key
+- HSTS
+- X-Content-Type-Options: nosniff
+- X-Frame-Options: DENY
+- Referrer-Policy: no-referrer
+- Permissions-Policy disabling camera, microphone, and geolocation
+- Cross-Origin-Opener-Policy: same-origin
+- REST, WebSocket, health, and readiness proxying over the HTTPS origin
+
+The plain HTTP Nginx profile also emits the non-HSTS security headers.
+
+TLS deployment variables are documented in .env.example:
+
+- PORTFLOW_HTTPS_PORT
+- PORTFLOW_PUBLIC_HTTPS_ORIGIN
+- PORTFLOW_TLS_CERT_FILE
+- PORTFLOW_TLS_KEY_FILE
+
+### Metrics boundary
+
+The API exposes an internal Prometheus-text /metrics endpoint.
+
+Current gauges:
+
+- portflow_runtime_ready
+- portflow_schema_compatible
+- portflow_authorization_configured
+- portflow_active_incidents
+- portflow_blocked_services
+- portflow_stale_data_sources
+
+Current counters:
+
+- portflow_calibration_updates_total
+- portflow_adapter_ingests_total
+- portflow_recovery_approvals_total
+- portflow_recovery_contingencies_total
+- portflow_replay_acks_total
+- portflow_scenario_runs_total
+- portflow_http_requests_total with method, route template, and status labels
+
+HTTP metrics use FastAPI route templates rather than concrete entity ids, avoiding an unbounded path-label cardinality pattern.
+
+Operational metrics are intentionally not exposed through the public Nginx origin. Public /metrics returns 404. A monitoring collector should scrape the API from the trusted internal network.
+
+### Structured request logging
+
+Every HTTP request emits a JSON event through the Uvicorn logging pipeline.
+
+The record contains:
+
+- UTC timestamp
+- event=http_request
+- HTTP method
+- route template
+- response status
+- duration_ms
+
+Bodies, bearer credentials, query strings, and entity ids embedded in concrete paths are not copied into the structured request record.
+
+### TLS and observability runtime proof
+
+An isolated PostgreSQL-backed production stack was booted with a one-day self-signed proof certificate.
+
+Verified runtime behavior:
+
+- HTTPS /readyz -> 200
+- negotiated HTTP/2 through Nginx
+- schema verify mode remained healthy
+- Strict-Transport-Security present
+- nosniff, DENY frame policy, no-referrer, Permissions-Policy, and COOP headers present
+- HTTP request to /proof?x=1 -> 308 with query-preserving HTTPS Location
+- public HTTPS /metrics -> 404
+- bunker-loss scenario executed through HTTPS
+- internal metrics reported runtime_ready=1
+- internal metrics reported schema_compatible=1
+- internal metrics reported active_incidents=1
+- internal metrics reported blocked_services=4
+- scenario_runs_total incremented to 1
+- HTTP counter used /api/v1/scenarios/{scenario_id}/run as the label
+- container log emitted a JSON request record for the scenario POST with status 200 and duration_ms
+- Nginx runtime config confirmed ssl_protocols TLSv1.2 TLSv1.3
+
+### v0.15 TLS/observability gate
+
+Current gate:
+
+- 91 backend/domain/API/storage/recovery/security/scenario/adapter/calendar/resilience/confidence/capacity/compound/calibration/backoff/contingency/schema/readiness/observability tests
+- Python compile passes
+- production TypeScript/Vite build passes
+- npm audit reports 0 vulnerabilities
+- 5 real Chromium E2Es pass
+- base production Compose renders
+- TLS overlay Compose renders
+- API and web Docker images build from current source
+- isolated HTTPS + secure-header runtime proof passes
+- internal Prometheus metrics runtime proof passes
+- structured JSON request logging runtime proof passes
+- GitHub CI validates both base and TLS Compose configurations
+
+The remaining v0.15 work is durable proposal/evidence snapshots, then a public portfolio deployment while preserving synthetic-data labeling.
+
+
+## v0.15 durable decision evidence proof
+
+### Immutable recovery-proposal evidence batches
+
+Recovery planning is no longer represented only by the simulator's bounded in-memory proposal history.
+
+Every generated recovery batch now produces a durable RecoveryProposalEvidenceBatch containing:
+
+- evidence_id
+- generated_at
+- requested_call_id
+- trigger
+- optional stale_parent_proposal_id
+- the exact ranked RecoveryProposal list shown for that state
+
+The evidence id is content-derived from:
+
+- trigger
+- requested call
+- stale parent proposal id
+- recovery-state fingerprint material
+- ordered proposal ids
+
+Repeated polling of the same recovery state therefore deduplicates instead of creating unbounded duplicate evidence rows.
+
+Changed operational state creates a new evidence id even when there are zero viable proposals.
+
+Current evidence triggers include:
+
+- planning
+- scenario
+- contingency
+- explicitly named internal/test planning triggers
+
+The bounded in-memory proposal cache still exists for fast runtime access, but it is repopulated from recent durable evidence when the API starts.
+
+This means stale-plan context can survive an API process restart.
+
+### Durable scenario-run evidence
+
+Every canonical scenario run now stores a ScenarioRunEvidence record with:
+
+- unique run_id
+- ran_at
+- the exact stored ScenarioFixture definition and actions
+- the HarborOverview snapshot after applying the scenario
+- the ranked recovery proposals generated from that snapshot
+
+Demo reset deliberately does not delete decision evidence.
+
+Operational state can therefore be reset while the historical decision record remains available for audit.
+
+### Authenticated evidence APIs
+
+Evidence is an authenticated audit surface.
+
+Viewer, operator, and supervisor identities can read evidence. Anonymous access is rejected.
+
+APIs:
+
+- GET /api/v1/evidence/recovery-proposals
+- GET /api/v1/evidence/scenario-runs
+- GET /api/v1/evidence/scenario-runs/{run_id}/pack
+
+Scenario evidence can be filtered by scenario_id.
+
+### Content-addressed evidence packs
+
+The per-run pack endpoint returns:
+
+- pack_version = portflow-evidence-v1
+- canonical SHA-256 of the stored scenario-run payload
+- full ScenarioRunEvidence
+- replay_input containing the stored scenario id and exact stored actions
+
+The checksum is stable across repeated reads of the same immutable run.
+
+The pack is designed to be portable and tamper-detectable. It contains enough input/output context to reproduce or independently inspect the modeled scenario path without pretending that a later wall-clock replay must produce byte-identical timestamps or ids.
+
+### Schema v2
+
+Evidence persistence advances the production schema contract from version 1 to version 2.
+
+v2 adds:
+
+- recovery_proposal_evidence
+- scenario_run_evidence
+
+The migration is additive.
+
+Runtime migration proof used the previous v1 production API image to create a real Postgres v1 database, then used the current image to migrate that same database to v2.
+
+Observed:
+
+- schema before migration: 1
+- evidence tables absent before migration
+- schema after migration: 2
+- recovery_proposal_evidence present
+- scenario_run_evidence present
+- /readyz in verify mode reported version 2 compatible
+
+### Restart-proof contingency evidence
+
+Runtime proof:
+
+1. create v1 Postgres with the previous production image
+2. migrate the same database to v2
+3. start the current API in verify mode
+4. run the canonical bunker-loss scenario
+5. persist its scenario evidence and proposal evidence
+6. capture the Bunker Barge 12 recovery proposal id
+7. make Bunker Barge 12 unavailable before approval
+8. restart the API process without changing the database
+9. retrieve the same scenario evidence pack after restart
+10. apply the old Barge 12 proposal id
+11. receive structured HTTP 409 stale contingency
+12. recover Bunker Barge 9 as the ranked replacement
+
+Measured proof:
+
+- evidence pack survived restart
+- pack SHA-256 length: 64 hex characters
+- stale apply after restart: HTTP 409
+- unavailable resource: bunker-barge-12
+- replacement includes bunker-barge-9
+- durable recovery-proposal evidence rows: 3
+- durable scenario-run evidence rows: 1
+
+This closes the earlier gap where a process restart could erase the context required to explain a stale recovery proposal.
+
+### v0.15 evidence gate
+
+Current local gate:
+
+- 94 backend/domain/API/storage/recovery/security/scenario/adapter/calendar/resilience/confidence/capacity/compound/calibration/backoff/contingency/schema/readiness/observability/evidence tests
+- Python compile passes
+- production TypeScript/Vite build passes
+- npm audit reports 0 vulnerabilities
+- 5 real Chromium E2Es pass
+- real Postgres v1 -> v2 migration passes
+- API verify-mode schema v2 readiness passes
+- scenario evidence survives API restart
+- stale recovery context survives API restart
+- content-addressed evidence pack survives API restart
+
+The remaining productization work is public portfolio deployment and the documented event/API boundary for a future vessel-side intelligence runtime.
+
+
+## v0.15 public portfolio deployment proof
+
+### Live portfolio URL
+
+PortFlow is publicly reachable at:
+
+    https://b2gdjx1c.basicdeploy.com
+
+The public deployment is intentionally a shared synthetic portfolio sandbox. It is not a live port feed, not a customer tenancy, and not an operational production control plane.
+
+### Single-origin BasicDeploy runtime
+
+BasicDeploy proxies the public HTTPS hostname to port 8080 inside the container.
+
+The public deployment therefore runs:
+
+    BasicDeploy HTTPS proxy
+      -> FastAPI on 0.0.0.0:8080
+      -> REST / WebSocket / readiness
+      -> optional built React frontend from PORTFLOW_STATIC_DIR
+      -> PostgreSQL schema portflow_portfolio
+
+The frontend and API share one origin, so no separate public API hostname or CORS deployment layer is required for the portfolio build.
+
+### Public safety boundary
+
+The public boot profile sets:
+
+    PORTFLOW_SCHEMA_MODE=verify
+    PORTFLOW_STATIC_DIR=/workspace/portflow/apps/web/dist
+    PORTFLOW_PUBLIC_MODE=1
+    PORTFLOW_APPROVERS_JSON=[]
+
+Consequences:
+
+- schema migration runs before verify-mode startup
+- recovery approval remains unavailable to anonymous public visitors
+- evidence APIs remain authentication-protected
+- public /metrics returns 404
+- scenario/reset endpoints operate only on the shared synthetic demo state
+
+Internal metrics remain available in non-public deployment profiles.
+
+### Synthetic labeling proof
+
+Outside-in public API verification returned the explicit disclaimer:
+
+    Demonstration only. No live external feeds are active. Vessel, port-call, weather, risk, incident, service, and operational data are synthetic.
+
+The active public sources were:
+
+- synthetic-ais / synthetic
+- synthetic-weather / synthetic
+- synthetic-berth-plan / synthetic
+- synthetic-service-calibration / synthetic
+
+Running the public bunker-loss fixture produced:
+
+- scenario = bunker-loss
+- active incidents = 1
+- blocked services = 4
+- recovery decision confidence = DEMO only
+
+The public portfolio therefore does not present synthetic state as live maritime operations.
+
+### PostgreSQL compatibility fix discovered by live deploy
+
+The first BasicDeploy boot exposed a real portability bug.
+
+BasicDeploy provides a standard postgres:// or postgresql:// DATABASE_URL, while PortFlow uses psycopg v3.
+
+Without normalization, SQLAlchemy selected the legacy psycopg2 dialect and boot failed with:
+
+    ModuleNotFoundError: No module named 'psycopg2'
+
+The fix is applied in two layers:
+
+- OperationsStore centrally normalizes postgres:// and postgresql:// to postgresql+psycopg://
+- the BasicDeploy boot URL, after applying its schema search_path, is also normalized to postgresql+psycopg://
+
+A regression test now locks the central normalization behavior.
+
+### Free-plan cold-start / wake resilience
+
+BasicDeploy Free containers auto-sleep.
+
+BasicDeploy invokes /workspace/.bd_boot.sh on wake, so the deployment registers the PortFlow boot script there.
+
+Live sleep/wake testing exposed two additional deployment bugs and closed both:
+
+1. BasicDeploy executes the wake hook through POSIX sh, so Bash-only set -o pipefail failed.
+2. Concurrent wake triggers could launch two Uvicorn processes and race for port 8080.
+
+The final hook is POSIX sh-compatible and uses a PID-backed atomic boot lock.
+
+Clean sleep/wake proof:
+
+- first request displayed BasicDeploy's temporary Waking up page
+- wake hook migrated/verified schema v3
+- exactly one Uvicorn process remained
+- lock PID matched the Uvicorn PID
+- /healthz returned 200
+- /readyz returned schema v3 compatible
+- no duplicate bind error occurred
+
+The Free deployment can therefore cold-start after idle sleep without a manual app restart. It still has a cold-start delay by design.
+
+### Source-only public deploy bundle
+
+deploy/basicdeploy_bundle.sh packages only:
+
+- deploy/basicdeploy_boot.sh
+- deploy/basicdeploy_prepare.sh
+- API src/
+- API pyproject.toml
+- API uv.lock
+- built web dist/
+
+The helper rejects accidental .venv or __pycache__ content.
+
+Current proof bundle size is approximately 468 KB rather than the 23 MB runtime-contaminated archive produced when a live virtual environment was accidentally included during an intermediate re-pack.
+
+### Public deployment gate
+
+Current gate:
+
+- 101 backend/domain/API/storage/recovery/security/scenario/adapter/calendar/resilience/confidence/capacity/compound/calibration/backoff/contingency/schema/readiness/observability/evidence/public-mode/integration tests
+- source-only deploy bundle generation passes
+- deploy scripts pass POSIX sh syntax validation
+- public HTTPS /healthz passes
+- public HTTPS /readyz reports schema v3 compatible
+- public /metrics returns 404
+- public harbor state preserves explicit synthetic disclaimer
+- public recovery confidence remains DEMO for synthetic-only scenario state
+- Free-plan sleep/wake cold-start passes with one Uvicorn process
+- live BasicDeploy PostgreSQL boot passes with psycopg v3 URL normalization
+
+The v0.15 public deployment now includes the completed vessel-runtime contract discovery surface while keeping integration credentials unconfigured on the public sandbox.
+
+
+## v0.15 vessel-runtime boundary proof
+
+PortFlow's final v0.15 architecture increment is a versioned integration boundary for a future separate vessel-side intelligence runtime.
+
+### Separate authority planes
+
+Human approvals use PORTFLOW_APPROVERS_JSON.
+
+Vessel-runtime integrations use PORTFLOW_INTEGRATIONS_JSON with independent token hashes and vessel allowlists.
+
+An integration token cannot approve recovery.
+
+Container proof returned HTTP 401 when a valid vessel integration token was presented to the recovery-apply endpoint.
+
+### Versioned contracts
+
+Inbound event: portflow.vessel-event.v1
+
+Receipt: portflow.vessel-event-receipt.v1
+
+Coordination snapshot: portflow.coordination.v1
+
+Contract discovery:
+
+    GET /api/v1/integration/contracts
+
+### Schema v3
+
+The vessel boundary advances the additive schema contract from v2 to v3.
+
+v3 adds vessel_runtime_event.
+
+Real PostgreSQL proof used the previous v2 evidence image and the current image against the same database:
+
+- v2 migration -> current_version=2
+- vessel_runtime_event absent
+- current migration -> current_version=3
+- vessel_runtime_event present
+- verify-mode readiness -> expected_version=3, current_version=3, compatible=true
+
+### Idempotent durable event proof
+
+A normalized Aurora readiness event was submitted with an authenticated integration token.
+
+Observed:
+
+- first delivery -> duplicate=false
+- exact retry -> duplicate=true with the same accepted_at
+- same event id with changed content -> HTTP 409
+- event remained queryable after API process restart
+
+### Advisory-only coordination proof
+
+The authenticated Aurora integration requested the pc-aurora coordination snapshot.
+
+Observed:
+
+- contract_version=portflow.coordination.v1
+- vessel_id=v-aurora
+- advisory_only=true
+- requires_human_approval=true
+- actuation_allowed=false
+- port-call stages and service dependencies included
+
+This boundary does not give PortFlow direct vessel actuation authority.
+
+### Repository boundary
+
+Raw ship sensors, local perception, machinery intelligence, navigation reasoning, actuator integration, and vessel-local safety interlocks remain outside PortFlow.
+
+They belong in the future vessel-runtime repository.
+
+PortFlow consumes only normalized operational events and returns port-side coordination/advisory state.
+
+See docs/VESSEL_RUNTIME_BOUNDARY.md for the full contract.
+
+### v0.15 vessel-boundary gate
+
+Current gate includes:
+
+- 101 backend tests across existing product behavior plus integration boundary coverage
+- Python compile
+- real PostgreSQL v2 -> v3 migration
+- authenticated event first/duplicate/conflict proof
+- integration-vessel allowlist enforcement
+- integration-token recovery denial
+- advisory-only coordination proof
+- integration ledger persistence across API restart
+
+With this boundary documented and executable, the v0.15 PortFlow productization roadmap is complete.

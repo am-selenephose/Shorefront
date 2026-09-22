@@ -20,3 +20,4 @@ apps/web/pnpm-workspace.yaml
 *.sqlite3
 apps/web/test-results/
 apps/web/playwright-report/
+backups/

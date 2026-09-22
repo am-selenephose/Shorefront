@@ -53,12 +53,23 @@ test('operator ingests healthy recorded AIS while stale adapter stays blocked', 
   await page.goto('/')
 
   const initialSource = page.locator('[data-source-id="synthetic-ais"]')
+  const calibrationSource = page.locator('[data-source-id="synthetic-service-calibration"]')
+  await expect(calibrationSource).toBeVisible()
+  await expect(calibrationSource).toContainText('SERVICE CALIBRATION')
+
   await expect(initialSource).toBeVisible()
   await expect(initialSource.locator('.source-mode.synthetic')).toHaveText('synthetic')
 
   const staleAdapter = page.locator('[data-adapter-id="stale-weather-fixture"]')
   await expect(staleAdapter).toBeVisible()
   await expect(staleAdapter.getByRole('button', { name: 'Stale blocked' })).toBeDisabled()
+
+  const liveBackoffAdapter = page.locator('[data-adapter-id="live-ais"]')
+  await expect(liveBackoffAdapter).toBeVisible()
+  await expect(liveBackoffAdapter).toContainText('RETRY BACKOFF')
+  await expect(
+    liveBackoffAdapter.getByRole('button', { name: 'Retry scheduled' }),
+  ).toBeDisabled()
 
   const aisAdapter = page.locator('[data-adapter-id="recorded-ais"]')
   await expect(aisAdapter.getByRole('button', { name: 'Authenticate' })).toBeDisabled()
@@ -149,7 +160,14 @@ test('bunker loss renders the branched DAG and operator recovery clears shared b
 
   const approve = preferredRecovery.getByRole('button', { name: 'Approve & apply' })
   await expect(approve).toBeEnabled()
+  const applyResponsePromise = page.waitForResponse(response =>
+    response.request().method() === 'POST' &&
+    response.url().includes('/api/v1/recovery/proposals/') &&
+    response.url().endsWith('/apply'),
+  )
   await approve.click()
+  const applyResponse = await applyResponsePromise
+  expect(applyResponse.ok()).toBeTruthy()
 
   await expect(page.getByText(/RECENT OPERATOR RECEIPTS · 1/)).toBeVisible()
   await expect(auroraDag.locator('[data-service-kind="bunker"]')).not.toHaveClass(/blocked/)
@@ -201,7 +219,14 @@ test('compound dual-resource recovery links both incidents and clears tug/bunker
 
   const approve = compoundRecovery.getByRole('button', { name: 'Approve & apply' })
   await expect(approve).toBeEnabled()
+  const compoundApplyPromise = page.waitForResponse(response =>
+    response.request().method() === 'POST' &&
+    response.url().includes('/api/v1/recovery/proposals/') &&
+    response.url().endsWith('/apply'),
+  )
   await approve.click()
+  const compoundApplyResponse = await compoundApplyPromise
+  expect(compoundApplyResponse.ok()).toBeTruthy()
 
   await expect(page.getByText(/RECENT OPERATOR RECEIPTS · 1/)).toBeVisible()
 
@@ -216,4 +241,104 @@ test('compound dual-resource recovery links both incidents and clears tug/bunker
     expect(nodes.bunker.state).not.toBe('blocked')
     expect(nodes.departure.state).not.toBe('blocked')
   }
+})
+
+test('stale selected recovery resource loads ranked contingency and requires re-approval', async ({ page, request }) => {
+  const reset = await request.post('/api/v1/demo/reset')
+  expect(reset.ok()).toBeTruthy()
+
+  await page.goto('/')
+
+  const scenarioButton = page.getByRole('button', {
+    name: /^Bunker Barge 4 Unavailable\b/i,
+  })
+  await expect(scenarioButton).toBeVisible()
+  await scenarioButton.click()
+
+  const staleRecovery = page
+    .locator('article.recovery-card')
+    .filter({ hasText: 'Bunker Barge 12' })
+    .first()
+  await expect(staleRecovery).toBeVisible()
+
+  await page.getByLabel('Operator access token').fill(operatorToken)
+  await page.getByRole('button', { name: 'Verify' }).click()
+  await expect(page.getByText('E2E Operator').first()).toBeVisible()
+
+  const failedBackup = await request.post('/api/v1/incidents', {
+    data: {
+      incident_type: 'bunker_unavailable',
+      target_port_call_id: 'pc-aurora',
+      target_resource_id: 'bunker-barge-12',
+      impact_minutes: 0,
+    },
+  })
+  expect(failedBackup.ok()).toBeTruthy()
+  expect((await failedBackup.json()).target_resource_id).toBe('bunker-barge-12')
+
+  const staleApprove = staleRecovery.getByRole('button', { name: 'Approve & apply' })
+  await expect(staleApprove).toBeEnabled()
+  const staleApplyPromise = page.waitForResponse(response =>
+    response.request().method() === 'POST' &&
+    response.url().includes('/api/v1/recovery/proposals/') &&
+    response.url().endsWith('/apply'),
+  )
+  await staleApprove.click()
+  const staleApplyResponse = await staleApplyPromise
+  expect(staleApplyResponse.status()).toBe(409)
+
+  const contingencyNotice = page.getByText(
+    /CONTINGENCY · Previous recovery plan is stale\./,
+  )
+  await expect(contingencyNotice).toBeVisible()
+  await expect(contingencyNotice).toContainText('bunker-barge-12')
+  await expect(contingencyNotice).toContainText('new explicit approval is required')
+
+  const replacement = page
+    .locator('article.recovery-card')
+    .filter({ hasText: 'Bunker Barge 9' })
+    .first()
+  await expect(replacement).toBeVisible()
+  await expect(
+    page.locator('article.recovery-card').filter({ hasText: 'Bunker Barge 12' }),
+  ).toHaveCount(0)
+
+  const graphBefore = await request.get(
+    '/api/v1/port-calls/pc-aurora/dependency-graph',
+  )
+  expect(graphBefore.ok()).toBeTruthy()
+  const beforeNodes = Object.fromEntries(
+    (await graphBefore.json()).nodes.map(
+      (node: { kind: string; state: string }) => [node.kind, node],
+    ),
+  )
+  expect(beforeNodes.bunker.state).toBe('blocked')
+
+  const replacementApprove = replacement.getByRole('button', {
+    name: 'Approve & apply',
+  })
+  await expect(replacementApprove).toBeEnabled()
+  const replacementApplyPromise = page.waitForResponse(response =>
+    response.request().method() === 'POST' &&
+    response.url().includes('/api/v1/recovery/proposals/') &&
+    response.url().endsWith('/apply'),
+  )
+  await replacementApprove.click()
+  const replacementApplyResponse = await replacementApplyPromise
+  expect(replacementApplyResponse.ok()).toBeTruthy()
+
+  await expect(page.getByText(/RECENT OPERATOR RECEIPTS · 1/)).toBeVisible()
+  await expect(contingencyNotice).toHaveCount(0)
+
+  const graphAfter = await request.get(
+    '/api/v1/port-calls/pc-aurora/dependency-graph',
+  )
+  expect(graphAfter.ok()).toBeTruthy()
+  const afterNodes = Object.fromEntries(
+    (await graphAfter.json()).nodes.map(
+      (node: { kind: string; state: string }) => [node.kind, node],
+    ),
+  )
+  expect(afterNodes.bunker.state).not.toBe('blocked')
+  expect(afterNodes.departure.state).not.toBe('blocked')
 })

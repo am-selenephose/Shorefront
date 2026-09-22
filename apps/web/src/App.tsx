@@ -10,6 +10,7 @@ import type {
   LinkMode,
   OperatorIdentity,
   PortCall,
+  RecoveryContingency,
   RecoveryProposal,
   RecoveryReceipt,
   ScenarioFixture,
@@ -107,6 +108,7 @@ export default function App() {
   const [adapters, setAdapters] = useState<AdapterSnapshot[]>([])
   const [recoveryProposals, setRecoveryProposals] = useState<RecoveryProposal[]>([])
   const [recoveryReceipts, setRecoveryReceipts] = useState<RecoveryReceipt[]>([])
+  const [contingencyNotice, setContingencyNotice] = useState<string | null>(null)
 
   useEffect(() => {
     let ws: WebSocket | undefined
@@ -188,6 +190,7 @@ export default function App() {
   }
 
   async function loadRecovery(token = operatorToken) {
+    setContingencyNotice(null)
     const proposalResponse = await fetch('/api/v1/recovery/proposals')
     if (proposalResponse.ok) {
       const payload = await proposalResponse.json()
@@ -299,6 +302,7 @@ export default function App() {
       setState(payload.harbor)
       setRecoveryProposals(payload.recovery_proposals || [])
       setRecoveryReceipts([])
+      setContingencyNotice(null)
     })
   }
 
@@ -349,9 +353,34 @@ export default function App() {
         },
       )
       if (!response.ok) {
-        if (response.status === 401) disconnectOperator()
+        if (response.status === 401) {
+          disconnectOperator()
+          throw new Error(await response.text())
+        }
+
+        if (response.status === 409) {
+          const payload = await response.json()
+          const detail = payload?.detail as (
+            (RecoveryContingency & { code?: string }) | undefined
+          )
+          if (detail?.code === 'recovery_proposal_stale') {
+            setRecoveryProposals(detail.replacement_proposals || [])
+            const unavailable = detail.unavailable_resource_ids.length > 0
+              ? ' Unavailable: ' + detail.unavailable_resource_ids.join(', ') + '.'
+              : ''
+            setContingencyNotice(
+              'CONTINGENCY · Previous recovery plan is stale.' +
+              unavailable +
+              ' Ranked replacements loaded; a new explicit approval is required.',
+            )
+            await refreshHarbor()
+            return
+          }
+        }
+
         throw new Error(await response.text())
       }
+      setContingencyNotice(null)
       await refreshHarbor()
       await loadRecovery(operatorToken)
     })
@@ -364,6 +393,7 @@ export default function App() {
       setState(await response.json())
       setRecoveryProposals([])
       setRecoveryReceipts([])
+      setContingencyNotice(null)
     })
   }
 
@@ -586,6 +616,7 @@ export default function App() {
             identity={operatorIdentity}
             busy={busy}
             authBusy={authBusy}
+            contingencyNotice={contingencyNotice}
             onApply={applyRecovery}
             onRefresh={loadRecovery}
             onConnect={connectOperator}

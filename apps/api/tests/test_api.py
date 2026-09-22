@@ -1,12 +1,16 @@
+from datetime import datetime, timedelta, timezone
 import hashlib
 import json
+import logging
 import os
+from uuid import uuid4
 
 from fastapi.testclient import TestClient
 
 VIEWER_TOKEN = "viewer-test-token"
 OPERATOR_TOKEN = "operator-test-token"
 SUPERVISOR_TOKEN = "supervisor-test-token"
+INTEGRATION_TOKEN = "vessel-runtime-test-token"
 
 os.environ["PORTFLOW_APPROVERS_JSON"] = json.dumps([
     {
@@ -27,6 +31,15 @@ os.environ["PORTFLOW_APPROVERS_JSON"] = json.dumps([
         "display_name": "Alex Chen",
         "role": "supervisor",
     },
+])
+
+os.environ["PORTFLOW_INTEGRATIONS_JSON"] = json.dumps([
+    {
+        "token_sha256": hashlib.sha256(INTEGRATION_TOKEN.encode()).hexdigest(),
+        "integration_id": "vessel-runtime-aurora",
+        "display_name": "Aurora Runtime",
+        "vessel_ids": ["v-aurora"],
+    }
 ])
 
 from portflow_api.adapters import configured_live_adapters
@@ -443,6 +456,7 @@ def test_live_adapter_preview_reuses_last_good_across_api_requests(monkeypatch):
     with TestClient(app) as client:
         first = client.get("/api/v1/adapters/live-ais/preview")
         second = client.get("/api/v1/adapters/live-ais/preview")
+        third = client.get("/api/v1/adapters/live-ais/preview")
 
     assert first.status_code == 200
     assert first.json()["provenance"]["health"] == "healthy"
@@ -452,7 +466,15 @@ def test_live_adapter_preview_reuses_last_good_across_api_requests(monkeypatch):
     assert second.json()["provenance"]["health"] == "degraded"
     assert second.json()["provenance"]["using_cached_records"] is True
     assert second.json()["provenance"]["consecutive_errors"] == 1
+    assert second.json()["provenance"]["next_retry_at"] is not None
+    assert second.json()["provenance"]["retry_delay_seconds"] > 0
     assert second.json()["records"] == first.json()["records"]
+
+    assert third.status_code == 200
+    assert third.json()["provenance"]["consecutive_errors"] == 1
+    assert third.json()["provenance"]["next_retry_at"] == second.json()["provenance"]["next_retry_at"]
+    assert "Retry backoff active" in third.json()["provenance"]["detail"]
+    assert calls["count"] == 2
 
 
 def test_dual_resource_scenario_exposes_compound_recovery_contract():
@@ -494,3 +516,508 @@ def test_dual_resource_scenario_exposes_compound_recovery_contract():
         assert best["projected_total_delay_minutes"] == 124
         assert best["projected_blocked_services"] == 0
         assert best["disruption_score"] == 149
+
+
+def test_service_duration_calibration_api_enforces_authority_and_provenance():
+    with TestClient(app) as client:
+        client.post("/api/v1/demo/reset")
+
+        initial = client.get("/api/v1/service-duration-calibrations")
+        assert initial.status_code == 200
+        initial_payload = initial.json()
+        assert initial_payload["count"] == 11
+        initial_bunker = next(
+            row for row in initial_payload["calibrations"]
+            if row["service_kind"] == "bunker"
+        )
+        assert initial_bunker["duration_minutes"] == 60
+        assert initial_bunker["mode"] == "synthetic"
+
+        now = datetime.now(timezone.utc).replace(microsecond=0)
+        payload = {
+            "service_kind": "bunker",
+            "duration_minutes": 75,
+            "source_id": "recorded-bunker-calibration-api",
+            "mode": "recorded",
+            "provider": "Terminal service history replay",
+            "observed_at": now.isoformat(),
+            "stale_after_seconds": 86_400,
+            "detail": "Recorded median bunker-service duration.",
+        }
+
+        assert client.post(
+            "/api/v1/service-duration-calibrations",
+            json=payload,
+        ).status_code == 401
+        assert client.post(
+            "/api/v1/service-duration-calibrations",
+            json=payload,
+            headers=auth_headers(VIEWER_TOKEN),
+        ).status_code == 403
+
+        updated = client.post(
+            "/api/v1/service-duration-calibrations",
+            json=payload,
+            headers=auth_headers(OPERATOR_TOKEN),
+        )
+        assert updated.status_code == 200
+        body = updated.json()
+        assert body["calibration"]["duration_minutes"] == 75
+        assert body["calibration"]["mode"] == "recorded"
+        assert body["provenance"]["domain"] == "service_calibration"
+        assert body["updated_by"]["operator_id"] == "operator-17"
+
+        harbor = client.get("/api/v1/harbor").json()
+        calibrated = next(
+            row for row in harbor["service_duration_calibrations"]
+            if row["service_kind"] == "bunker"
+        )
+        assert calibrated["duration_minutes"] == 75
+        assert calibrated["source_id"] == "recorded-bunker-calibration-api"
+        assert all(
+            step["duration_minutes"] == 75
+            for step in harbor["service_steps"]
+            if step["kind"] == "bunker"
+        )
+
+        source = next(
+            row for row in harbor["data_sources"]
+            if row["source_id"] == "recorded-bunker-calibration-api"
+        )
+        assert source["domain"] == "service_calibration"
+        assert source["mode"] == "recorded"
+
+        ledger = client.get("/api/v1/events?limit=50").json()
+        event = next(
+            row for row in ledger
+            if row["category"] == "service_calibration"
+        )
+        assert event["actor_id"] == "operator-17"
+        assert event["actor_role"] == "operator"
+        assert event["source_id"] == "recorded-bunker-calibration-api"
+
+        stale_payload = {
+            **payload,
+            "duration_minutes": 90,
+            "source_id": "stale-bunker-calibration-api",
+            "observed_at": (now - timedelta(days=2)).isoformat(),
+            "stale_after_seconds": 60,
+        }
+        stale = client.post(
+            "/api/v1/service-duration-calibrations",
+            json=stale_payload,
+            headers=auth_headers(OPERATOR_TOKEN),
+        )
+        assert stale.status_code == 409
+
+        after_stale = client.get("/api/v1/harbor").json()
+        bunker_after_stale = next(
+            row for row in after_stale["service_duration_calibrations"]
+            if row["service_kind"] == "bunker"
+        )
+        assert bunker_after_stale["duration_minutes"] == 75
+        assert bunker_after_stale["source_id"] == "recorded-bunker-calibration-api"
+
+
+def test_stale_recovery_apply_returns_ranked_contingency_contract():
+    with TestClient(app) as client:
+        payload = client.post(
+            "/api/v1/scenarios/bunker-loss/run"
+        ).json()
+
+        stale = next(
+            proposal
+            for proposal in payload["recovery_proposals"]
+            if any(
+                action.get("to_resource_id") == "bunker-barge-12"
+                for action in proposal["actions"]
+            )
+        )
+
+        failed_backup = client.post(
+            "/api/v1/incidents",
+            json={
+                "incident_type": "bunker_unavailable",
+                "target_port_call_id": "pc-aurora",
+                "target_resource_id": "bunker-barge-12",
+                "impact_minutes": 0,
+            },
+        )
+        assert failed_backup.status_code == 200
+        assert failed_backup.json()["target_resource_id"] == "bunker-barge-12"
+        assert failed_backup.json()["impact_minutes"] == 0
+
+        stale_apply = client.post(
+            f"/api/v1/recovery/proposals/{stale['id']}/apply",
+            headers=auth_headers(OPERATOR_TOKEN),
+        )
+        assert stale_apply.status_code == 409
+        detail = stale_apply.json()["detail"]
+        assert detail["code"] == "recovery_proposal_stale"
+        assert detail["stale_proposal_id"] == stale["id"]
+        assert detail["target_port_call_id"] == "pc-aurora"
+        assert detail["unavailable_resource_ids"] == ["bunker-barge-12"]
+        assert detail["auto_apply"] is False
+        assert detail["current_state_fingerprint"] != detail["stale_state_fingerprint"]
+
+        replacements = detail["replacement_proposals"]
+        assert replacements
+        assert all(
+            action.get("to_resource_id") != "bunker-barge-12"
+            for proposal in replacements
+            for action in proposal["actions"]
+        )
+        replacement = next(
+            proposal
+            for proposal in replacements
+            if any(
+                action.get("to_resource_id") == "bunker-barge-9"
+                for action in proposal["actions"]
+            )
+        )
+
+        before = client.get(
+            "/api/v1/port-calls/pc-aurora/dependency-graph"
+        ).json()
+        before_nodes = {
+            node["kind"]: node
+            for node in before["nodes"]
+        }
+        assert before_nodes["bunker"]["state"] == "blocked"
+
+        applied = client.post(
+            f"/api/v1/recovery/proposals/{replacement['id']}/apply",
+            headers=auth_headers(OPERATOR_TOKEN),
+        )
+        assert applied.status_code == 200
+        assert applied.json()["resulting_blocked_services"] == 0
+
+        after = client.get(
+            "/api/v1/port-calls/pc-aurora/dependency-graph"
+        ).json()
+        after_nodes = {
+            node["kind"]: node
+            for node in after["nodes"]
+        }
+        assert after_nodes["bunker"]["state"] != "blocked"
+        assert after_nodes["departure"]["state"] != "blocked"
+
+
+def test_readiness_reports_runtime_and_schema_contract():
+    with TestClient(app) as client:
+        health = client.get("/healthz")
+        assert health.status_code == 200
+        assert health.json() == {
+            "ok": True,
+            "service": "portflow-api",
+            "version": "0.15.0",
+        }
+
+        ready = client.get("/readyz")
+        assert ready.status_code == 200
+        payload = ready.json()
+        assert payload["ok"] is True
+        assert payload["runtime_ready"] is True
+        assert payload["schema_mode"] == "migrate"
+        assert payload["schema"]["database_reachable"] is True
+        assert payload["schema"]["compatible"] is True
+        assert payload["schema"]["current_version"] == 3
+        assert payload["schema"]["expected_version"] == 3
+
+
+def _metric_value(payload: str, name: str) -> float:
+    prefix = name + " "
+    for line in payload.splitlines():
+        if line.startswith(prefix):
+            return float(line[len(prefix):])
+    raise AssertionError(f"missing metric {name}")
+
+
+def test_metrics_expose_runtime_domain_counters_and_route_templates():
+    with TestClient(app) as client:
+        client.post("/api/v1/demo/reset")
+
+        before = client.get("/metrics")
+        assert before.status_code == 200
+        assert before.headers["content-type"].startswith(
+            "text/plain; version=0.0.4"
+        )
+        before_text = before.text
+        assert _metric_value(before_text, "portflow_runtime_ready") == 1
+        assert _metric_value(before_text, "portflow_schema_compatible") == 1
+
+        scenario_before = _metric_value(
+            before_text,
+            "portflow_scenario_runs_total",
+        )
+        run = client.post("/api/v1/scenarios/bunker-loss/run")
+        assert run.status_code == 200
+
+        risk = client.get("/api/v1/port-calls/pc-aurora/risk")
+        assert risk.status_code == 200
+
+        after = client.get("/metrics")
+        assert after.status_code == 200
+        after_text = after.text
+
+        assert _metric_value(
+            after_text,
+            "portflow_scenario_runs_total",
+        ) == scenario_before + 1
+        assert 'route="/api/v1/port-calls/{call_id}/risk"' in after_text
+        assert 'route="/api/v1/port-calls/pc-aurora/risk"' not in after_text
+        assert "portflow_active_incidents 1" in after_text
+        assert "portflow_http_requests_total" in after_text
+
+
+def test_http_request_log_is_structured_json(caplog):
+    with caplog.at_level(logging.INFO, logger="uvicorn.error"):
+        with TestClient(app) as client:
+            response = client.get("/healthz")
+
+    assert response.status_code == 200
+    records = [
+        json.loads(record.message)
+        for record in caplog.records
+        if record.name == "uvicorn.error"
+        and record.message.startswith("{")
+    ]
+    health = next(
+        record
+        for record in records
+        if record.get("route") == "/healthz"
+    )
+    assert health["event"] == "http_request"
+    assert health["method"] == "GET"
+    assert health["status"] == 200
+    assert isinstance(health["duration_ms"], (int, float))
+    assert health["duration_ms"] >= 0
+    assert health["timestamp"].endswith("+00:00")
+
+
+def test_scenario_and_recovery_evidence_are_durable_authenticated_audit_surfaces():
+    with TestClient(app) as client:
+        client.post("/api/v1/demo/reset")
+
+        run = client.post("/api/v1/scenarios/bunker-loss/run")
+        assert run.status_code == 200
+        run_payload = run.json()
+        run_id = run_payload["evidence_run_id"]
+        assert run_id.startswith("scenario-run-")
+
+        anonymous = client.get("/api/v1/evidence/scenario-runs")
+        assert anonymous.status_code == 401
+
+        scenario_evidence = client.get(
+            "/api/v1/evidence/scenario-runs",
+            params={"scenario_id": "bunker-loss", "limit": 50},
+            headers=auth_headers(VIEWER_TOKEN),
+        )
+        assert scenario_evidence.status_code == 200
+        runs = scenario_evidence.json()["evidence"]
+        matched = next(item for item in runs if item["run_id"] == run_id)
+        assert matched["scenario"]["id"] == "bunker-loss"
+        assert matched["harbor"]["metrics"]["active_incidents"] == 1
+        assert matched["recovery_proposals"]
+
+        proposal_evidence = client.get(
+            "/api/v1/evidence/recovery-proposals",
+            params={"limit": 100},
+            headers=auth_headers(VIEWER_TOKEN),
+        )
+        assert proposal_evidence.status_code == 200
+        batches = proposal_evidence.json()["evidence"]
+        scenario_batches = [
+            batch
+            for batch in batches
+            if batch["trigger"] == "scenario"
+        ]
+        assert scenario_batches
+        assert any(
+            proposal["id"]
+            in {
+                expected["id"]
+                for expected in matched["recovery_proposals"]
+            }
+            for batch in scenario_batches
+            for proposal in batch["proposals"]
+        )
+
+        pack = client.get(
+            f"/api/v1/evidence/scenario-runs/{run_id}/pack",
+            headers=auth_headers(VIEWER_TOKEN),
+        )
+        assert pack.status_code == 200
+        pack_payload = pack.json()
+        assert pack_payload["pack_version"] == "portflow-evidence-v1"
+        assert len(pack_payload["sha256"]) == 64
+        assert pack_payload["scenario_run"]["run_id"] == run_id
+        assert pack_payload["replay_input"]["scenario_id"] == "bunker-loss"
+        assert pack_payload["replay_input"]["actions"]
+
+        pack_again = client.get(
+            f"/api/v1/evidence/scenario-runs/{run_id}/pack",
+            headers=auth_headers(VIEWER_TOKEN),
+        )
+        assert pack_again.json()["sha256"] == pack_payload["sha256"]
+
+        client.post("/api/v1/demo/reset")
+
+        after_reset = client.get(
+            "/api/v1/evidence/scenario-runs",
+            params={"scenario_id": "bunker-loss", "limit": 50},
+            headers=auth_headers(VIEWER_TOKEN),
+        )
+        assert any(
+            item["run_id"] == run_id
+            for item in after_reset.json()["evidence"]
+        )
+
+        missing_pack = client.get(
+            "/api/v1/evidence/scenario-runs/does-not-exist/pack",
+            headers=auth_headers(VIEWER_TOKEN),
+        )
+        assert missing_pack.status_code == 404
+
+
+def test_public_portfolio_mode_hides_metrics(monkeypatch):
+    monkeypatch.setenv("PORTFLOW_PUBLIC_MODE", "1")
+    with TestClient(app) as client:
+        response = client.get("/metrics")
+    assert response.status_code == 404
+
+
+def test_vessel_runtime_contract_is_advisory_and_versioned():
+    with TestClient(app) as client:
+        response = client.get("/api/v1/integration/contracts")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["event_contract"] == "portflow.vessel-event.v1"
+    assert payload["coordination_contract"] == "portflow.coordination.v1"
+    assert payload["invariants"]["raw_sensor_streams_owned_by_vessel_runtime"] is True
+    assert payload["invariants"]["portflow_accepts_normalized_events_only"] is True
+    assert payload["invariants"]["coordination_is_advisory_only"] is True
+    assert payload["invariants"]["human_approval_required_for_recovery"] is True
+    assert payload["invariants"]["direct_actuation_allowed"] is False
+
+
+def test_vessel_runtime_event_ingest_is_scoped_durable_and_idempotent():
+    event = {
+        "contract_version": "portflow.vessel-event.v1",
+        "event_id": f"evt-aurora-{uuid4().hex[:16]}",
+        "occurred_at": datetime.now(timezone.utc).isoformat(),
+        "vessel_id": "v-aurora",
+        "port_call_id": "pc-aurora",
+        "event_type": "readiness",
+        "sequence": 41,
+        "source_system": "aurora-edge-runtime",
+        "payload": {
+            "navigation_ready": True,
+            "cargo_ready": False,
+            "normalized_note": "awaiting terminal release",
+        },
+        "evidence_refs": ["edge-log-41"],
+    }
+
+    with TestClient(app) as client:
+        missing = client.post(
+            "/api/v1/integration/vessel-events",
+            json=event,
+        )
+        assert missing.status_code == 401
+
+        first = client.post(
+            "/api/v1/integration/vessel-events",
+            headers=auth_headers(INTEGRATION_TOKEN),
+            json=event,
+        )
+        assert first.status_code == 200
+        assert first.json()["duplicate"] is False
+
+        duplicate = client.post(
+            "/api/v1/integration/vessel-events",
+            headers=auth_headers(INTEGRATION_TOKEN),
+            json=event,
+        )
+        assert duplicate.status_code == 200
+        assert duplicate.json()["duplicate"] is True
+        assert duplicate.json()["accepted_at"] == first.json()["accepted_at"]
+
+        listed = client.get(
+            "/api/v1/integration/vessel-events",
+            headers=auth_headers(INTEGRATION_TOKEN),
+        )
+        assert listed.status_code == 200
+        rows = listed.json()["events"]
+        match = next(
+            row for row in rows
+            if row["event"]["event_id"] == event["event_id"]
+        )
+        assert match["integration_id"] == "vessel-runtime-aurora"
+        assert match["event"]["sequence"] == 41
+
+        changed = dict(event)
+        changed["payload"] = {"navigation_ready": False}
+        conflict = client.post(
+            "/api/v1/integration/vessel-events",
+            headers=auth_headers(INTEGRATION_TOKEN),
+            json=changed,
+        )
+        assert conflict.status_code == 409
+
+
+def test_vessel_runtime_identity_is_vessel_scoped_and_not_an_operator():
+    unauthorized = {
+        "contract_version": "portflow.vessel-event.v1",
+        "event_id": "evt-other-vessel-0001",
+        "occurred_at": datetime.now(timezone.utc).isoformat(),
+        "vessel_id": "v-glory",
+        "port_call_id": "pc-glory",
+        "event_type": "eta",
+        "sequence": 1,
+        "source_system": "other-edge-runtime",
+        "payload": {"eta_minutes": 12},
+    }
+
+    with TestClient(app) as client:
+        denied = client.post(
+            "/api/v1/integration/vessel-events",
+            headers=auth_headers(INTEGRATION_TOKEN),
+            json=unauthorized,
+        )
+        assert denied.status_code == 403
+
+        client.post("/api/v1/demo/reset")
+        scenario = client.post(
+            "/api/v1/scenarios/bunker-loss/run"
+        ).json()
+        proposal_id = scenario["recovery_proposals"][0]["id"]
+
+        apply_attempt = client.post(
+            f"/api/v1/recovery/proposals/{proposal_id}/apply",
+            headers=auth_headers(INTEGRATION_TOKEN),
+        )
+        assert apply_attempt.status_code == 401
+
+
+def test_vessel_coordination_snapshot_is_advisory_only():
+    with TestClient(app) as client:
+        client.post("/api/v1/demo/reset")
+        response = client.get(
+            "/api/v1/integration/port-calls/pc-aurora/coordination",
+            headers=auth_headers(INTEGRATION_TOKEN),
+        )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["contract_version"] == "portflow.coordination.v1"
+    assert payload["port_call_id"] == "pc-aurora"
+    assert payload["vessel_id"] == "v-aurora"
+    assert payload["advisory_only"] is True
+    assert payload["requires_human_approval"] is True
+    assert payload["actuation_allowed"] is False
+    assert all(
+        proposal["requires_approval"] is True
+        for proposal in payload["recovery_proposals"]
+    )

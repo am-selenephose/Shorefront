@@ -14,12 +14,33 @@ services:
       retries: 20
     restart: unless-stopped
 
+  migrate:
+    image: portflow-api:${PORTFLOW_IMAGE_TAG:-v0.15.0}
+    environment:
+      DATABASE_URL: postgresql+psycopg://portflow:${PORTFLOW_DB_PASSWORD:?PORTFLOW_DB_PASSWORD is required}@postgres:5432/portflow
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command:
+      [
+        "uv",
+        "run",
+        "--no-sync",
+        "python",
+        "-m",
+        "portflow_api.migrate"
+      ]
+    restart: "no"
+
   api:
+    image: portflow-api:${PORTFLOW_IMAGE_TAG:-v0.15.0}
     build:
       context: ./apps/api
     environment:
       DATABASE_URL: postgresql+psycopg://portflow:${PORTFLOW_DB_PASSWORD:?PORTFLOW_DB_PASSWORD is required}@postgres:5432/portflow
+      PORTFLOW_SCHEMA_MODE: verify
       PORTFLOW_APPROVERS_JSON: ${PORTFLOW_APPROVERS_JSON:?PORTFLOW_APPROVERS_JSON is required}
+      PORTFLOW_INTEGRATIONS_JSON: ${PORTFLOW_INTEGRATIONS_JSON:-[]}
       PORTFLOW_AIS_URL: ${PORTFLOW_AIS_URL:-}
       PORTFLOW_AIS_PROVIDER: ${PORTFLOW_AIS_PROVIDER:-}
       PORTFLOW_WEATHER_URL: ${PORTFLOW_WEATHER_URL:-}
@@ -27,8 +48,8 @@ services:
       PORTFLOW_BERTH_PLAN_URL: ${PORTFLOW_BERTH_PLAN_URL:-}
       PORTFLOW_BERTH_PLAN_PROVIDER: ${PORTFLOW_BERTH_PLAN_PROVIDER:-}
     depends_on:
-      postgres:
-        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
     expose:
       - "8100"
     healthcheck:
@@ -40,14 +61,16 @@ services:
           "--no-sync",
           "python",
           "-c",
-          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8100/healthz').read()"
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8100/readyz').read()"
         ]
       interval: 10s
       timeout: 4s
       retries: 10
+      start_period: 5s
     restart: unless-stopped
 
   web:
+    image: portflow-web:${PORTFLOW_IMAGE_TAG:-v0.15.0}
     build:
       context: ./apps/web
     depends_on:
