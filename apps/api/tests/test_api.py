@@ -1,6 +1,7 @@
 from datetime import datetime, timedelta, timezone
 import hashlib
 import json
+import logging
 import os
 
 from fastapi.testclient import TestClient
@@ -711,3 +712,73 @@ def test_readiness_reports_runtime_and_schema_contract():
         assert payload["schema"]["compatible"] is True
         assert payload["schema"]["current_version"] == 1
         assert payload["schema"]["expected_version"] == 1
+
+
+def _metric_value(payload: str, name: str) -> float:
+    prefix = name + " "
+    for line in payload.splitlines():
+        if line.startswith(prefix):
+            return float(line[len(prefix):])
+    raise AssertionError(f"missing metric {name}")
+
+
+def test_metrics_expose_runtime_domain_counters_and_route_templates():
+    with TestClient(app) as client:
+        client.post("/api/v1/demo/reset")
+
+        before = client.get("/metrics")
+        assert before.status_code == 200
+        assert before.headers["content-type"].startswith(
+            "text/plain; version=0.0.4"
+        )
+        before_text = before.text
+        assert _metric_value(before_text, "portflow_runtime_ready") == 1
+        assert _metric_value(before_text, "portflow_schema_compatible") == 1
+
+        scenario_before = _metric_value(
+            before_text,
+            "portflow_scenario_runs_total",
+        )
+        run = client.post("/api/v1/scenarios/bunker-loss/run")
+        assert run.status_code == 200
+
+        risk = client.get("/api/v1/port-calls/pc-aurora/risk")
+        assert risk.status_code == 200
+
+        after = client.get("/metrics")
+        assert after.status_code == 200
+        after_text = after.text
+
+        assert _metric_value(
+            after_text,
+            "portflow_scenario_runs_total",
+        ) == scenario_before + 1
+        assert 'route="/api/v1/port-calls/{call_id}/risk"' in after_text
+        assert 'route="/api/v1/port-calls/pc-aurora/risk"' not in after_text
+        assert "portflow_active_incidents 1" in after_text
+        assert "portflow_http_requests_total" in after_text
+
+
+def test_http_request_log_is_structured_json(caplog):
+    with caplog.at_level(logging.INFO, logger="uvicorn.error"):
+        with TestClient(app) as client:
+            response = client.get("/healthz")
+
+    assert response.status_code == 200
+    records = [
+        json.loads(record.message)
+        for record in caplog.records
+        if record.name == "uvicorn.error"
+        and record.message.startswith("{")
+    ]
+    health = next(
+        record
+        for record in records
+        if record.get("route") == "/healthz"
+    )
+    assert health["event"] == "http_request"
+    assert health["method"] == "GET"
+    assert health["status"] == 200
+    assert isinstance(health["duration_ms"], (int, float))
+    assert health["duration_ms"] >= 0
+    assert health["timestamp"].endswith("+00:00")

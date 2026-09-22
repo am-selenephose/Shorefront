@@ -4,7 +4,7 @@ PortFlow is a port-call operations control tower for continuously updated vessel
 
 ## Status
 
-Private portfolio build, v0.15 calibration + retry/backoff + contingency recovery + deployment hardening.
+Private portfolio build, v0.15 calibration + retry/backoff + contingency recovery + deployment hardening + TLS/observability.
 
 ## Product principles
 
@@ -1688,4 +1688,117 @@ Current gate after calibration + retry/backoff + contingency + deployment harden
 - PostgreSQL backup/reset/restore round-trip passes
 - GitHub CI now validates production Compose, operator-script syntax, and both Docker images
 
-The next v0.15 deployment work is HTTPS termination, structured metrics/logging, and durable proposal/evidence snapshots.
+The next v0.15 deployment work after this checkpoint is durable proposal/evidence snapshots and public portfolio deployment.
+
+
+## v0.15 TLS and observability proof
+
+### Optional HTTPS overlay
+
+PortFlow now includes docker-compose.tls.yml as an opt-in production overlay.
+
+The base production stack remains usable on HTTP for local/private environments. Adding the TLS overlay provides:
+
+- HTTP -> HTTPS 308 redirect
+- TLS 1.2 and TLS 1.3 only
+- mounted deployment certificate/private key
+- HSTS
+- X-Content-Type-Options: nosniff
+- X-Frame-Options: DENY
+- Referrer-Policy: no-referrer
+- Permissions-Policy disabling camera, microphone, and geolocation
+- Cross-Origin-Opener-Policy: same-origin
+- REST, WebSocket, health, and readiness proxying over the HTTPS origin
+
+The plain HTTP Nginx profile also emits the non-HSTS security headers.
+
+TLS deployment variables are documented in .env.example:
+
+- PORTFLOW_HTTPS_PORT
+- PORTFLOW_PUBLIC_HTTPS_ORIGIN
+- PORTFLOW_TLS_CERT_FILE
+- PORTFLOW_TLS_KEY_FILE
+
+### Metrics boundary
+
+The API exposes an internal Prometheus-text /metrics endpoint.
+
+Current gauges:
+
+- portflow_runtime_ready
+- portflow_schema_compatible
+- portflow_authorization_configured
+- portflow_active_incidents
+- portflow_blocked_services
+- portflow_stale_data_sources
+
+Current counters:
+
+- portflow_calibration_updates_total
+- portflow_adapter_ingests_total
+- portflow_recovery_approvals_total
+- portflow_recovery_contingencies_total
+- portflow_replay_acks_total
+- portflow_scenario_runs_total
+- portflow_http_requests_total with method, route template, and status labels
+
+HTTP metrics use FastAPI route templates rather than concrete entity ids, avoiding an unbounded path-label cardinality pattern.
+
+Operational metrics are intentionally not exposed through the public Nginx origin. Public /metrics returns 404. A monitoring collector should scrape the API from the trusted internal network.
+
+### Structured request logging
+
+Every HTTP request emits a JSON event through the Uvicorn logging pipeline.
+
+The record contains:
+
+- UTC timestamp
+- event=http_request
+- HTTP method
+- route template
+- response status
+- duration_ms
+
+Bodies, bearer credentials, query strings, and entity ids embedded in concrete paths are not copied into the structured request record.
+
+### TLS and observability runtime proof
+
+An isolated PostgreSQL-backed production stack was booted with a one-day self-signed proof certificate.
+
+Verified runtime behavior:
+
+- HTTPS /readyz -> 200
+- negotiated HTTP/2 through Nginx
+- schema verify mode remained healthy
+- Strict-Transport-Security present
+- nosniff, DENY frame policy, no-referrer, Permissions-Policy, and COOP headers present
+- HTTP request to /proof?x=1 -> 308 with query-preserving HTTPS Location
+- public HTTPS /metrics -> 404
+- bunker-loss scenario executed through HTTPS
+- internal metrics reported runtime_ready=1
+- internal metrics reported schema_compatible=1
+- internal metrics reported active_incidents=1
+- internal metrics reported blocked_services=4
+- scenario_runs_total incremented to 1
+- HTTP counter used /api/v1/scenarios/{scenario_id}/run as the label
+- container log emitted a JSON request record for the scenario POST with status 200 and duration_ms
+- Nginx runtime config confirmed ssl_protocols TLSv1.2 TLSv1.3
+
+### v0.15 TLS/observability gate
+
+Current gate:
+
+- 91 backend/domain/API/storage/recovery/security/scenario/adapter/calendar/resilience/confidence/capacity/compound/calibration/backoff/contingency/schema/readiness/observability tests
+- Python compile passes
+- production TypeScript/Vite build passes
+- npm audit reports 0 vulnerabilities
+- 5 real Chromium E2Es pass
+- base production Compose renders
+- TLS overlay Compose renders
+- API and web Docker images build from current source
+- isolated HTTPS + secure-header runtime proof passes
+- internal Prometheus metrics runtime proof passes
+- structured JSON request logging runtime proof passes
+- GitHub CI validates both base and TLS Compose configurations
+
+The remaining v0.15 work is durable proposal/evidence snapshots, then a public portfolio deployment while preserving synthetic-data labeling.

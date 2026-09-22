@@ -854,3 +854,77 @@ The restore sequence is:
       -> /readyz
 
 The tested round-trip restored both the canonical snapshot and durable incident rows after a deliberate state wipe.
+
+
+## v0.15 TLS and observability boundary
+
+TLS termination is implemented as an optional Compose overlay around the existing Nginx web service.
+
+The external path is:
+
+    client
+      -> HTTP 308 redirect
+      -> Nginx TLS 1.2/1.3
+      -> secure response headers
+      -> static React / REST / WebSocket / readiness proxy
+      -> internal FastAPI service
+
+Certificate and key material remain deployment inputs and are never stored in the repository.
+
+HSTS exists only in the TLS server block. The base HTTP profile still emits the non-HSTS hardening headers.
+
+### Observability model
+
+FastAPI HTTP middleware records a low-cardinality request metric and a structured JSON log after every HTTP response.
+
+Request metrics use:
+
+    method + route template + status
+
+rather than raw URL paths.
+
+This ensures ids such as call ids, proposal ids, and adapter ids do not become unbounded metric label values.
+
+Domain counters are incremented at authoritative mutation boundaries rather than inferred from UI events:
+
+- calibration update after accepted canonical mutation
+- adapter ingest after accepted ingest
+- recovery approval after a successful apply
+- contingency when stale approval returns structured replacement state
+- replay ACK count from durable replay results
+- canonical scenario run after scenario execution
+
+Dynamic gauges are derived from runtime/readiness state and the already-canonical harbor overview. Scraping metrics does not call external adapters.
+
+### Metrics exposure policy
+
+FastAPI exposes /metrics on the internal API service.
+
+Both base and TLS Nginx configurations explicitly return 404 for public /metrics.
+
+This keeps operational telemetry off the public portfolio origin while preserving a standard internal Prometheus scrape surface.
+
+### Structured logs
+
+HTTP request JSON is emitted through the Uvicorn logging pipeline with:
+
+- timestamp
+- event
+- method
+- route template
+- status
+- duration_ms
+
+The middleware deliberately excludes request bodies, credentials, and query strings.
+
+### TLS overlay
+
+docker-compose.tls.yml mounts:
+
+- nginx.tls.conf.template
+- deployment certificate
+- deployment private key
+
+The official Nginx entrypoint substitutes only the deployment HTTPS origin into the template before startup.
+
+The HTTPS server proxies health/readiness, REST, and WebSocket traffic while the port-80 server performs a permanent redirect preserving request_uri.

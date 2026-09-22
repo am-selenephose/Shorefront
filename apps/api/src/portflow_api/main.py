@@ -5,12 +5,13 @@ import os
 from datetime import datetime, timezone
 from contextlib import asynccontextmanager
 
-from fastapi import Depends, FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import Depends, FastAPI, HTTPException, Response, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
 from .adapters import get_adapter_snapshot, list_adapter_snapshots
 from .domain import detect_berth_conflicts, score_port_call
+from .observability import metrics, observe_http
 from .models import (
     AdapterHealth, DataDomain, DataSourceMode, DataSourceProvenance, IncidentType,
     LinkMode, OperatorIdentity, ServiceDurationCalibration, ServiceKind,
@@ -75,6 +76,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="PortFlow API", version="0.15.0", lifespan=lifespan)
+app.middleware("http")(observe_http)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
@@ -138,6 +140,21 @@ def readyz():
     return payload
 
 
+@app.get("/metrics")
+def prometheus_metrics():
+    schema = store.schema_status()
+    harbor_metrics = sim.overview().metrics if _runtime_ready else None
+    return Response(
+        content=metrics.render(
+            runtime_ready=_runtime_ready,
+            schema_compatible=bool(schema["compatible"]),
+            authorization_configured=bool(configured_approvers()),
+            harbor_metrics=harbor_metrics,
+        ),
+        media_type="text/plain; version=0.0.4",
+    )
+
+
 @app.get("/api/v1/auth/me")
 def auth_me(identity: OperatorIdentity = Depends(current_operator)):
     return identity
@@ -199,6 +216,7 @@ def update_service_duration_calibration(
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
 
+    metrics.inc("portflow_calibration_updates_total")
     return {
         "calibration": updated,
         "provenance": provenance,
@@ -238,6 +256,7 @@ def adapter_ingest(
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
 
+    metrics.inc("portflow_adapter_ingests_total")
     return {
         "adapter": snapshot.provenance,
         "applied_records": applied,
@@ -288,6 +307,7 @@ def run_scenario(scenario_id: str):
                 impact_minutes=action.impact_minutes,
             )
 
+    metrics.inc("portflow_scenario_runs_total")
     return {
         "scenario": scenario,
         "harbor": sim.overview(),
@@ -354,13 +374,16 @@ def apply_recovery_proposal(
     identity: OperatorIdentity = Depends(recovery_approver),
 ):
     try:
-        return sim.apply_recovery_proposal(
+        receipt = sim.apply_recovery_proposal(
             proposal_id,
             approved_by=identity.operator_id,
             approved_role=identity.role,
             approved_display_name=identity.display_name,
         )
+        metrics.inc("portflow_recovery_approvals_total")
+        return receipt
     except RecoveryProposalStaleError as exc:
+        metrics.inc("portflow_recovery_contingencies_total")
         raise HTTPException(
             status_code=409,
             detail={
@@ -396,6 +419,7 @@ def replay_receipts(limit: int = 100):
 @app.post("/api/v1/replay")
 def replay_now():
     receipts = store.replay_outbound_events(lambda event: True)
+    metrics.inc("portflow_replay_acks_total", len(receipts))
     sim._refresh_queued_count()
     sim._persist()
     return {

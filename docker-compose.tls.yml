@@ -1,0 +1,20 @@
+services:
+  web:
+    environment:
+      PORTFLOW_PUBLIC_HTTPS_ORIGIN: ${PORTFLOW_PUBLIC_HTTPS_ORIGIN:?PORTFLOW_PUBLIC_HTTPS_ORIGIN is required}
+    volumes:
+      - ./apps/web/nginx.tls.conf.template:/etc/nginx/templates/default.conf.template:ro
+      - ${PORTFLOW_TLS_CERT_FILE:?PORTFLOW_TLS_CERT_FILE is required}:/etc/nginx/tls/tls.crt:ro
+      - ${PORTFLOW_TLS_KEY_FILE:?PORTFLOW_TLS_KEY_FILE is required}:/etc/nginx/tls/tls.key:ro
+    ports:
+      - "${PORTFLOW_HTTPS_PORT:-8443}:443"
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "wget --no-check-certificate -q -O /dev/null https://127.0.0.1/readyz || exit 1"
+        ]
+      interval: 10s
+      timeout: 4s
+      retries: 10
+      start_period: 5s
