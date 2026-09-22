@@ -35,3 +35,17 @@ jobs:
       - run: npm ci
       - run: npm run build
       - run: npm audit --omit=dev --audit-level=high
+
+  deployment:
+    runs-on: ubuntu-latest
+    env:
+      PORTFLOW_DB_PASSWORD: ci-placeholder
+      PORTFLOW_APPROVERS_JSON: '[]'
+      PORTFLOW_IMAGE_TAG: ci
+    steps:
+      - uses: actions/checkout@v4
+      - run: bash -n ops/backup-postgres.sh
+      - run: bash -n ops/restore-postgres.sh
+      - run: docker compose -f docker-compose.prod.yml config >/dev/null
+      - run: docker build -t portflow-api:ci apps/api
+      - run: docker build -t portflow-web:ci apps/web
