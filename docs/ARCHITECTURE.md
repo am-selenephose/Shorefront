@@ -1008,3 +1008,56 @@ Production remains:
     one-shot migrate
       -> API verify mode
       -> /readyz
+
+
+## v0.15 public single-origin portfolio boundary
+
+The public portfolio deployment deliberately remains separate from the containerized production topology.
+
+BasicDeploy provides the outer HTTPS proxy and PostgreSQL service. PortFlow binds FastAPI directly to 0.0.0.0:8080 and optionally mounts the prebuilt React frontend at the root through PORTFLOW_STATIC_DIR.
+
+The public flow is:
+
+    public HTTPS request
+      -> BasicDeploy proxy
+      -> FastAPI :8080
+      -> API route / WebSocket / readiness
+      -> React StaticFiles fallback for frontend routes
+      -> PostgreSQL search_path=portflow_portfolio
+
+This profile avoids adding a second Nginx process inside a 256 MB Free container.
+
+### Public-mode boundary
+
+PORTFLOW_PUBLIC_MODE=1 changes only exposure policy, not domain behavior.
+
+In public mode:
+
+- /metrics returns 404
+- recovery approval still requires configured operator credentials
+- evidence access still requires an authenticated identity
+- synthetic scenario/reset surfaces remain available as a shared portfolio sandbox
+
+The public profile does not enable live adapters or silently upgrade data confidence.
+
+### Database URL portability
+
+Hosting providers commonly supply postgres:// or postgresql:// connection URLs.
+
+PortFlow standardizes both to the SQLAlchemy psycopg v3 dialect form:
+
+    postgresql+psycopg://
+
+The BasicDeploy boot additionally injects the isolated schema search_path into the normalized URL.
+
+### Wake lifecycle
+
+BasicDeploy Free containers may sleep when idle.
+
+The executable /workspace/.bd_boot.sh is the authoritative wake command.
+
+The hook is POSIX-sh compatible and guarded by /workspace/.portflow-boot.lock.
+
+The lock stores the boot/server PID. If a second wake hook starts while that PID is alive, it exits without launching a duplicate server. After a real sleep/restart, a stale PID is detected and the lock is safely replaced before boot.
+
+This keeps auto-wake idempotent while preserving the single-process Uvicorn deployment.

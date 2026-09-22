@@ -102,10 +102,18 @@ class ReplayReceiptRow(Base):
     attempts: Mapped[int] = mapped_column(Integer, nullable=False)
 
 
+def normalize_database_url(url: str) -> str:
+    if url.startswith("postgres://"):
+        return "postgresql+psycopg://" + url[len("postgres://"):]
+    if url.startswith("postgresql://"):
+        return "postgresql+psycopg://" + url[len("postgresql://"):]
+    return url
+
+
 def default_database_url() -> str:
     configured = os.getenv("DATABASE_URL")
     if configured:
-        return configured
+        return normalize_database_url(configured)
     data_dir = Path(os.getenv("PORTFLOW_DATA_DIR", ".data"))
     data_dir.mkdir(parents=True, exist_ok=True)
     return f"sqlite:///{(data_dir / 'portflow.db').resolve()}"
@@ -113,7 +121,11 @@ def default_database_url() -> str:
 
 class OperationsStore:
     def __init__(self, database_url: str | None = None):
-        url = database_url or default_database_url()
+        url = (
+            normalize_database_url(database_url)
+            if database_url is not None
+            else default_database_url()
+        )
         kwargs = {"pool_pre_ping": True}
         if url.startswith("sqlite:"):
             kwargs["connect_args"] = {"check_same_thread": False}

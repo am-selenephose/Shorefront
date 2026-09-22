@@ -867,3 +867,10 @@ def test_scenario_and_recovery_evidence_are_durable_authenticated_audit_surfaces
             headers=auth_headers(VIEWER_TOKEN),
         )
         assert missing_pack.status_code == 404
+
+
+def test_public_portfolio_mode_hides_metrics(monkeypatch):
+    monkeypatch.setenv("PORTFLOW_PUBLIC_MODE", "1")
+    with TestClient(app) as client:
+        response = client.get("/metrics")
+    assert response.status_code == 404

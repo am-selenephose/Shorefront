@@ -7,7 +7,7 @@ from portflow_api.adapters import HttpJsonAdapter, configured_live_adapters, get
 from portflow_api.domain import detect_berth_conflicts
 from portflow_api.models import AdapterHealth, DataDomain, DataSourceMode, DataSourceProvenance, IncidentType, LinkMode, OperatorRole, ResourceUnavailableWindow, ServiceDurationCalibration, ServiceKind
 from portflow_api.simulator import HarborSimulator, RecoveryProposalStaleError
-from portflow_api.storage import OperationsStore
+from portflow_api.storage import OperationsStore, normalize_database_url
 
 
 def make_store(tmp_path: Path) -> OperationsStore:
@@ -1756,3 +1756,18 @@ def test_recovery_evidence_restores_stale_contingency_after_restart(tmp_path):
     retained = store.list_recovery_proposal_evidence(limit=20)
     assert any(batch.evidence_id == planning_batch.evidence_id for batch in retained)
     assert any(batch.evidence_id == linked.evidence_id for batch in retained)
+
+
+def test_database_url_normalizes_postgres_to_psycopg_driver():
+    assert normalize_database_url(
+        "postgres://user:pass@example.invalid:5432/portflow"
+    ) == "postgresql+psycopg://user:pass@example.invalid:5432/portflow"
+    assert normalize_database_url(
+        "postgresql://user:pass@example.invalid:5432/portflow?sslmode=require"
+    ) == (
+        "postgresql+psycopg://user:pass@example.invalid:5432/"
+        "portflow?sslmode=require"
+    )
+    assert normalize_database_url(
+        "postgresql+psycopg://user:pass@example.invalid/portflow"
+    ) == "postgresql+psycopg://user:pass@example.invalid/portflow"

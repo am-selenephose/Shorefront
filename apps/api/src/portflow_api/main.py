@@ -152,8 +152,16 @@ def readyz():
     return payload
 
 
+def public_portfolio_mode() -> bool:
+    return os.getenv("PORTFLOW_PUBLIC_MODE", "").strip().lower() in {
+        "1", "true", "yes", "on"
+    }
+
+
 @app.get("/metrics")
 def prometheus_metrics():
+    if public_portfolio_mode():
+        raise HTTPException(status_code=404, detail="Not found")
     schema = store.schema_status()
     harbor_metrics = sim.overview().metrics if _runtime_ready else None
     return Response(

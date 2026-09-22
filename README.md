@@ -1950,3 +1950,143 @@ Current local gate:
 - content-addressed evidence pack survives API restart
 
 The remaining productization work is public portfolio deployment and the documented event/API boundary for a future vessel-side intelligence runtime.
+
+
+## v0.15 public portfolio deployment proof
+
+### Live portfolio URL
+
+PortFlow is publicly reachable at:
+
+    https://b2gdjx1c.basicdeploy.com
+
+The public deployment is intentionally a shared synthetic portfolio sandbox. It is not a live port feed, not a customer tenancy, and not an operational production control plane.
+
+### Single-origin BasicDeploy runtime
+
+BasicDeploy proxies the public HTTPS hostname to port 8080 inside the container.
+
+The public deployment therefore runs:
+
+    BasicDeploy HTTPS proxy
+      -> FastAPI on 0.0.0.0:8080
+      -> REST / WebSocket / readiness
+      -> optional built React frontend from PORTFLOW_STATIC_DIR
+      -> PostgreSQL schema portflow_portfolio
+
+The frontend and API share one origin, so no separate public API hostname or CORS deployment layer is required for the portfolio build.
+
+### Public safety boundary
+
+The public boot profile sets:
+
+    PORTFLOW_SCHEMA_MODE=verify
+    PORTFLOW_STATIC_DIR=/workspace/portflow/apps/web/dist
+    PORTFLOW_PUBLIC_MODE=1
+    PORTFLOW_APPROVERS_JSON=[]
+
+Consequences:
+
+- schema migration runs before verify-mode startup
+- recovery approval remains unavailable to anonymous public visitors
+- evidence APIs remain authentication-protected
+- public /metrics returns 404
+- scenario/reset endpoints operate only on the shared synthetic demo state
+
+Internal metrics remain available in non-public deployment profiles.
+
+### Synthetic labeling proof
+
+Outside-in public API verification returned the explicit disclaimer:
+
+    Demonstration only. No live external feeds are active. Vessel, port-call, weather, risk, incident, service, and operational data are synthetic.
+
+The active public sources were:
+
+- synthetic-ais / synthetic
+- synthetic-weather / synthetic
+- synthetic-berth-plan / synthetic
+- synthetic-service-calibration / synthetic
+
+Running the public bunker-loss fixture produced:
+
+- scenario = bunker-loss
+- active incidents = 1
+- blocked services = 4
+- recovery decision confidence = DEMO only
+
+The public portfolio therefore does not present synthetic state as live maritime operations.
+
+### PostgreSQL compatibility fix discovered by live deploy
+
+The first BasicDeploy boot exposed a real portability bug.
+
+BasicDeploy provides a standard postgres:// or postgresql:// DATABASE_URL, while PortFlow uses psycopg v3.
+
+Without normalization, SQLAlchemy selected the legacy psycopg2 dialect and boot failed with:
+
+    ModuleNotFoundError: No module named 'psycopg2'
+
+The fix is applied in two layers:
+
+- OperationsStore centrally normalizes postgres:// and postgresql:// to postgresql+psycopg://
+- the BasicDeploy boot URL, after applying its schema search_path, is also normalized to postgresql+psycopg://
+
+A regression test now locks the central normalization behavior.
+
+### Free-plan cold-start / wake resilience
+
+BasicDeploy Free containers auto-sleep.
+
+BasicDeploy invokes /workspace/.bd_boot.sh on wake, so the deployment registers the PortFlow boot script there.
+
+Live sleep/wake testing exposed two additional deployment bugs and closed both:
+
+1. BasicDeploy executes the wake hook through POSIX sh, so Bash-only set -o pipefail failed.
+2. Concurrent wake triggers could launch two Uvicorn processes and race for port 8080.
+
+The final hook is POSIX sh-compatible and uses a PID-backed atomic boot lock.
+
+Clean sleep/wake proof:
+
+- first request displayed BasicDeploy's temporary Waking up page
+- wake hook migrated/verified schema v2
+- exactly one Uvicorn process remained
+- lock PID matched the Uvicorn PID
+- /healthz returned 200
+- /readyz returned schema v2 compatible
+- no duplicate bind error occurred
+
+The Free deployment can therefore cold-start after idle sleep without a manual app restart. It still has a cold-start delay by design.
+
+### Source-only public deploy bundle
+
+deploy/basicdeploy_bundle.sh packages only:
+
+- deploy/basicdeploy_boot.sh
+- deploy/basicdeploy_prepare.sh
+- API src/
+- API pyproject.toml
+- API uv.lock
+- built web dist/
+
+The helper rejects accidental .venv or __pycache__ content.
+
+Current proof bundle size is approximately 464 KB rather than the 23 MB runtime-contaminated archive produced when a live virtual environment was accidentally included during an intermediate re-pack.
+
+### Public deployment gate
+
+Current gate:
+
+- 96 backend/domain/API/storage/recovery/security/scenario/adapter/calendar/resilience/confidence/capacity/compound/calibration/backoff/contingency/schema/readiness/observability/evidence/public-mode tests
+- source-only deploy bundle generation passes
+- deploy scripts pass POSIX sh syntax validation
+- public HTTPS /healthz passes
+- public HTTPS /readyz reports schema v2 compatible
+- public /metrics returns 404
+- public harbor state preserves explicit synthetic disclaimer
+- public recovery confidence remains DEMO for synthetic-only scenario state
+- Free-plan sleep/wake cold-start passes with one Uvicorn process
+- live BasicDeploy PostgreSQL boot passes with psycopg v3 URL normalization
+
+The remaining v0.15 architecture work is the documented event/API boundary for a future vessel-side intelligence runtime without coupling repositories.
