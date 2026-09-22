@@ -64,6 +64,13 @@ test('operator ingests healthy recorded AIS while stale adapter stays blocked', 
   await expect(staleAdapter).toBeVisible()
   await expect(staleAdapter.getByRole('button', { name: 'Stale blocked' })).toBeDisabled()
 
+  const liveBackoffAdapter = page.locator('[data-adapter-id="live-ais"]')
+  await expect(liveBackoffAdapter).toBeVisible()
+  await expect(liveBackoffAdapter).toContainText('RETRY BACKOFF')
+  await expect(
+    liveBackoffAdapter.getByRole('button', { name: 'Retry scheduled' }),
+  ).toBeDisabled()
+
   const aisAdapter = page.locator('[data-adapter-id="recorded-ais"]')
   await expect(aisAdapter.getByRole('button', { name: 'Authenticate' })).toBeDisabled()
 

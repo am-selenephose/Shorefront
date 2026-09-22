@@ -137,6 +137,9 @@ class DataSourceProvenance(BaseModel):
     record_count: int = 0
     detail: str | None = None
     last_success_at: datetime | None = None
+    last_attempt_at: datetime | None = None
+    next_retry_at: datetime | None = None
+    retry_delay_seconds: int = 0
     consecutive_errors: int = 0
     using_cached_records: bool = False
 

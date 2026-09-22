@@ -4,7 +4,7 @@ PortFlow is a port-call operations control tower for continuously updated vessel
 
 ## Status
 
-Private portfolio build, v0.15 provenance-bound service-duration calibration.
+Private portfolio build, v0.15 provenance-bound calibration + live-adapter retry/backoff.
 
 ## Product principles
 
@@ -1413,4 +1413,71 @@ Current gate for this increment:
 - existing Chromium recovery E2Es
 - version metadata aligned at 0.15.0
 
-The next v0.15 increment is retry/backoff and contingency scheduling, followed by hosted deployment hardening.
+The next v0.15 increment after calibration is the retry/backoff state machine documented below.
+
+
+## v0.15 retry/backoff proof
+
+### Bounded live-adapter retry state
+
+Live HTTP adapters no longer attempt an upstream request on every preview refresh after a failure.
+
+After a transport or payload failure, PortFlow records:
+
+- last_attempt_at
+- consecutive_errors
+- retry_delay_seconds
+- next_retry_at
+- last_success_at
+- whether last-known-good records are being shown
+
+The first retry delay is based on a 5-second default. Repeated failures use exponential growth capped at 300 seconds.
+
+A deterministic ±20% jitter is derived from adapter id + error count. This spreads retries without introducing non-reproducible test behavior.
+
+### Retry suppression
+
+If a preview request arrives before next_retry_at:
+
+- the upstream loader is not called
+- consecutive_errors does not increase
+- last_attempt_at does not change
+- the existing cached/error state is returned
+- the response explicitly says retry backoff is active
+
+Once next_retry_at is reached, the next preview is allowed to contact the upstream provider.
+
+A successful live response clears:
+
+- consecutive_errors -> 0
+- next_retry_at -> null
+- retry_delay_seconds -> 0
+
+Healthy last-known-good cache semantics remain unchanged.
+
+### UI and API observability
+
+Adapter preview provenance exposes the retry state directly.
+
+The Data Sources UI shows:
+
+- RETRY BACKOFF
+- the current retry-delay window
+- the next scheduled retry time
+- Retry scheduled on the disabled ingest action
+
+The existing stale/degraded/non-ingestible boundary remains intact.
+
+### v0.15 retry increment verification
+
+Current gate after calibration + retry/backoff:
+
+- 84 backend/domain/API/storage/recovery/security/scenario/adapter/calendar/resilience/confidence/capacity/compound/calibration/backoff tests
+- Python compile
+- production TypeScript/Vite build
+- npm audit with 0 vulnerabilities
+- 4 real Chromium E2Es, including visible retry-backoff state for a deliberately unavailable live adapter
+- fresh API and WEB Docker builds pass
+- isolated runtime proof confirms immediate retry suppression and larger due-time backoff
+
+The next v0.15 increment is contingency scheduling, then deployment hardening.

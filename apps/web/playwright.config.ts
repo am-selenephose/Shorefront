@@ -42,6 +42,8 @@ export default defineConfig({
       env: {
         PORTFLOW_APPROVERS_JSON: approvers,
         PORTFLOW_DATA_DIR: e2eDataDir,
+        PORTFLOW_AIS_URL: 'http://127.0.0.1:9/e2e-unavailable',
+        PORTFLOW_AIS_PROVIDER: 'E2E unavailable AIS',
       },
     },
     {

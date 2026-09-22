@@ -445,6 +445,7 @@ def test_live_adapter_preview_reuses_last_good_across_api_requests(monkeypatch):
     with TestClient(app) as client:
         first = client.get("/api/v1/adapters/live-ais/preview")
         second = client.get("/api/v1/adapters/live-ais/preview")
+        third = client.get("/api/v1/adapters/live-ais/preview")
 
     assert first.status_code == 200
     assert first.json()["provenance"]["health"] == "healthy"
@@ -454,7 +455,15 @@ def test_live_adapter_preview_reuses_last_good_across_api_requests(monkeypatch):
     assert second.json()["provenance"]["health"] == "degraded"
     assert second.json()["provenance"]["using_cached_records"] is True
     assert second.json()["provenance"]["consecutive_errors"] == 1
+    assert second.json()["provenance"]["next_retry_at"] is not None
+    assert second.json()["provenance"]["retry_delay_seconds"] > 0
     assert second.json()["records"] == first.json()["records"]
+
+    assert third.status_code == 200
+    assert third.json()["provenance"]["consecutive_errors"] == 1
+    assert third.json()["provenance"]["next_retry_at"] == second.json()["provenance"]["next_retry_at"]
+    assert "Retry backoff active" in third.json()["provenance"]["detail"]
+    assert calls["count"] == 2
 
 
 def test_dual_resource_scenario_exposes_compound_recovery_contract():

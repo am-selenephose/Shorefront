@@ -725,3 +725,37 @@ A proposal cannot retain its old state fingerprint after calibration changes bec
 Snapshots predating v0.15 migrate by synthesizing the canonical calibration set plus synthetic calibration provenance. This preserves old snapshot readability while making the previously implicit assumption explicit.
 
 The browser remains a projection layer. It labels service_calibration provenance in the Data Sources panel but does not calculate or authorize calibration values.
+
+
+## v0.15 live-adapter retry/backoff
+
+HttpJsonAdapter now carries temporal retry state across previews while its effective configuration remains unchanged.
+
+On an attempted live request:
+
+    attempt
+      -> success
+         -> consecutive_errors = 0
+         -> retry_delay_seconds = 0
+         -> next_retry_at = null
+         -> healthy/stale transport result
+      -> failure
+         -> consecutive_errors += 1
+         -> deterministic bounded exponential delay
+         -> next_retry_at = attempt time + delay
+         -> cached DEGRADED/STALE preview when possible
+         -> ERROR with no records otherwise
+
+Before next_retry_at:
+
+    preview request
+      -> no upstream call
+      -> no new error count
+      -> last_attempt_at remains unchanged
+      -> existing resilience state is projected
+
+The default retry schedule starts at 5 seconds, doubles per attempted failure, and caps at 300 seconds. Deterministic jitter is bounded to ±20% and keyed by adapter id plus error count.
+
+Retry state is preview/fault-tolerance state only. It does not make a degraded, stale, or error snapshot ingestible.
+
+The browser projects retry metadata but does not schedule retries itself. The adapter object remains the authority for whether an upstream attempt is allowed.

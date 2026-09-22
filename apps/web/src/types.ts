@@ -169,6 +169,9 @@ export interface DataSourceProvenance {
   record_count: number
   detail?: string | null
   last_success_at?: string | null
+  last_attempt_at?: string | null
+  next_retry_at?: string | null
+  retry_delay_seconds: number
   consecutive_errors: number
   using_cached_records: boolean
 }
