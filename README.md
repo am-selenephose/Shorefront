@@ -2050,11 +2050,11 @@ The final hook is POSIX sh-compatible and uses a PID-backed atomic boot lock.
 Clean sleep/wake proof:
 
 - first request displayed BasicDeploy's temporary Waking up page
-- wake hook migrated/verified schema v2
+- wake hook migrated/verified schema v3
 - exactly one Uvicorn process remained
 - lock PID matched the Uvicorn PID
 - /healthz returned 200
-- /readyz returned schema v2 compatible
+- /readyz returned schema v3 compatible
 - no duplicate bind error occurred
 
 The Free deployment can therefore cold-start after idle sleep without a manual app restart. It still has a cold-start delay by design.
@@ -2072,24 +2072,24 @@ deploy/basicdeploy_bundle.sh packages only:
 
 The helper rejects accidental .venv or __pycache__ content.
 
-Current proof bundle size is approximately 464 KB rather than the 23 MB runtime-contaminated archive produced when a live virtual environment was accidentally included during an intermediate re-pack.
+Current proof bundle size is approximately 468 KB rather than the 23 MB runtime-contaminated archive produced when a live virtual environment was accidentally included during an intermediate re-pack.
 
 ### Public deployment gate
 
 Current gate:
 
-- 96 backend/domain/API/storage/recovery/security/scenario/adapter/calendar/resilience/confidence/capacity/compound/calibration/backoff/contingency/schema/readiness/observability/evidence/public-mode tests
+- 101 backend/domain/API/storage/recovery/security/scenario/adapter/calendar/resilience/confidence/capacity/compound/calibration/backoff/contingency/schema/readiness/observability/evidence/public-mode/integration tests
 - source-only deploy bundle generation passes
 - deploy scripts pass POSIX sh syntax validation
 - public HTTPS /healthz passes
-- public HTTPS /readyz reports schema v2 compatible
+- public HTTPS /readyz reports schema v3 compatible
 - public /metrics returns 404
 - public harbor state preserves explicit synthetic disclaimer
 - public recovery confidence remains DEMO for synthetic-only scenario state
 - Free-plan sleep/wake cold-start passes with one Uvicorn process
 - live BasicDeploy PostgreSQL boot passes with psycopg v3 URL normalization
 
-The remaining v0.15 architecture work is the documented event/API boundary for a future vessel-side intelligence runtime without coupling repositories.
+The v0.15 public deployment now includes the completed vessel-runtime contract discovery surface while keeping integration credentials unconfigured on the public sandbox.
 
 
 ## v0.15 vessel-runtime boundary proof
