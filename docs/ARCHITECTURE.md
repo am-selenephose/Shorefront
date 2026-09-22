@@ -759,3 +759,43 @@ The default retry schedule starts at 5 seconds, doubles per attempted failure, a
 Retry state is preview/fault-tolerance state only. It does not make a degraded, stale, or error snapshot ingestible.
 
 The browser projects retry metadata but does not schedule retries itself. The adapter object remains the authority for whether an upstream attempt is allowed.
+
+
+## v0.15 stale-plan contingency boundary
+
+Recovery proposal ids bind the state fingerprint, so any relevant operational-state change can invalidate a previously displayed plan.
+
+PortFlow now keeps a bounded runtime proposal-history cache solely to preserve enough context to explain and replace a stale decision.
+
+The stale-plan flow is:
+
+    generated proposal P(state A)
+      -> selected backup resource becomes unavailable
+      -> state fingerprint becomes B
+      -> operator attempts P
+      -> current proposal regeneration cannot find P
+      -> stale proposal context is loaded from bounded history
+      -> replacements are regenerated for the same target call
+      -> replacements are filtered to overlapping incident ids/service kinds
+      -> structured 409 RecoveryContingency
+      -> UI displays replacements
+      -> explicit operator/supervisor approval is required again
+
+RecoveryContingency carries:
+
+- stale_proposal_id
+- target_port_call_id
+- stale_state_fingerprint
+- current_state_fingerprint
+- unavailable_resource_ids selected by the stale plan
+- replacement_proposals
+- reason
+- auto_apply=false
+
+No contingency result mutates canonical harbor state.
+
+Explicit target_resource_id support on tug/bunker incidents lets PortFlow represent failure of a recovery candidate before it was assigned. In that case the resource is marked unavailable through incident truth, but the target port-call schedule is not shifted merely because a backup candidate disappeared.
+
+Assigned-resource failures keep the existing delay behavior.
+
+Proposal history is not yet durable evidence storage. Restarting the API discards it; durable proposal/evidence snapshots belong to the later deployment/evidence layer.

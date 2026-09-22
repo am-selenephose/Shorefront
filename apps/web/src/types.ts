@@ -93,6 +93,7 @@ export interface Incident {
   started_at: string
   target_port_call_id?: string | null
   target_berth_id?: string | null
+  target_resource_id?: string | null
   impact_minutes: number
   details: string
   resolved_at?: string | null
@@ -249,6 +250,18 @@ export interface RecoveryProposal {
   rationale: string[]
   assumptions: string[]
   requires_approval: boolean
+}
+
+
+export interface RecoveryContingency {
+  stale_proposal_id: string
+  target_port_call_id: string
+  stale_state_fingerprint: string
+  current_state_fingerprint: string
+  unavailable_resource_ids: string[]
+  replacement_proposals: RecoveryProposal[]
+  reason: string
+  auto_apply: boolean
 }
 
 

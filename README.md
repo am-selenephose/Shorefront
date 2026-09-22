@@ -1480,4 +1480,73 @@ Current gate after calibration + retry/backoff:
 - fresh API and WEB Docker builds pass
 - isolated runtime proof confirms immediate retry suppression and larger due-time backoff
 
-The next v0.15 increment is contingency scheduling, then deployment hardening.
+The next v0.15 increment after retry/backoff is contingency scheduling, documented below.
+
+
+## v0.15 contingency recovery proof
+
+### Stale recovery plans return replacements instead of a dead-end
+
+PortFlow now retains a bounded in-memory history of recently generated recovery proposals.
+
+If an operator tries to approve a proposal that is no longer valid under current harbor state, the backend does not auto-apply a substitute and does not return only a generic stale error.
+
+It returns a structured 409 contingency contract containing:
+
+- the stale proposal id
+- target port call
+- stale and current state fingerprints
+- selected recovery resources that are now unavailable
+- ranked replacement proposals relevant to the same incidents/service kinds
+- auto_apply=false
+- an explicit reason requiring a new operator approval
+
+Proposal history is intentionally ephemeral in this increment. Durable decision-evidence snapshots remain a later deployment/evidence milestone.
+
+### Recovery-resource failure before approval
+
+Existing tug_unavailable and bunker_unavailable incidents now accept an optional explicit target_resource_id.
+
+This supports the real contingency case where a backup resource fails after a recovery plan was generated but before approval.
+
+Rules:
+
+- the explicit resource must exist and match the incident service kind
+- failing an already assigned resource preserves the existing delay/propagation behavior
+- failing an unassigned backup marks availability truth without inventing a port-call delay
+- current proposal generation excludes UNAVAILABLE alternatives
+
+Canonical proof:
+
+    Bunker Barge 4 unavailable
+      -> preferred recovery selects Bunker Barge 12
+      -> Bunker Barge 12 becomes unavailable before approval
+      -> old plan returns structured 409
+      -> Bunker Barge 9 appears as ranked replacement
+      -> no automatic mutation occurs
+      -> operator explicitly approves Bunker Barge 9
+      -> bunker/departure blockage clears
+
+The original Bunker Barge 4 and Bunker Barge 12 incidents remain active; recovery adapts around failures rather than falsely resolving them.
+
+### Browser behavior
+
+The Recovery Plans UI recognizes the structured stale-plan response.
+
+It replaces the stale cards with ranked current alternatives and displays a visible CONTINGENCY notice naming unavailable selected resources and stating that a new explicit approval is required.
+
+The replacement still uses the normal identity-bound approval path.
+
+### v0.15 contingency increment verification
+
+Current gate after calibration + retry/backoff + contingency:
+
+- 86 backend/domain/API/storage/recovery/security/scenario/adapter/calendar/resilience/confidence/capacity/compound/calibration/backoff/contingency tests
+- Python compile
+- production TypeScript/Vite build
+- npm audit
+- 5 real Chromium E2Es, including a real stale Bunker Barge 12 plan -> Bunker Barge 9 contingency -> re-approval flow
+- fresh API and WEB Docker builds pass
+- isolated runtime proof confirms stale Barge 12 selection -> structured 409 -> Barge 9 replacement -> explicit re-approval -> 0 blocked services
+
+The next v0.15 increment is deployment hardening: migrations/startup checks, production PostgreSQL profile, readiness, observability, backup/restore, and hosted proof.

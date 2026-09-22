@@ -16,7 +16,7 @@ from .models import (
     Coordinate, DataDomain, DataSourceMode, DataSourceProvenance, DecisionConfidence, HarborOverview,
     Incident, IncidentStatus, IncidentType, LinkMode, OperationsEvent,
     PortCall, PortCallStage, RecoveryAction, RecoveryActionType,
-    RecoveryApplicationReceipt, RecoveryProposal, ResourceStatus, ResourceUnavailableWindow, RiskLevel,
+    RecoveryApplicationReceipt, RecoveryContingency, RecoveryProposal, ResourceStatus, ResourceUnavailableWindow, RiskLevel,
     OperatorRole, ServiceDurationCalibration, ServiceKind, ServiceResource, ServiceState, ServiceStep, Vessel, VesselStatus,
     WeatherState,
 )
@@ -29,6 +29,12 @@ SpoolSink = Callable[[OperationsEvent], bool]
 ReplaySink = Callable[[], int]
 PendingCount = Callable[[], int]
 RecoveryReceiptSink = Callable[[RecoveryApplicationReceipt], bool]
+
+
+class RecoveryProposalStaleError(ValueError):
+    def __init__(self, contingency: RecoveryContingency):
+        self.contingency = contingency
+        super().__init__(contingency.reason)
 
 
 class HarborSimulator:
@@ -53,6 +59,7 @@ class HarborSimulator:
         self.pending_count = pending_count
         self.recovery_receipt_sink = recovery_receipt_sink
         self.tick_count = 0
+        self._proposal_history: dict[str, RecoveryProposal] = {}
 
         if initial is not None:
             self._restore(initial)
@@ -1912,13 +1919,80 @@ class HarborSimulator:
         for proposal in proposals:
             unique[proposal.id] = proposal
 
-        return sorted(
+        ranked = sorted(
             unique.values(),
             key=lambda proposal: (
                 proposal.disruption_score,
                 proposal.projected_modeled_cost_usd,
                 proposal.id,
             ),
+        )
+
+        for proposal in ranked:
+            self._proposal_history[proposal.id] = deepcopy(proposal)
+        while len(self._proposal_history) > 200:
+            oldest_id = next(iter(self._proposal_history))
+            del self._proposal_history[oldest_id]
+
+        return ranked
+
+    def recovery_contingency(self, stale_proposal_id: str) -> RecoveryContingency:
+        stale = self._proposal_history.get(stale_proposal_id)
+        if stale is None:
+            raise ValueError(
+                "Recovery proposal context is unavailable; recalculate current proposals"
+            )
+
+        current = self.generate_recovery_proposals(
+            call_id=stale.target_port_call_id,
+        )
+        stale_incident_ids = set(stale.incident_ids)
+        stale_service_kinds = {
+            action.service_kind
+            for action in stale.actions
+            if action.service_kind is not None
+        }
+        replacements = [
+            proposal
+            for proposal in current
+            if proposal.id != stale_proposal_id
+            and (
+                bool(stale_incident_ids & set(proposal.incident_ids))
+                or any(
+                    action.service_kind in stale_service_kinds
+                    for action in proposal.actions
+                    if action.service_kind is not None
+                )
+            )
+        ][:4]
+
+        selected_resource_ids = {
+            action.to_resource_id
+            for action in stale.actions
+            if action.to_resource_id is not None
+        }
+        unavailable_resource_ids = sorted(
+            resource.id
+            for resource in self.service_resources
+            if resource.id in selected_resource_ids
+            and resource.status == ResourceStatus.UNAVAILABLE
+        )
+
+        return RecoveryContingency(
+            stale_proposal_id=stale.id,
+            target_port_call_id=stale.target_port_call_id,
+            stale_state_fingerprint=stale.state_fingerprint,
+            current_state_fingerprint=self._recovery_state_fingerprint(
+                stale.target_port_call_id
+            ),
+            unavailable_resource_ids=unavailable_resource_ids,
+            replacement_proposals=replacements,
+            reason=(
+                "Recovery proposal is stale or unavailable under current "
+                "operational state. Ranked contingency alternatives were "
+                "regenerated; explicit operator approval is still required."
+            ),
+            auto_apply=False,
         )
 
     def apply_recovery_proposal(
@@ -1941,7 +2015,13 @@ class HarborSimulator:
             None,
         )
         if proposal is None:
-            raise ValueError("Recovery proposal is stale, unavailable, or already applied")
+            try:
+                contingency = self.recovery_contingency(proposal_id)
+            except ValueError:
+                raise ValueError(
+                    "Recovery proposal is stale, unavailable, or already applied"
+                ) from None
+            raise RecoveryProposalStaleError(contingency)
 
         self._apply_recovery_actions(proposal.actions)
         metrics = self._recovery_metrics(proposal.target_port_call_id)
@@ -2095,11 +2175,13 @@ class HarborSimulator:
         incident_type: IncidentType,
         target_port_call_id: str | None = None,
         impact_minutes: int | None = None,
+        target_resource_id: str | None = None,
     ) -> Incident:
         now = datetime.now(timezone.utc).replace(microsecond=0)
         incident_id = f"inc-{uuid4().hex[:12]}"
 
-        target_resource_id: str | None = None
+        requested_resource_id = target_resource_id
+        target_resource_id = None
 
         if incident_type == IncidentType.PILOT_DELAY:
             call = self._find_call(target_port_call_id, "pc-aurora")
@@ -2118,15 +2200,43 @@ class HarborSimulator:
         elif incident_type == IncidentType.TUG_UNAVAILABLE:
             call = self._find_call(target_port_call_id, "pc-aurora")
             tug_step = next(
-                (step for step in self.service_steps if step.port_call_id == call.id and step.kind == ServiceKind.TUG),
+                (
+                    step for step in self.service_steps
+                    if step.port_call_id == call.id
+                    and step.kind == ServiceKind.TUG
+                ),
                 None,
             )
-            target_resource_id = tug_step.resource_id if tug_step else None
-            impact = impact_minutes or 40
-            shift_call_from_stage(call, "tug", impact)
+            assigned_resource_id = tug_step.resource_id if tug_step else None
+            target_resource_id = requested_resource_id or assigned_resource_id
+            resource = next(
+                (
+                    item for item in self.service_resources
+                    if item.id == target_resource_id
+                    and item.kind == ServiceKind.TUG
+                ),
+                None,
+            )
+            if resource is None:
+                raise ValueError("Unknown tug resource: " + str(target_resource_id))
+            impact = 40 if impact_minutes is None else impact_minutes
+            if target_resource_id == assigned_resource_id and impact > 0:
+                shift_call_from_stage(call, "tug", impact)
+                details = (
+                    f"{call.id} maneuvering and berth sequence shifted by "
+                    f"{impact} min."
+                )
+            else:
+                details = (
+                    f"{resource.name} marked unavailable before assignment; "
+                    "current port-call timing is unchanged."
+                )
             severity = RiskLevel.HIGH
-            title = "Assigned tug unavailable"
-            details = f"{call.id} maneuvering and berth sequence shifted by {impact} min."
+            title = (
+                "Assigned tug unavailable"
+                if target_resource_id == assigned_resource_id
+                else f"{resource.name} unavailable"
+            )
             berth_id = call.berth_id
 
         elif incident_type == IncidentType.BUNKER_UNAVAILABLE:
@@ -2139,14 +2249,37 @@ class HarborSimulator:
                 ),
                 None,
             )
-            target_resource_id = bunker_step.resource_id if bunker_step else None
-            impact = impact_minutes or 45
-            shift_call_from_stage(call, "services", impact)
+            assigned_resource_id = bunker_step.resource_id if bunker_step else None
+            target_resource_id = requested_resource_id or assigned_resource_id
+            resource = next(
+                (
+                    item for item in self.service_resources
+                    if item.id == target_resource_id
+                    and item.kind == ServiceKind.BUNKER
+                ),
+                None,
+            )
+            if resource is None:
+                raise ValueError(
+                    "Unknown bunker resource: " + str(target_resource_id)
+                )
+            impact = 45 if impact_minutes is None else impact_minutes
+            if target_resource_id == assigned_resource_id and impact > 0:
+                shift_call_from_stage(call, "services", impact)
+                details = (
+                    f"{call.id} bunker service and dependent departure sequence "
+                    f"shifted by {impact} min."
+                )
+            else:
+                details = (
+                    f"{resource.name} marked unavailable before assignment; "
+                    "current port-call timing is unchanged."
+                )
             severity = RiskLevel.HIGH
-            title = "Assigned bunker barge unavailable"
-            details = (
-                f"{call.id} bunker service and dependent departure sequence "
-                f"shifted by {impact} min."
+            title = (
+                "Assigned bunker barge unavailable"
+                if target_resource_id == assigned_resource_id
+                else f"{resource.name} unavailable"
             )
             berth_id = call.berth_id
 

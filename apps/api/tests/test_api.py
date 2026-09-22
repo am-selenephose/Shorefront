@@ -2,7 +2,6 @@ from datetime import datetime, timedelta, timezone
 import hashlib
 import json
 import os
-from datetime import datetime, timedelta, timezone
 
 from fastapi.testclient import TestClient
 
@@ -606,3 +605,87 @@ def test_service_duration_calibration_api_enforces_authority_and_provenance():
         )
         assert bunker_after_stale["duration_minutes"] == 75
         assert bunker_after_stale["source_id"] == "recorded-bunker-calibration-api"
+
+
+def test_stale_recovery_apply_returns_ranked_contingency_contract():
+    with TestClient(app) as client:
+        payload = client.post(
+            "/api/v1/scenarios/bunker-loss/run"
+        ).json()
+
+        stale = next(
+            proposal
+            for proposal in payload["recovery_proposals"]
+            if any(
+                action.get("to_resource_id") == "bunker-barge-12"
+                for action in proposal["actions"]
+            )
+        )
+
+        failed_backup = client.post(
+            "/api/v1/incidents",
+            json={
+                "incident_type": "bunker_unavailable",
+                "target_port_call_id": "pc-aurora",
+                "target_resource_id": "bunker-barge-12",
+                "impact_minutes": 0,
+            },
+        )
+        assert failed_backup.status_code == 200
+        assert failed_backup.json()["target_resource_id"] == "bunker-barge-12"
+        assert failed_backup.json()["impact_minutes"] == 0
+
+        stale_apply = client.post(
+            f"/api/v1/recovery/proposals/{stale['id']}/apply",
+            headers=auth_headers(OPERATOR_TOKEN),
+        )
+        assert stale_apply.status_code == 409
+        detail = stale_apply.json()["detail"]
+        assert detail["code"] == "recovery_proposal_stale"
+        assert detail["stale_proposal_id"] == stale["id"]
+        assert detail["target_port_call_id"] == "pc-aurora"
+        assert detail["unavailable_resource_ids"] == ["bunker-barge-12"]
+        assert detail["auto_apply"] is False
+        assert detail["current_state_fingerprint"] != detail["stale_state_fingerprint"]
+
+        replacements = detail["replacement_proposals"]
+        assert replacements
+        assert all(
+            action.get("to_resource_id") != "bunker-barge-12"
+            for proposal in replacements
+            for action in proposal["actions"]
+        )
+        replacement = next(
+            proposal
+            for proposal in replacements
+            if any(
+                action.get("to_resource_id") == "bunker-barge-9"
+                for action in proposal["actions"]
+            )
+        )
+
+        before = client.get(
+            "/api/v1/port-calls/pc-aurora/dependency-graph"
+        ).json()
+        before_nodes = {
+            node["kind"]: node
+            for node in before["nodes"]
+        }
+        assert before_nodes["bunker"]["state"] == "blocked"
+
+        applied = client.post(
+            f"/api/v1/recovery/proposals/{replacement['id']}/apply",
+            headers=auth_headers(OPERATOR_TOKEN),
+        )
+        assert applied.status_code == 200
+        assert applied.json()["resulting_blocked_services"] == 0
+
+        after = client.get(
+            "/api/v1/port-calls/pc-aurora/dependency-graph"
+        ).json()
+        after_nodes = {
+            node["kind"]: node
+            for node in after["nodes"]
+        }
+        assert after_nodes["bunker"]["state"] != "blocked"
+        assert after_nodes["departure"]["state"] != "blocked"

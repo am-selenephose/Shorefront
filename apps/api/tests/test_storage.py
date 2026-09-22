@@ -4,7 +4,7 @@ from pathlib import Path
 from portflow_api.adapters import HttpJsonAdapter, configured_live_adapters, get_adapter_snapshot
 from portflow_api.domain import detect_berth_conflicts
 from portflow_api.models import AdapterHealth, DataDomain, DataSourceMode, DataSourceProvenance, IncidentType, LinkMode, OperatorRole, ResourceUnavailableWindow, ServiceDurationCalibration, ServiceKind
-from portflow_api.simulator import HarborSimulator
+from portflow_api.simulator import HarborSimulator, RecoveryProposalStaleError
 from portflow_api.storage import OperationsStore
 
 
@@ -1485,3 +1485,101 @@ def test_pre_v015_snapshot_migrates_service_duration_calibration_state():
         for source in restored.data_sources
     )
     assert all(step.duration_minutes > 0 for step in restored.service_steps)
+
+
+def test_failed_selected_recovery_resource_returns_ranked_contingency():
+    sim = HarborSimulator()
+    primary = sim.inject_incident(
+        IncidentType.BUNKER_UNAVAILABLE,
+        "pc-aurora",
+        45,
+    )
+    initial = sim.generate_recovery_proposals(call_id="pc-aurora")
+    stale = next(
+        proposal
+        for proposal in initial
+        if any(
+            action.to_resource_id == "bunker-barge-12"
+            for action in proposal.actions
+        )
+    )
+
+    alternate_failure = sim.inject_incident(
+        IncidentType.BUNKER_UNAVAILABLE,
+        "pc-aurora",
+        0,
+        target_resource_id="bunker-barge-12",
+    )
+    barge12 = next(
+        resource
+        for resource in sim.service_resources
+        if resource.id == "bunker-barge-12"
+    )
+    assert barge12.status.value == "unavailable"
+
+    aurora_bunker_before = next(
+        step
+        for step in sim.service_steps
+        if step.port_call_id == "pc-aurora"
+        and step.kind == ServiceKind.BUNKER
+    )
+    assert aurora_bunker_before.resource_id == "bunker-barge-4"
+
+    try:
+        sim.apply_recovery_proposal(
+            stale.id,
+            approved_by="contingency-operator",
+            approved_role=OperatorRole.OPERATOR,
+            approved_display_name="Contingency Operator",
+        )
+    except RecoveryProposalStaleError as exc:
+        contingency = exc.contingency
+    else:
+        raise AssertionError("stale recovery plan unexpectedly applied")
+
+    assert contingency.stale_proposal_id == stale.id
+    assert contingency.target_port_call_id == "pc-aurora"
+    assert contingency.stale_state_fingerprint == stale.state_fingerprint
+    assert contingency.current_state_fingerprint != stale.state_fingerprint
+    assert contingency.unavailable_resource_ids == ["bunker-barge-12"]
+    assert contingency.auto_apply is False
+    assert contingency.replacement_proposals
+    assert all(
+        action.to_resource_id != "bunker-barge-12"
+        for proposal in contingency.replacement_proposals
+        for action in proposal.actions
+    )
+
+    replacement = next(
+        proposal
+        for proposal in contingency.replacement_proposals
+        if any(
+            action.to_resource_id == "bunker-barge-9"
+            for action in proposal.actions
+        )
+    )
+
+    # Returning contingencies must not mutate the harbor by itself.
+    aurora_bunker_still = next(
+        step
+        for step in sim.service_steps
+        if step.port_call_id == "pc-aurora"
+        and step.kind == ServiceKind.BUNKER
+    )
+    assert aurora_bunker_still.resource_id == "bunker-barge-4"
+
+    receipt = sim.apply_recovery_proposal(
+        replacement.id,
+        approved_by="contingency-operator",
+        approved_role=OperatorRole.OPERATOR,
+        approved_display_name="Contingency Operator",
+    )
+    assert receipt.resulting_blocked_services == 0
+
+    active_ids = {
+        incident.id
+        for incident in sim.incidents
+        if incident.status.value == "active"
+    }
+    assert primary.id in active_ids
+    assert alternate_failure.id in active_ids

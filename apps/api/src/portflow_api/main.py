@@ -14,7 +14,7 @@ from .models import (
     AdapterHealth, DataDomain, DataSourceMode, DataSourceProvenance, IncidentType,
     LinkMode, OperatorIdentity, ServiceDurationCalibration, ServiceKind,
 )
-from .simulator import HarborSimulator
+from .simulator import HarborSimulator, RecoveryProposalStaleError
 from .security import configured_approvers, current_operator, recovery_approver
 from .scenarios import get_scenario, list_scenarios
 from .storage import OperationsStore
@@ -74,6 +74,7 @@ class ConnectivityRequest(BaseModel):
 class IncidentRequest(BaseModel):
     incident_type: IncidentType
     target_port_call_id: str | None = None
+    target_resource_id: str | None = None
     impact_minutes: int | None = Field(default=None, ge=0, le=720)
 
 
@@ -284,6 +285,7 @@ def create_incident(req: IncidentRequest):
             incident_type=req.incident_type,
             target_port_call_id=req.target_port_call_id,
             impact_minutes=req.impact_minutes,
+            target_resource_id=req.target_resource_id,
         )
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
@@ -320,6 +322,14 @@ def apply_recovery_proposal(
             approved_role=identity.role,
             approved_display_name=identity.display_name,
         )
+    except RecoveryProposalStaleError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "recovery_proposal_stale",
+                **exc.contingency.model_dump(mode="json"),
+            },
+        ) from exc
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
 

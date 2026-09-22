@@ -341,6 +341,17 @@ class RecoveryProposal(BaseModel):
     requires_approval: bool = True
 
 
+class RecoveryContingency(BaseModel):
+    stale_proposal_id: str
+    target_port_call_id: str
+    stale_state_fingerprint: str
+    current_state_fingerprint: str
+    unavailable_resource_ids: list[str] = Field(default_factory=list)
+    replacement_proposals: list[RecoveryProposal] = Field(default_factory=list)
+    reason: str
+    auto_apply: bool = False
+
+
 class RecoveryApplicationReceipt(BaseModel):
     proposal_id: str
     state_fingerprint: str = "legacy"
