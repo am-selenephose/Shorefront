@@ -689,3 +689,25 @@ def test_stale_recovery_apply_returns_ranked_contingency_contract():
         }
         assert after_nodes["bunker"]["state"] != "blocked"
         assert after_nodes["departure"]["state"] != "blocked"
+
+
+def test_readiness_reports_runtime_and_schema_contract():
+    with TestClient(app) as client:
+        health = client.get("/healthz")
+        assert health.status_code == 200
+        assert health.json() == {
+            "ok": True,
+            "service": "portflow-api",
+            "version": "0.15.0",
+        }
+
+        ready = client.get("/readyz")
+        assert ready.status_code == 200
+        payload = ready.json()
+        assert payload["ok"] is True
+        assert payload["runtime_ready"] is True
+        assert payload["schema_mode"] == "migrate"
+        assert payload["schema"]["database_reachable"] is True
+        assert payload["schema"]["compatible"] is True
+        assert payload["schema"]["current_version"] == 1
+        assert payload["schema"]["expected_version"] == 1

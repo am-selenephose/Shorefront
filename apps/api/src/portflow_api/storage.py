@@ -5,7 +5,7 @@ from collections.abc import Callable
 from datetime import datetime, timezone
 from pathlib import Path
 
-from sqlalchemy import DateTime, Integer, String, Text, create_engine, select
+from sqlalchemy import DateTime, Integer, String, Text, create_engine, inspect, select, text
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column
 
 from .models import (
@@ -17,8 +17,18 @@ from .models import (
 )
 
 
+CURRENT_SCHEMA_VERSION = 1
+
+
 class Base(DeclarativeBase):
     pass
+
+
+class SchemaVersionRow(Base):
+    __tablename__ = "schema_version"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, default=1)
+    version: Mapped[int] = mapped_column(Integer, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
 
 class SnapshotRow(Base):
@@ -90,8 +100,104 @@ class OperationsStore:
             kwargs["connect_args"] = {"check_same_thread": False}
         self.engine = create_engine(url, **kwargs)
 
-    def init_schema(self) -> None:
+    @property
+    def required_tables(self) -> set[str]:
+        return set(Base.metadata.tables)
+
+    def database_ping(self) -> bool:
+        try:
+            with self.engine.connect() as connection:
+                connection.execute(text("SELECT 1"))
+            return True
+        except Exception:
+            return False
+
+    def schema_status(self) -> dict[str, object]:
+        inspector = inspect(self.engine)
+        existing = set(inspector.get_table_names())
+        missing = sorted(self.required_tables - existing)
+        current_version: int | None = None
+
+        if "schema_version" in existing:
+            try:
+                with Session(self.engine) as session:
+                    row = session.get(SchemaVersionRow, 1)
+                    if row is not None:
+                        current_version = int(row.version)
+            except Exception:
+                current_version = None
+
+        return {
+            "database_reachable": self.database_ping(),
+            "expected_version": CURRENT_SCHEMA_VERSION,
+            "current_version": current_version,
+            "missing_tables": missing,
+            "compatible": (
+                not missing
+                and current_version == CURRENT_SCHEMA_VERSION
+            ),
+        }
+
+    def migrate_schema(self) -> dict[str, object]:
+        inspector = inspect(self.engine)
+        existing_before = set(inspector.get_table_names())
+
+        if "schema_version" in existing_before:
+            with Session(self.engine) as session:
+                row = session.get(SchemaVersionRow, 1)
+                if row is not None and row.version > CURRENT_SCHEMA_VERSION:
+                    raise RuntimeError(
+                        "Database schema version "
+                        f"{row.version} is newer than application version "
+                        f"{CURRENT_SCHEMA_VERSION}"
+                    )
+
+        # v0 -> v1: the pre-versioned PortFlow schema is structurally
+        # compatible with v1. create_all only creates missing tables here;
+        # it does not alter existing tables.
         Base.metadata.create_all(self.engine)
+
+        now = datetime.now(timezone.utc)
+        with Session(self.engine) as session:
+            row = session.get(SchemaVersionRow, 1)
+            if row is None:
+                session.add(
+                    SchemaVersionRow(
+                        id=1,
+                        version=CURRENT_SCHEMA_VERSION,
+                        updated_at=now,
+                    )
+                )
+            elif row.version < CURRENT_SCHEMA_VERSION:
+                if row.version != 0:
+                    raise RuntimeError(
+                        "No migration path registered from schema version "
+                        f"{row.version} to {CURRENT_SCHEMA_VERSION}"
+                    )
+                row.version = CURRENT_SCHEMA_VERSION
+                row.updated_at = now
+            session.commit()
+
+        status = self.schema_status()
+        if not bool(status["compatible"]):
+            raise RuntimeError(f"Schema migration did not converge: {status}")
+        return status
+
+    def verify_schema(self) -> dict[str, object]:
+        status = self.schema_status()
+        if not bool(status["database_reachable"]):
+            raise RuntimeError("Database is not reachable")
+        if not bool(status["compatible"]):
+            raise RuntimeError(
+                "Database schema is not compatible with this PortFlow build: "
+                f"{status}"
+            )
+        return status
+
+    def init_schema(self) -> None:
+        # Backward-compatible test/dev helper. Production startup uses the
+        # explicit migrate command followed by verify mode.
+        self.migrate_schema()
 
     def save_snapshot(self, overview: HarborOverview) -> None:
         payload = overview.model_dump_json()

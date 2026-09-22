@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import os
 from datetime import datetime, timezone
 from contextlib import asynccontextmanager
 
@@ -21,7 +22,9 @@ from .storage import OperationsStore
 
 
 store = OperationsStore()
-store.init_schema()
+sim = HarborSimulator()
+_runtime_ready = False
+_schema_mode = "uninitialized"
 
 
 def build_simulator() -> HarborSimulator:
@@ -38,12 +41,23 @@ def build_simulator() -> HarborSimulator:
     )
 
 
-sim = build_simulator()
-
-
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    global sim, _runtime_ready, _schema_mode
+
     configured_approvers()
+    _schema_mode = os.getenv("PORTFLOW_SCHEMA_MODE", "migrate").strip().lower()
+    if _schema_mode == "migrate":
+        store.migrate_schema()
+    elif _schema_mode == "verify":
+        store.verify_schema()
+    else:
+        raise RuntimeError(
+            "PORTFLOW_SCHEMA_MODE must be either 'migrate' or 'verify'"
+        )
+
+    sim = build_simulator()
+    _runtime_ready = True
     stop = asyncio.Event()
 
     async def runner():
@@ -52,9 +66,12 @@ async def lifespan(app: FastAPI):
             await asyncio.sleep(2)
 
     task = asyncio.create_task(runner())
-    yield
-    stop.set()
-    task.cancel()
+    try:
+        yield
+    finally:
+        _runtime_ready = False
+        stop.set()
+        task.cancel()
 
 
 app = FastAPI(title="PortFlow API", version="0.15.0", lifespan=lifespan)
@@ -95,9 +112,30 @@ def healthz():
         "ok": True,
         "service": "portflow-api",
         "version": "0.15.0",
-        "persistence": True,
-        "authorization_configured": bool(configured_approvers()),
     }
+
+
+@app.get("/readyz")
+def readyz():
+    schema = store.schema_status()
+    authorization_configured = bool(configured_approvers())
+    ready = (
+        _runtime_ready
+        and bool(schema["database_reachable"])
+        and bool(schema["compatible"])
+    )
+    payload = {
+        "ok": ready,
+        "service": "portflow-api",
+        "version": "0.15.0",
+        "runtime_ready": _runtime_ready,
+        "schema_mode": _schema_mode,
+        "schema": schema,
+        "authorization_configured": authorization_configured,
+    }
+    if not ready:
+        raise HTTPException(status_code=503, detail=payload)
+    return payload
 
 
 @app.get("/api/v1/auth/me")

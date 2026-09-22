@@ -799,3 +799,58 @@ Explicit target_resource_id support on tug/bunker incidents lets PortFlow repres
 Assigned-resource failures keep the existing delay behavior.
 
 Proposal history is not yet durable evidence storage. Restarting the API discards it; durable proposal/evidence snapshots belong to the later deployment/evidence layer.
+
+
+## v0.15 deployment schema and readiness boundary
+
+Production persistence is now explicitly versioned.
+
+The schema authority chain is:
+
+    PostgreSQL
+      -> one-shot portflow_api.migrate
+      -> schema_version = 1
+      -> API PORTFLOW_SCHEMA_MODE=verify
+      -> OperationsStore.verify_schema()
+      -> simulator restore
+      -> runtime_ready = true
+      -> /readyz healthy
+
+The API process does not call create_all at module import.
+
+Development/test mode defaults to migrate for zero-friction local startup. Production Compose sets verify and depends on a successful one-shot migration service.
+
+schema_status() reports:
+
+- database_reachable
+- expected_version
+- current_version
+- missing_tables
+- compatible
+
+A newer unknown database schema or any incompatible/missing production schema fails closed.
+
+### Health model
+
+/healthz is a liveness endpoint and does not claim database readiness.
+
+/readyz is the deployment readiness endpoint. It requires runtime initialization, database reachability, and exact schema compatibility.
+
+This separation prevents a running Python process from being mistaken for a safe operational service when persistence is unavailable or mismatched.
+
+### Backup/restore boundary
+
+PostgreSQL backup uses custom-format pg_dump -Fc.
+
+Restore is explicitly destructive and requires PORTFLOW_RESTORE_CONFIRM=YES.
+
+The restore sequence is:
+
+    stop web/api
+      -> pg_restore --clean --if-exists --no-owner
+      -> run migration command
+      -> start api/web
+      -> API verify mode
+      -> /readyz
+
+The tested round-trip restored both the canonical snapshot and durable incident rows after a deliberate state wipe.

@@ -4,7 +4,7 @@ PortFlow is a port-call operations control tower for continuously updated vessel
 
 ## Status
 
-Private portfolio build, v0.15 provenance-bound calibration + live-adapter retry/backoff.
+Private portfolio build, v0.15 calibration + retry/backoff + contingency recovery + deployment hardening.
 
 ## Product principles
 
@@ -108,6 +108,33 @@ Default external HTTP port is 8088 and can be changed with PORTFLOW_HTTP_PORT.
 
 The production compose intentionally requires PORTFLOW_DB_PASSWORD instead of shipping a fallback password.
 
+Production startup is migration-gated:
+
+    postgres healthy
+      -> one-shot migrate service
+      -> schema version 1 stamped/verified
+      -> API starts with PORTFLOW_SCHEMA_MODE=verify
+      -> /readyz becomes healthy
+      -> web starts
+
+The API process does not silently create or migrate production schema in verify mode.
+
+Liveness and readiness are separate:
+
+- /healthz proves the API process is alive and reports the application version.
+- /readyz verifies runtime initialization, database reachability, and exact schema compatibility.
+
+### PostgreSQL backup / restore
+
+The repository includes operator scripts:
+
+    ./ops/backup-postgres.sh
+    PORTFLOW_RESTORE_CONFIRM=YES ./ops/restore-postgres.sh /path/to/portflow.dump
+
+Optional PORTFLOW_ENV_FILE and PORTFLOW_COMPOSE_PROJECT variables let the scripts target a specific deployment.
+
+Restore is intentionally guarded by PORTFLOW_RESTORE_CONFIRM=YES because it is destructive. The restore flow stops API/web, restores PostgreSQL with pg_restore --clean --if-exists, reruns the migration command, then restarts API/web.
+
 ## Verification
 
     cd apps/api
@@ -134,6 +161,7 @@ GitHub Actions workflow is committed. The linked GitHub account currently has Ac
 - POST /api/v1/scenarios/{scenario_id}/run
 - GET /api/v1/auth/me
 - GET /healthz
+- GET /readyz
 - GET /api/v1/harbor
 - GET /api/v1/events
 - GET /api/v1/incidents
@@ -1550,3 +1578,114 @@ Current gate after calibration + retry/backoff + contingency:
 - isolated runtime proof confirms stale Barge 12 selection -> structured 409 -> Barge 9 replacement -> explicit re-approval -> 0 blocked services
 
 The next v0.15 increment is deployment hardening: migrations/startup checks, production PostgreSQL profile, readiness, observability, backup/restore, and hosted proof.
+
+
+## v0.15 deployment hardening proof
+
+### Versioned schema boundary
+
+PortFlow persistence now has an explicit schema_version table and CURRENT_SCHEMA_VERSION=1.
+
+OperationsStore exposes:
+
+- migrate_schema()
+- verify_schema()
+- schema_status()
+- database_ping()
+
+The v0 -> v1 migration is intentionally conservative: the previously unversioned schema is structurally compatible, so v1 creates any missing canonical tables and stamps schema version 1. Future unknown versions fail closed rather than being silently rewritten.
+
+init_schema() remains only as a backward-compatible test/dev helper.
+
+### Explicit migration command
+
+Production migration is a separate command:
+
+    python -m portflow_api.migrate
+
+The production Compose stack runs this command in a one-shot migrate service before the API starts.
+
+The API then starts with:
+
+    PORTFLOW_SCHEMA_MODE=verify
+
+If PostgreSQL is unreachable, required tables are missing, or schema version differs from the application expectation, production API startup fails instead of mutating the database.
+
+### Liveness vs readiness
+
+/healthz is process liveness only.
+
+/readyz reports and validates:
+
+- runtime_ready
+- schema_mode
+- database reachability
+- expected schema version
+- current schema version
+- missing tables
+- compatibility
+- whether operator authorization is configured
+
+The production API healthcheck now targets /readyz.
+
+Nginx proxies both /healthz and /readyz through the single web origin.
+
+### Single API image for migration and runtime
+
+The API Docker image no longer performs a second source-dependent uv sync after copying application code.
+
+Runtime dependencies are installed from the lockfile before source copy and the application runs from PYTHONPATH=/app/src.
+
+This removes an unnecessary build-system fetch from the source layer and makes source-only rebuilds less network-sensitive.
+
+The same tagged API image is reused by both the migrate and api services.
+
+### PostgreSQL migration/readiness runtime proof
+
+An isolated production Compose project was booted from a clean PostgreSQL volume.
+
+Observed chain:
+
+- Postgres health: healthy
+- migrate container: exited 0
+- API mode: verify
+- /readyz: ok=true
+- database_reachable=true
+- expected_version=1
+- current_version=1
+- missing_tables=[]
+- compatible=true
+- web origin exposed readiness successfully
+
+### Backup/restore runtime proof
+
+The hardened production stack was given a persisted bunker-loss scenario.
+
+Measured round-trip:
+
+- active incidents before backup: 1
+- PostgreSQL custom-format dump size: 17,941 bytes
+- active incidents after destructive demo reset: 0
+- restore script executed pg_restore, migration verification, and API/web restart
+- active incidents after restore: 1
+- persisted incident rows after restore: 1
+- schema remained version 1 and compatible
+
+This proves both canonical harbor snapshot state and durable incident storage survive a dump/reset/restore cycle.
+
+### v0.15 deployment gate
+
+Current gate after calibration + retry/backoff + contingency + deployment hardening:
+
+- 89 backend/domain/API/storage/recovery/security/scenario/adapter/calendar/resilience/confidence/capacity/compound/calibration/backoff/contingency/schema/readiness tests
+- Python compile passes
+- production TypeScript/Vite build passes
+- npm audit reports 0 vulnerabilities
+- 5 real Chromium E2Es pass
+- production Compose config renders with migration dependency + verify mode + /readyz
+- hardened API and WEB Docker images build from current source
+- clean PostgreSQL migration/readiness boot passes
+- PostgreSQL backup/reset/restore round-trip passes
+- GitHub CI now validates production Compose, operator-script syntax, and both Docker images
+
+The next v0.15 deployment work is HTTPS termination, structured metrics/logging, and durable proposal/evidence snapshots.

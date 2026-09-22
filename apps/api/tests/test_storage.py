@@ -1583,3 +1583,36 @@ def test_failed_selected_recovery_resource_returns_ranked_contingency():
     }
     assert primary.id in active_ids
     assert alternate_failure.id in active_ids
+
+
+def test_explicit_schema_migration_stamps_version_and_verify(tmp_path):
+    store = OperationsStore(
+        f"sqlite:///{tmp_path / 'schema-migration.db'}"
+    )
+
+    before = store.schema_status()
+    assert before["database_reachable"] is True
+    assert before["compatible"] is False
+    assert before["current_version"] is None
+    assert "schema_version" in before["missing_tables"]
+
+    migrated = store.migrate_schema()
+    assert migrated["compatible"] is True
+    assert migrated["current_version"] == 1
+    assert migrated["missing_tables"] == []
+
+    verified = store.verify_schema()
+    assert verified == migrated
+
+
+def test_verify_schema_rejects_unmigrated_database(tmp_path):
+    store = OperationsStore(
+        f"sqlite:///{tmp_path / 'schema-unmigrated.db'}"
+    )
+
+    try:
+        store.verify_schema()
+    except RuntimeError as exc:
+        assert "not compatible" in str(exc).lower()
+    else:
+        raise AssertionError("verify mode accepted an unmigrated database")
