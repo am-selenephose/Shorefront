@@ -710,7 +710,7 @@ def test_readiness_reports_runtime_and_schema_contract():
         assert health.json() == {
             "ok": True,
             "service": "portflow-api",
-            "version": "0.15.0",
+            "version": "0.15.1",
         }
 
         ready = client.get("/readyz")
