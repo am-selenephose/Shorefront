@@ -123,3 +123,20 @@ Transport changes alone do not require a semantic version change if the envelope
 PortFlow is not a ship autopilot, DP controller, engine controller, raw NMEA/fieldbus recorder, machinery PLC replacement, bridge decision replacement, or vessel-side perception stack.
 
 Those capabilities, if ever built, belong in the separate vessel-runtime repository with its own safety architecture.
+
+
+## Reconciled parallel hash-cursor prototype
+
+A parallel main-branch prototype explored a second batch envelope with source-sequence cursors and hash-chain heads.
+
+That prototype is intentionally not exposed as a second PortFlow transport contract because it would duplicate the semantic boundary already defined by portflow.vessel-event.v1.
+
+The useful idea is preserved as a vessel-runtime-side design candidate:
+
+- maintain a local append-only source ledger
+- track source-local monotonic sequence
+- bind source entries to hashes
+- project only privacy-approved normalized events into PortFlow
+- use event_id idempotency at the PortFlow boundary
+
+If implemented, the vessel runtime may use its own hash-chain internally while still emitting the stable portflow.vessel-event.v1 envelope to PortFlow.
