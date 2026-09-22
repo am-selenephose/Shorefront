@@ -10,6 +10,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import Depends, FastAPI, HTTPException, Response, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from .adapters import get_adapter_snapshot, list_adapter_snapshots
@@ -562,3 +563,24 @@ async def harbor_ws(ws: WebSocket):
             await asyncio.sleep(2)
     except WebSocketDisconnect:
         return
+
+def _mount_optional_static_frontend() -> None:
+    static_dir = os.getenv("PORTFLOW_STATIC_DIR")
+    if not static_dir:
+        return
+
+    static_path = os.path.abspath(static_dir)
+    index_path = os.path.join(static_path, "index.html")
+    if not os.path.isdir(static_path) or not os.path.isfile(index_path):
+        raise RuntimeError(
+            "PORTFLOW_STATIC_DIR must contain a built frontend with index.html"
+        )
+
+    app.mount(
+        "/",
+        StaticFiles(directory=static_path, html=True),
+        name="portflow-frontend",
+    )
+
+
+_mount_optional_static_frontend()
