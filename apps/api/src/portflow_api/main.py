@@ -97,7 +97,7 @@ async def lifespan(app: FastAPI):
         task.cancel()
 
 
-app = FastAPI(title="PortFlow API", version="0.15.0", lifespan=lifespan)
+app = FastAPI(title="PortFlow API", version="0.15.1", lifespan=lifespan)
 app.middleware("http")(observe_http)
 app.add_middleware(
     CORSMiddleware,
@@ -135,7 +135,7 @@ def healthz():
     return {
         "ok": True,
         "service": "portflow-api",
-        "version": "0.15.0",
+        "version": "0.15.1",
     }
 
 
@@ -152,7 +152,7 @@ def readyz():
     payload = {
         "ok": ready,
         "service": "portflow-api",
-        "version": "0.15.0",
+        "version": "0.15.1",
         "runtime_ready": _runtime_ready,
         "schema_mode": _schema_mode,
         "schema": schema,
