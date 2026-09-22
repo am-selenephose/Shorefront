@@ -1,6 +1,6 @@
 # PortFlow architecture
 
-## v0.14
+## v0.15
 
 Synthetic operations and scenario injection feed a deterministic HarborSimulator.
 
@@ -699,3 +699,29 @@ Applying a compound proposal:
 The canonical dual-resource-loss scenario exercises simultaneous Tug 14 and Bunker Barge 4 unavailability. Its best deterministic compound projection is Tug 22 + Bunker Barge 9 with 124 modeled delay minutes, 0 blocked services, and disruption score 149.
 
 The browser does not synthesize compound logic. It projects backend incident_ids and adds a visible COMPOUND · N INCIDENTS label. Authority remains server-side.
+
+## v0.15 provenance-bound service-duration calibration
+
+Service occupancy duration is now backed by explicit ServiceDurationCalibration state.
+
+The calibration chain is:
+
+    evidence source
+      -> DataSourceProvenance(service_calibration)
+      -> ServiceDurationCalibration
+      -> ServiceStep.duration_minutes
+      -> interval-capacity feasibility
+      -> recovery projection
+      -> recovery state fingerprint + decision confidence
+
+Synthetic defaults remain available for deterministic portfolio behavior, but they are labeled as synthetic-service-calibration rather than treated as source-free constants.
+
+Calibration changes are operational mutations. The API requires operator/supervisor authority, rejects stale or unhealthy provenance, writes an identity-bound service_calibration event, persists the updated snapshot, and updates every service step of the calibrated kind.
+
+Calibration source IDs are active provenance dependencies. They therefore participate in the same confidence classification as AIS, weather/tide, and berth-plan evidence.
+
+A proposal cannot retain its old state fingerprint after calibration changes because the calibrated service durations are part of the service_schedule fingerprint payload.
+
+Snapshots predating v0.15 migrate by synthesizing the canonical calibration set plus synthetic calibration provenance. This preserves old snapshot readability while making the previously implicit assumption explicit.
+
+The browser remains a projection layer. It labels service_calibration provenance in the Data Sources panel but does not calculate or authorize calibration values.

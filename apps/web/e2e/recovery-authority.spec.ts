@@ -53,6 +53,10 @@ test('operator ingests healthy recorded AIS while stale adapter stays blocked', 
   await page.goto('/')
 
   const initialSource = page.locator('[data-source-id="synthetic-ais"]')
+  const calibrationSource = page.locator('[data-source-id="synthetic-service-calibration"]')
+  await expect(calibrationSource).toBeVisible()
+  await expect(calibrationSource).toContainText('SERVICE CALIBRATION')
+
   await expect(initialSource).toBeVisible()
   await expect(initialSource.locator('.source-mode.synthetic')).toHaveText('synthetic')
 

@@ -13,6 +13,7 @@ function ageLabel(seconds: number) {
 function domainLabel(domain: string) {
   if (domain === 'weather_tide') return 'WEATHER / TIDE'
   if (domain === 'berth_plan') return 'BERTH PLAN'
+  if (domain === 'service_calibration') return 'SERVICE CALIBRATION'
   return domain.toUpperCase()
 }
 

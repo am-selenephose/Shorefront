@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from datetime import datetime, timezone
 from contextlib import asynccontextmanager
 
 from fastapi import Depends, FastAPI, HTTPException, WebSocket, WebSocketDisconnect
@@ -9,7 +10,10 @@ from pydantic import BaseModel, Field
 
 from .adapters import get_adapter_snapshot, list_adapter_snapshots
 from .domain import detect_berth_conflicts, score_port_call
-from .models import IncidentType, LinkMode, OperatorIdentity
+from .models import (
+    AdapterHealth, DataDomain, DataSourceMode, DataSourceProvenance, IncidentType,
+    LinkMode, OperatorIdentity, ServiceDurationCalibration, ServiceKind,
+)
 from .simulator import HarborSimulator
 from .security import configured_approvers, current_operator, recovery_approver
 from .scenarios import get_scenario, list_scenarios
@@ -53,7 +57,7 @@ async def lifespan(app: FastAPI):
     task.cancel()
 
 
-app = FastAPI(title="PortFlow API", version="0.14.0", lifespan=lifespan)
+app = FastAPI(title="PortFlow API", version="0.15.0", lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
@@ -73,12 +77,23 @@ class IncidentRequest(BaseModel):
     impact_minutes: int | None = Field(default=None, ge=0, le=720)
 
 
+class ServiceDurationCalibrationRequest(BaseModel):
+    service_kind: ServiceKind
+    duration_minutes: int = Field(ge=1, le=24 * 60)
+    source_id: str = Field(min_length=1, max_length=120)
+    mode: DataSourceMode
+    provider: str = Field(min_length=1, max_length=200)
+    observed_at: datetime
+    stale_after_seconds: int = Field(default=2_592_000, ge=60, le=31_536_000)
+    detail: str | None = Field(default=None, max_length=500)
+
+
 @app.get("/healthz")
 def healthz():
     return {
         "ok": True,
         "service": "portflow-api",
-        "version": "0.14.0",
+        "version": "0.15.0",
         "persistence": True,
         "authorization_configured": bool(configured_approvers()),
     }
@@ -87,6 +102,70 @@ def healthz():
 @app.get("/api/v1/auth/me")
 def auth_me(identity: OperatorIdentity = Depends(current_operator)):
     return identity
+
+
+@app.get("/api/v1/service-duration-calibrations")
+def service_duration_calibrations():
+    rows = sorted(
+        sim.service_duration_calibrations,
+        key=lambda item: item.service_kind.value,
+    )
+    return {"count": len(rows), "calibrations": rows}
+
+
+@app.post("/api/v1/service-duration-calibrations")
+def update_service_duration_calibration(
+    req: ServiceDurationCalibrationRequest,
+    identity: OperatorIdentity = Depends(recovery_approver),
+):
+    if req.observed_at.tzinfo is None:
+        raise HTTPException(status_code=422, detail="observed_at must include a timezone")
+
+    received_at = datetime.now(timezone.utc).replace(microsecond=0)
+    observed_at = req.observed_at.astimezone(timezone.utc).replace(microsecond=0)
+    freshness_seconds = max(0, int((received_at - observed_at).total_seconds()))
+    stale = freshness_seconds > req.stale_after_seconds
+    provenance = DataSourceProvenance(
+        source_id=req.source_id,
+        domain=DataDomain.SERVICE_CALIBRATION,
+        mode=req.mode,
+        provider=req.provider,
+        observed_at=observed_at,
+        received_at=received_at,
+        freshness_seconds=freshness_seconds,
+        stale_after_seconds=req.stale_after_seconds,
+        stale=stale,
+        health=AdapterHealth.STALE if stale else AdapterHealth.HEALTHY,
+        record_count=1,
+        detail=req.detail,
+        last_success_at=received_at if not stale else None,
+    )
+    calibration = ServiceDurationCalibration(
+        service_kind=req.service_kind,
+        duration_minutes=req.duration_minutes,
+        source_id=req.source_id,
+        mode=req.mode,
+        provider=req.provider,
+        observed_at=observed_at,
+        detail=req.detail,
+    )
+
+    try:
+        updated = sim.set_service_duration_calibration(
+            calibration,
+            provenance,
+            updated_by=identity.operator_id,
+            updated_role=identity.role,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+    return {
+        "calibration": updated,
+        "provenance": provenance,
+        "updated_by": identity,
+    }
+
 
 
 @app.get("/api/v1/adapters")

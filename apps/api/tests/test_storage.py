@@ -1,9 +1,9 @@
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from portflow_api.adapters import HttpJsonAdapter, configured_live_adapters, get_adapter_snapshot
 from portflow_api.domain import detect_berth_conflicts
-from portflow_api.models import AdapterHealth, DataDomain, DataSourceMode, DataSourceProvenance, IncidentType, LinkMode, OperatorRole, ResourceUnavailableWindow, ServiceKind
+from portflow_api.models import AdapterHealth, DataDomain, DataSourceMode, DataSourceProvenance, IncidentType, LinkMode, OperatorRole, ResourceUnavailableWindow, ServiceDurationCalibration, ServiceKind
 from portflow_api.simulator import HarborSimulator
 from portflow_api.storage import OperationsStore
 
@@ -1027,6 +1027,11 @@ def test_all_healthy_live_active_sources_can_be_high_confidence():
     for call in sim.port_calls:
         call.source_id = "live-berth-proof"
     sim.weather.source_id = "live-weather-proof"
+    for calibration in sim.service_duration_calibrations:
+        calibration.source_id = "live-calibration-proof"
+        calibration.mode = DataSourceMode.LIVE
+        calibration.provider = "Live Calibration Proof"
+        calibration.observed_at = now
 
     sim.data_sources = [
         DataSourceProvenance(
@@ -1061,6 +1066,17 @@ def test_all_healthy_live_active_sources_can_be_high_confidence():
             stale_after_seconds=600,
             health=AdapterHealth.HEALTHY,
             record_count=len(sim.port_calls),
+        ),
+        DataSourceProvenance(
+            source_id="live-calibration-proof",
+            domain=DataDomain.SERVICE_CALIBRATION,
+            mode=DataSourceMode.LIVE,
+            provider="Live Calibration Proof",
+            observed_at=now,
+            received_at=now,
+            stale_after_seconds=86_400,
+            health=AdapterHealth.HEALTHY,
+            record_count=len(sim.service_duration_calibrations),
         ),
     ]
 
@@ -1309,3 +1325,163 @@ def test_compound_recovery_generation_is_deterministic():
         return rows
 
     assert signature() == signature()
+
+
+def test_recorded_duration_calibration_updates_steps_provenance_and_fingerprint(tmp_path):
+    store = make_store(tmp_path)
+    sim = HarborSimulator(
+        event_sink=store.append_event,
+        incident_sink=store.upsert_incident,
+        snapshot_sink=store.save_snapshot,
+        recovery_receipt_sink=store.save_recovery_receipt,
+    )
+
+    sim.inject_incident(IncidentType.BUNKER_UNAVAILABLE, "pc-aurora", 45)
+    before = sim.generate_recovery_proposals(call_id="pc-aurora")[0]
+    now = datetime.now(timezone.utc).replace(microsecond=0)
+
+    calibration = ServiceDurationCalibration(
+        service_kind=ServiceKind.BUNKER,
+        duration_minutes=75,
+        source_id="recorded-bunker-calibration",
+        mode=DataSourceMode.RECORDED,
+        provider="Terminal service history replay",
+        observed_at=now,
+        detail="Recorded median bunker-service duration.",
+    )
+    provenance = DataSourceProvenance(
+        source_id=calibration.source_id,
+        domain=DataDomain.SERVICE_CALIBRATION,
+        mode=calibration.mode,
+        provider=calibration.provider,
+        observed_at=now,
+        received_at=now,
+        stale_after_seconds=86_400,
+        health=AdapterHealth.HEALTHY,
+        record_count=1,
+        detail=calibration.detail,
+    )
+
+    updated = sim.set_service_duration_calibration(
+        calibration,
+        provenance,
+        updated_by="operator-calibration",
+        updated_role=OperatorRole.OPERATOR,
+    )
+
+    assert updated.duration_minutes == 75
+    assert all(
+        step.duration_minutes == 75
+        for step in sim.service_steps
+        if step.kind == ServiceKind.BUNKER
+    )
+    source = next(
+        item for item in sim.data_sources
+        if item.source_id == "recorded-bunker-calibration"
+    )
+    assert source.domain == DataDomain.SERVICE_CALIBRATION
+    assert source.mode == DataSourceMode.RECORDED
+
+    after = sim.generate_recovery_proposals(call_id="pc-aurora")[0]
+    assert after.state_fingerprint != before.state_fingerprint
+    assert after.decision_confidence.value == "medium"
+    assert any(
+        "Recorded replay data is active" in warning
+        for warning in after.data_quality_warnings
+    )
+
+    event = next(
+        item for item in sim.events
+        if item.category == "service_calibration"
+    )
+    assert event.actor_id == "operator-calibration"
+    assert event.actor_role == OperatorRole.OPERATOR
+    assert event.source_id == "recorded-bunker-calibration"
+
+    snapshot = store.load_snapshot()
+    assert snapshot is not None
+    restored = HarborSimulator(initial=snapshot)
+    restored_calibration = next(
+        item for item in restored.service_duration_calibrations
+        if item.service_kind == ServiceKind.BUNKER
+    )
+    assert restored_calibration.duration_minutes == 75
+    assert restored_calibration.source_id == "recorded-bunker-calibration"
+
+
+def test_stale_duration_calibration_cannot_mutate_operational_truth():
+    sim = HarborSimulator()
+    now = datetime.now(timezone.utc).replace(microsecond=0)
+    before = [
+        step.duration_minutes
+        for step in sim.service_steps
+        if step.kind == ServiceKind.BUNKER
+    ]
+
+    calibration = ServiceDurationCalibration(
+        service_kind=ServiceKind.BUNKER,
+        duration_minutes=90,
+        source_id="stale-bunker-calibration",
+        mode=DataSourceMode.RECORDED,
+        provider="Expired terminal history",
+        observed_at=now - timedelta(days=2),
+    )
+    provenance = DataSourceProvenance(
+        source_id=calibration.source_id,
+        domain=DataDomain.SERVICE_CALIBRATION,
+        mode=calibration.mode,
+        provider=calibration.provider,
+        observed_at=calibration.observed_at,
+        received_at=now,
+        freshness_seconds=2 * 24 * 60 * 60,
+        stale_after_seconds=60,
+        stale=True,
+        health=AdapterHealth.STALE,
+        record_count=1,
+    )
+
+    try:
+        sim.set_service_duration_calibration(calibration, provenance)
+    except ValueError as exc:
+        assert "not usable" in str(exc)
+    else:
+        raise AssertionError("stale calibration unexpectedly mutated operational state")
+
+    after = [
+        step.duration_minutes
+        for step in sim.service_steps
+        if step.kind == ServiceKind.BUNKER
+    ]
+    assert after == before
+    assert not any(
+        source.source_id == "stale-bunker-calibration"
+        for source in sim.data_sources
+    )
+
+
+def test_pre_v015_snapshot_migrates_service_duration_calibration_state():
+    sim = HarborSimulator()
+    snapshot = sim.overview()
+    snapshot.service_duration_calibrations = []
+    snapshot.data_sources = [
+        source for source in snapshot.data_sources
+        if source.domain != DataDomain.SERVICE_CALIBRATION
+    ]
+    for step in snapshot.service_steps:
+        step.duration_minutes = 0
+
+    restored = HarborSimulator(initial=snapshot)
+
+    assert len(restored.service_duration_calibrations) == len(ServiceKind)
+    bunker = next(
+        item for item in restored.service_duration_calibrations
+        if item.service_kind == ServiceKind.BUNKER
+    )
+    assert bunker.duration_minutes == 60
+    assert bunker.source_id == "synthetic-service-calibration"
+    assert any(
+        source.source_id == "synthetic-service-calibration"
+        and source.domain == DataDomain.SERVICE_CALIBRATION
+        for source in restored.data_sources
+    )
+    assert all(step.duration_minutes > 0 for step in restored.service_steps)

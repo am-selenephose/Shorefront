@@ -17,7 +17,7 @@ from .models import (
     Incident, IncidentStatus, IncidentType, LinkMode, OperationsEvent,
     PortCall, PortCallStage, RecoveryAction, RecoveryActionType,
     RecoveryApplicationReceipt, RecoveryProposal, ResourceStatus, ResourceUnavailableWindow, RiskLevel,
-    OperatorRole, ServiceKind, ServiceResource, ServiceState, ServiceStep, Vessel, VesselStatus,
+    OperatorRole, ServiceDurationCalibration, ServiceKind, ServiceResource, ServiceState, ServiceStep, Vessel, VesselStatus,
     WeatherState,
 )
 
@@ -83,6 +83,7 @@ class HarborSimulator:
         )
         self.incidents: list[Incident] = []
         self.data_sources = self._default_data_sources()
+        self.service_duration_calibrations = self._make_service_duration_calibrations()
         self.service_resources = self._make_service_resources()
         self.service_steps = self._make_service_steps()
         self.events: list[OperationsEvent] = []
@@ -101,9 +102,22 @@ class HarborSimulator:
         self.connectivity = deepcopy(state.connectivity)
         self.incidents = deepcopy(state.incidents)
         self.data_sources = deepcopy(state.data_sources) or self._default_data_sources()
+        had_duration_calibrations = bool(state.service_duration_calibrations)
+        self.service_duration_calibrations = (
+            deepcopy(state.service_duration_calibrations)
+            or self._make_service_duration_calibrations()
+        )
         self.service_resources = deepcopy(state.service_resources)
         self.service_steps = deepcopy(state.service_steps)
         self.events = deepcopy(state.events)
+        if not had_duration_calibrations:
+            existing_source_ids = {source.source_id for source in self.data_sources}
+            for source in self._default_data_sources():
+                if (
+                    source.domain == DataDomain.SERVICE_CALIBRATION
+                    and source.source_id not in existing_source_ids
+                ):
+                    self.data_sources.append(source)
 
         # Backward-compatible restore for snapshots created before v0.3.
         if not self.service_resources:
@@ -190,6 +204,20 @@ class HarborSimulator:
                 record_count=len(getattr(self, "port_calls", [])),
                 detail="Synthetic berth allocations and port-call timing.",
             ),
+            DataSourceProvenance(
+                source_id="synthetic-service-calibration",
+                domain=DataDomain.SERVICE_CALIBRATION,
+                mode=DataSourceMode.SYNTHETIC,
+                provider="PortFlow synthetic service-duration calibration",
+                observed_at=now,
+                received_at=now,
+                freshness_seconds=0,
+                stale_after_seconds=10_000_000,
+                stale=False,
+                health=AdapterHealth.HEALTHY,
+                record_count=len(ServiceKind),
+                detail="Synthetic service-duration assumptions for the portfolio demo.",
+            ),
         ]
 
     def _refresh_data_source_freshness(self) -> None:
@@ -219,6 +247,7 @@ class HarborSimulator:
             | {berth.source_id for berth in self.berths}
             | {call.source_id for call in self.port_calls}
             | {self.weather.source_id}
+            | {calibration.source_id for calibration in self.service_duration_calibrations}
         )
 
     def _prune_data_sources(self) -> None:
@@ -651,7 +680,7 @@ class HarborSimulator:
         return stage.planned_at if stage else fallback
 
     @staticmethod
-    def _service_duration_minutes(kind: ServiceKind) -> int:
+    def _default_service_duration_minutes(kind: ServiceKind) -> int:
         durations = {
             ServiceKind.PILOT: 30,
             ServiceKind.TUG: 45,
@@ -666,6 +695,80 @@ class HarborSimulator:
             ServiceKind.DEPARTURE: 20,
         }
         return durations[kind]
+
+    def _make_service_duration_calibrations(self) -> list[ServiceDurationCalibration]:
+        return [
+            ServiceDurationCalibration(
+                service_kind=kind,
+                duration_minutes=self._default_service_duration_minutes(kind),
+                source_id="synthetic-service-calibration",
+                mode=DataSourceMode.SYNTHETIC,
+                provider="PortFlow synthetic service-duration calibration",
+                observed_at=self._started,
+                detail="Synthetic duration assumption for the portfolio demo.",
+            )
+            for kind in ServiceKind
+        ]
+
+    def _service_duration_minutes(self, kind: ServiceKind) -> int:
+        calibration = next(
+            (
+                item for item in self.service_duration_calibrations
+                if item.service_kind == kind
+            ),
+            None,
+        )
+        if calibration is not None:
+            return calibration.duration_minutes
+        return self._default_service_duration_minutes(kind)
+
+    def set_service_duration_calibration(
+        self,
+        calibration: ServiceDurationCalibration,
+        provenance: DataSourceProvenance,
+        updated_by: str | None = None,
+        updated_role: OperatorRole | None = None,
+    ) -> ServiceDurationCalibration:
+        if provenance.domain != DataDomain.SERVICE_CALIBRATION:
+            raise ValueError("Calibration provenance must use service_calibration domain")
+        if provenance.source_id != calibration.source_id:
+            raise ValueError("Calibration source_id must match provenance source_id")
+        if provenance.mode != calibration.mode:
+            raise ValueError("Calibration mode must match provenance mode")
+        if provenance.observed_at != calibration.observed_at:
+            raise ValueError("Calibration observed_at must match provenance observed_at")
+        if provenance.stale or provenance.health != AdapterHealth.HEALTHY:
+            raise ValueError(
+                f"Calibration source {provenance.source_id} is not usable: {provenance.health.value}"
+            )
+
+        self.service_duration_calibrations = [
+            item for item in self.service_duration_calibrations
+            if item.service_kind != calibration.service_kind
+        ]
+        self.service_duration_calibrations.append(deepcopy(calibration))
+        self.service_duration_calibrations.sort(key=lambda item: item.service_kind.value)
+
+        for step in self.service_steps:
+            if step.kind == calibration.service_kind:
+                step.duration_minutes = calibration.duration_minutes
+
+        self._upsert_data_source(provenance)
+        self._recalculate_services()
+        self._recalculate_risks()
+        self._emit(
+            "service_calibration",
+            RiskLevel.LOW,
+            f"Service duration calibrated: {calibration.service_kind.value}",
+            (
+                f"{calibration.service_kind.value} duration set to {calibration.duration_minutes} minutes from {calibration.mode.value} source {calibration.provider}."
+            ),
+            actor_id=updated_by,
+            actor_role=updated_role,
+            source_id=calibration.source_id,
+        )
+        self._persist()
+        return deepcopy(calibration)
 
     def _make_service_steps(self) -> list[ServiceStep]:
         steps: list[ServiceStep] = []
@@ -2253,6 +2356,7 @@ class HarborSimulator:
             incidents=deepcopy(self.incidents),
             service_resources=deepcopy(self.service_resources),
             service_steps=deepcopy(self.service_steps),
+            service_duration_calibrations=deepcopy(self.service_duration_calibrations),
             events=deepcopy(self.events),
             data_sources=deepcopy(self.data_sources),
             metrics={

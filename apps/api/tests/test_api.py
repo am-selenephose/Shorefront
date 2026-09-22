@@ -1,6 +1,8 @@
+from datetime import datetime, timedelta, timezone
 import hashlib
 import json
 import os
+from datetime import datetime, timedelta, timezone
 
 from fastapi.testclient import TestClient
 
@@ -494,3 +496,104 @@ def test_dual_resource_scenario_exposes_compound_recovery_contract():
         assert best["projected_total_delay_minutes"] == 124
         assert best["projected_blocked_services"] == 0
         assert best["disruption_score"] == 149
+
+
+def test_service_duration_calibration_api_enforces_authority_and_provenance():
+    with TestClient(app) as client:
+        client.post("/api/v1/demo/reset")
+
+        initial = client.get("/api/v1/service-duration-calibrations")
+        assert initial.status_code == 200
+        initial_payload = initial.json()
+        assert initial_payload["count"] == 11
+        initial_bunker = next(
+            row for row in initial_payload["calibrations"]
+            if row["service_kind"] == "bunker"
+        )
+        assert initial_bunker["duration_minutes"] == 60
+        assert initial_bunker["mode"] == "synthetic"
+
+        now = datetime.now(timezone.utc).replace(microsecond=0)
+        payload = {
+            "service_kind": "bunker",
+            "duration_minutes": 75,
+            "source_id": "recorded-bunker-calibration-api",
+            "mode": "recorded",
+            "provider": "Terminal service history replay",
+            "observed_at": now.isoformat(),
+            "stale_after_seconds": 86_400,
+            "detail": "Recorded median bunker-service duration.",
+        }
+
+        assert client.post(
+            "/api/v1/service-duration-calibrations",
+            json=payload,
+        ).status_code == 401
+        assert client.post(
+            "/api/v1/service-duration-calibrations",
+            json=payload,
+            headers=auth_headers(VIEWER_TOKEN),
+        ).status_code == 403
+
+        updated = client.post(
+            "/api/v1/service-duration-calibrations",
+            json=payload,
+            headers=auth_headers(OPERATOR_TOKEN),
+        )
+        assert updated.status_code == 200
+        body = updated.json()
+        assert body["calibration"]["duration_minutes"] == 75
+        assert body["calibration"]["mode"] == "recorded"
+        assert body["provenance"]["domain"] == "service_calibration"
+        assert body["updated_by"]["operator_id"] == "operator-17"
+
+        harbor = client.get("/api/v1/harbor").json()
+        calibrated = next(
+            row for row in harbor["service_duration_calibrations"]
+            if row["service_kind"] == "bunker"
+        )
+        assert calibrated["duration_minutes"] == 75
+        assert calibrated["source_id"] == "recorded-bunker-calibration-api"
+        assert all(
+            step["duration_minutes"] == 75
+            for step in harbor["service_steps"]
+            if step["kind"] == "bunker"
+        )
+
+        source = next(
+            row for row in harbor["data_sources"]
+            if row["source_id"] == "recorded-bunker-calibration-api"
+        )
+        assert source["domain"] == "service_calibration"
+        assert source["mode"] == "recorded"
+
+        ledger = client.get("/api/v1/events?limit=50").json()
+        event = next(
+            row for row in ledger
+            if row["category"] == "service_calibration"
+        )
+        assert event["actor_id"] == "operator-17"
+        assert event["actor_role"] == "operator"
+        assert event["source_id"] == "recorded-bunker-calibration-api"
+
+        stale_payload = {
+            **payload,
+            "duration_minutes": 90,
+            "source_id": "stale-bunker-calibration-api",
+            "observed_at": (now - timedelta(days=2)).isoformat(),
+            "stale_after_seconds": 60,
+        }
+        stale = client.post(
+            "/api/v1/service-duration-calibrations",
+            json=stale_payload,
+            headers=auth_headers(OPERATOR_TOKEN),
+        )
+        assert stale.status_code == 409
+
+        after_stale = client.get("/api/v1/harbor").json()
+        bunker_after_stale = next(
+            row for row in after_stale["service_duration_calibrations"]
+            if row["service_kind"] == "bunker"
+        )
+        assert bunker_after_stale["duration_minutes"] == 75
+        assert bunker_after_stale["source_id"] == "recorded-bunker-calibration-api"

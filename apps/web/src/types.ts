@@ -7,7 +7,7 @@ export type ResourceStatus = 'available' | 'assigned' | 'delayed' | 'unavailable
 export type RecoveryActionType = 'reassign_resource' | 'move_berth' | 'shift_window'
 export type OperatorRole = 'viewer' | 'operator' | 'supervisor'
 export type DataSourceMode = 'synthetic' | 'recorded' | 'live'
-export type DataDomain = 'ais' | 'weather_tide' | 'berth_plan'
+export type DataDomain = 'ais' | 'weather_tide' | 'berth_plan' | 'service_calibration'
 export type AdapterHealth = 'healthy' | 'degraded' | 'stale' | 'offline' | 'unconfigured' | 'error'
 export type DecisionConfidence = 'demo' | 'low' | 'medium' | 'high'
 
@@ -144,6 +144,17 @@ export interface ServiceStep {
 }
 
 
+export interface ServiceDurationCalibration {
+  service_kind: ServiceKind
+  duration_minutes: number
+  source_id: string
+  mode: DataSourceMode
+  provider: string
+  observed_at: string
+  detail?: string | null
+}
+
+
 export interface DataSourceProvenance {
   source_id: string
   domain: DataDomain
@@ -197,6 +208,7 @@ export interface HarborState {
   incidents: Incident[]
   service_resources: ServiceResource[]
   service_steps: ServiceStep[]
+  service_duration_calibrations: ServiceDurationCalibration[]
   events: Event[]
   data_sources: DataSourceProvenance[]
   metrics: Record<string, number>

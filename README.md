@@ -4,7 +4,7 @@ PortFlow is a port-call operations control tower for continuously updated vessel
 
 ## Status
 
-Private portfolio build, v0.14 compound cross-resource recovery.
+Private portfolio build, v0.15 provenance-bound service-duration calibration.
 
 ## Product principles
 
@@ -1351,3 +1351,66 @@ v0.15 should prioritize product realism and deployment rather than expanding Por
 - hosted production deployment with HTTPS, persistent PostgreSQL, migrations, observability, backups, and resilient startup
 - stronger scenario snapshots, replayability, and evidence controls
 - a documented future event/API boundary for vessel-side operational events without prematurely coupling the codebases
+
+## v0.15 proof
+
+### Provenance-bound service-duration calibration
+
+Service-duration assumptions are now canonical modeled state rather than anonymous constants.
+
+Each service kind has a ServiceDurationCalibration containing:
+
+- service kind
+- duration in minutes
+- source id
+- source mode: synthetic, recorded, or live
+- provider
+- observation time
+- optional source detail
+
+The default portfolio fixture remains explicitly synthetic. This preserves the existing demo behavior while making the calibration assumption inspectable.
+
+### Calibration authority boundary
+
+The calibration catalog is readable without approval authority.
+
+Changing calibration requires the same operator/supervisor role used for other operational mutations.
+
+A calibration update:
+
+- validates source identity, mode, observation time, and health against provenance
+- rejects stale or unhealthy evidence
+- updates every modeled service step of that kind
+- persists the changed calibration in HarborOverview snapshots
+- emits an identity-bound service_calibration event
+- changes the recovery state fingerprint
+- participates in recovery decision confidence
+
+This means PortFlow cannot claim HIGH decision confidence while schedule occupancy still depends on missing, stale, synthetic, or recorded calibration evidence.
+
+### Backward-compatible snapshot migration
+
+Snapshots created before v0.15 do not contain service_duration_calibrations.
+
+On restore, PortFlow creates the canonical synthetic calibration set and adds its provenance source. Legacy zero-duration service steps continue to migrate to the current calibrated duration.
+
+### API surface
+
+- GET /api/v1/service-duration-calibrations exposes the active calibration set
+- POST /api/v1/service-duration-calibrations requires operator/supervisor authority
+- stale calibration evidence returns 409 without mutating canonical state
+
+The Data Sources UI recognizes service_calibration as a first-class provenance domain.
+
+### v0.15 calibration increment verification
+
+Current gate for this increment:
+
+- 81 backend/domain/API/storage/recovery/security/scenario/adapter/calendar/resilience/confidence/capacity/compound/calibration tests
+- Python compile
+- production TypeScript/Vite build
+- npm audit
+- existing Chromium recovery E2Es
+- version metadata aligned at 0.15.0
+
+The next v0.15 increment is retry/backoff and contingency scheduling, followed by hosted deployment hardening.

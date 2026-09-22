@@ -111,6 +111,7 @@ class DataDomain(StrEnum):
     AIS = "ais"
     WEATHER_TIDE = "weather_tide"
     BERTH_PLAN = "berth_plan"
+    SERVICE_CALIBRATION = "service_calibration"
 
 
 class AdapterHealth(StrEnum):
@@ -295,6 +296,16 @@ class ServiceStep(BaseModel):
 
 
 
+class ServiceDurationCalibration(BaseModel):
+    service_kind: ServiceKind
+    duration_minutes: int = Field(ge=1, le=24 * 60)
+    source_id: str
+    mode: DataSourceMode
+    provider: str
+    observed_at: datetime
+    detail: str | None = None
+
+
 class RecoveryAction(BaseModel):
     action_type: RecoveryActionType
     port_call_id: str
@@ -379,6 +390,7 @@ class HarborOverview(BaseModel):
     incidents: list[Incident] = Field(default_factory=list)
     service_resources: list[ServiceResource] = Field(default_factory=list)
     service_steps: list[ServiceStep] = Field(default_factory=list)
+    service_duration_calibrations: list[ServiceDurationCalibration] = Field(default_factory=list)
     events: list[OperationsEvent]
     data_sources: list[DataSourceProvenance] = Field(default_factory=list)
     metrics: dict[str, float | int]
