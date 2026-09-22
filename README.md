@@ -1351,3 +1351,36 @@ v0.15 should prioritize product realism and deployment rather than expanding Por
 - hosted production deployment with HTTPS, persistent PostgreSQL, migrations, observability, backups, and resilient startup
 - stronger scenario snapshots, replayability, and evidence controls
 - a documented future event/API boundary for vessel-side operational events without prematurely coupling the codebases
+
+
+## v0.15.0 — Vessel Runtime shore ingest
+
+PortFlow can now receive privacy-filtered vessel-runtime operational projections from the companion Maritime Runtime.
+
+Receiver endpoint:
+
+    POST /api/v1/vessel-runtime/ingest
+    Authorization: Bearer <vessel-runtime-token>
+
+The ingest path is deliberately separate from operator authentication. Configure approved edge senders through PORTFLOW_VESSEL_RUNTIMES_JSON using SHA-256 token digests bound to a specific vessel_runtime_id.
+
+The receiver validates:
+
+- bridge schema version maritime-runtime-portflow.v1;
+- credential to vessel-runtime identity binding;
+- source sequence continuity;
+- base source hash against the last accepted vessel cursor;
+- source head hash progression;
+- projected event source/vessel identity;
+- event-id deduplication and payload consistency.
+
+Accepted projected events become normal PortFlow OperationsEvent records. Duplicate envelope replay is idempotent. Sequence gaps or divergent base/source hashes return HTTP 409 rather than silently mutating shore truth.
+
+The bridge is intentionally privacy-filtered. Maritime Runtime excludes crew workload, duty/rest evidence, authentication/session detail, response-assignment internals and raw telemetry by default. PortFlow receives operational machine/workflow events such as equipment unavailability, dependency impact, permit completion and human-gated replan state.
+
+Local verification for this release path:
+
+- PortFlow API suite: **81 passed**;
+- cross-repo proof: Maritime Runtime generated a 12-sequence source envelope containing 9 shore events and 3 policy-excluded source events;
+- PortFlow accepted all 9 projected events;
+- a second delivery of the same envelope returned duplicate.

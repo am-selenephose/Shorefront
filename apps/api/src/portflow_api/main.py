@@ -9,9 +9,22 @@ from pydantic import BaseModel, Field
 
 from .adapters import get_adapter_snapshot, list_adapter_snapshots
 from .domain import detect_berth_conflicts, score_port_call
-from .models import IncidentType, LinkMode, OperatorIdentity
+from .models import (
+    IncidentType,
+    LinkMode,
+    OperatorIdentity,
+    VesselRuntimeEnvelope,
+    VesselRuntimeIngestStatus,
+)
 from .simulator import HarborSimulator
-from .security import configured_approvers, current_operator, recovery_approver
+from .security import (
+    VesselRuntimeCredential,
+    configured_approvers,
+    configured_vessel_runtimes,
+    current_operator,
+    recovery_approver,
+    vessel_runtime_sender,
+)
 from .scenarios import get_scenario, list_scenarios
 from .storage import OperationsStore
 
@@ -53,7 +66,7 @@ async def lifespan(app: FastAPI):
     task.cancel()
 
 
-app = FastAPI(title="PortFlow API", version="0.14.0", lifespan=lifespan)
+app = FastAPI(title="PortFlow API", version="0.15.0", lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
@@ -78,9 +91,10 @@ def healthz():
     return {
         "ok": True,
         "service": "portflow-api",
-        "version": "0.14.0",
+        "version": "0.15.0",
         "persistence": True,
         "authorization_configured": bool(configured_approvers()),
+        "vessel_runtime_ingest_configured": bool(configured_vessel_runtimes()),
     }
 
 
@@ -186,6 +200,31 @@ def harbor():
 def connectivity(req: ConnectivityRequest):
     sim.set_connectivity(req.mode)
     return sim.connectivity
+
+
+
+
+@app.post("/api/v1/vessel-runtime/ingest")
+def ingest_vessel_runtime(
+    envelope: VesselRuntimeEnvelope,
+    identity: VesselRuntimeCredential = Depends(vessel_runtime_sender),
+):
+    if identity.vessel_runtime_id != envelope.vessel_runtime_id:
+        raise HTTPException(
+            status_code=403,
+            detail="Credential is not authorized for this vessel runtime",
+        )
+
+    result = store.ingest_vessel_runtime_envelope(envelope)
+    if result.status in {
+        VesselRuntimeIngestStatus.GAP,
+        VesselRuntimeIngestStatus.CONFLICT,
+    }:
+        raise HTTPException(
+            status_code=409,
+            detail=result.model_dump(mode="json"),
+        )
+    return result
 
 
 @app.get("/api/v1/events")

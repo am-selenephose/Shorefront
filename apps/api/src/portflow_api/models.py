@@ -383,3 +383,71 @@ class HarborOverview(BaseModel):
     data_sources: list[DataSourceProvenance] = Field(default_factory=list)
     metrics: dict[str, float | int]
     data_disclaimer: str
+
+
+class VesselRuntimeProjectedEvent(BaseModel):
+    source_sequence: int = Field(ge=1)
+    source_entry_hash: str
+    event: OperationsEvent
+
+
+class VesselRuntimeEnvelope(BaseModel):
+    schema_version: str = "maritime-runtime-portflow.v1"
+    vessel_runtime_id: str
+    source_mode: DataSourceMode
+    after_sequence: int = Field(ge=0)
+    base_source_hash: str
+    last_source_sequence: int = Field(ge=0)
+    source_head_hash: str
+    events: list[VesselRuntimeProjectedEvent] = Field(default_factory=list)
+    excluded_by_policy: int = Field(default=0, ge=0)
+
+    @staticmethod
+    def _valid_hash(value: str) -> bool:
+        return (
+            len(value) == 64
+            and all(ch in "0123456789abcdef" for ch in value.lower())
+        )
+
+    @model_validator(mode="after")
+    def validate_projection(self):
+        if self.schema_version != "maritime-runtime-portflow.v1":
+            raise ValueError("Unsupported vessel-runtime bridge schema")
+        if self.last_source_sequence < self.after_sequence:
+            raise ValueError("last_source_sequence cannot precede after_sequence")
+        if not self._valid_hash(self.base_source_hash):
+            raise ValueError("base_source_hash must be a 64-character hex digest")
+        if not self._valid_hash(self.source_head_hash):
+            raise ValueError("source_head_hash must be a 64-character hex digest")
+
+        previous = self.after_sequence
+        expected_source = f"maritime-runtime:{self.vessel_runtime_id}"
+        for item in self.events:
+            if item.source_sequence <= previous:
+                raise ValueError("Projected source sequences must be strictly increasing")
+            if item.source_sequence > self.last_source_sequence:
+                raise ValueError("Projected event exceeds envelope source head")
+            if not self._valid_hash(item.source_entry_hash):
+                raise ValueError("source_entry_hash must be a 64-character hex digest")
+            if item.event.vessel_id != self.vessel_runtime_id:
+                raise ValueError("Projected vessel_id must match vessel_runtime_id")
+            if item.event.source_id != expected_source:
+                raise ValueError("Projected source_id must match vessel runtime identity")
+            previous = item.source_sequence
+        return self
+
+
+class VesselRuntimeIngestStatus(StrEnum):
+    ACCEPTED = "accepted"
+    DUPLICATE = "duplicate"
+    GAP = "gap"
+    CONFLICT = "conflict"
+
+
+class VesselRuntimeIngestResult(BaseModel):
+    vessel_runtime_id: str
+    status: VesselRuntimeIngestStatus
+    accepted_events: int
+    last_source_sequence: int
+    source_head_hash: str
+    detail: str | None = None

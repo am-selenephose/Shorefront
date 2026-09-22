@@ -699,3 +699,38 @@ Applying a compound proposal:
 The canonical dual-resource-loss scenario exercises simultaneous Tug 14 and Bunker Barge 4 unavailability. Its best deterministic compound projection is Tug 22 + Bunker Barge 9 with 124 modeled delay minutes, 0 blocked services, and disruption score 149.
 
 The browser does not synthesize compound logic. It projects backend incident_ids and adds a visible COMPOUND · N INCIDENTS label. Authority remains server-side.
+
+
+## Vessel Runtime -> PortFlow bridge
+
+The edge/shoreside contract is intentionally asymmetric:
+
+    Maritime Runtime
+      full onboard operational ledger
+      + privacy policy
+      + source cursor/hash
+              |
+              v
+    maritime-runtime-portflow.v1 envelope
+              |
+              v
+    PortFlow authenticated ingest
+      sequence continuity
+      base-hash continuity
+      dedupe/conflict checks
+              |
+              v
+    PortFlow OperationsEvent ledger
+
+PortFlow stores one durable cursor per vessel_runtime_id:
+
+- last_source_sequence
+- source_head_hash
+- source_mode
+- updated_at
+
+A new envelope is accepted only when its after_sequence equals the stored cursor and base_source_hash equals the stored source head hash. Identical already-accepted heads are treated as duplicates. Forward sequence gaps and divergent history are rejected.
+
+Projected event IDs are also deduplicated at the existing operations_event table. If an already-known event ID arrives with different payload, the ingest is treated as a conflict.
+
+This channel is event ingestion, not machinery control. It cannot issue commands to the vessel runtime.

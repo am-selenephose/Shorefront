@@ -14,6 +14,9 @@ from .models import (
     OperationsEvent,
     RecoveryApplicationReceipt,
     ReplayReceipt,
+    VesselRuntimeEnvelope,
+    VesselRuntimeIngestResult,
+    VesselRuntimeIngestStatus,
 )
 
 
@@ -36,6 +39,17 @@ class EventRow(Base):
     category: Mapped[str] = mapped_column(String(60), index=True, nullable=False)
     severity: Mapped[str] = mapped_column(String(20), index=True, nullable=False)
     payload: Mapped[str] = mapped_column(Text, nullable=False)
+
+
+
+
+class VesselRuntimeCursorRow(Base):
+    __tablename__ = "vessel_runtime_cursor"
+    vessel_runtime_id: Mapped[str] = mapped_column(String(120), primary_key=True)
+    source_mode: Mapped[str] = mapped_column(String(20), nullable=False)
+    last_source_sequence: Mapped[int] = mapped_column(Integer, nullable=False)
+    source_head_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
 
 class IncidentRow(Base):
@@ -135,6 +149,134 @@ class OperationsStore:
                 .limit(max(1, min(limit, 1000)))
             ).all()
             return [OperationsEvent.model_validate_json(row.payload) for row in rows]
+
+
+    def ingest_vessel_runtime_envelope(
+        self,
+        envelope: VesselRuntimeEnvelope,
+    ) -> VesselRuntimeIngestResult:
+        genesis = "0" * 64
+        now = datetime.now(timezone.utc)
+
+        with Session(self.engine) as session:
+            cursor = session.get(
+                VesselRuntimeCursorRow,
+                envelope.vessel_runtime_id,
+            )
+            current_sequence = cursor.last_source_sequence if cursor else 0
+            current_hash = cursor.source_head_hash if cursor else genesis
+
+            if envelope.last_source_sequence == current_sequence:
+                if envelope.source_head_hash == current_hash:
+                    return VesselRuntimeIngestResult(
+                        vessel_runtime_id=envelope.vessel_runtime_id,
+                        status=VesselRuntimeIngestStatus.DUPLICATE,
+                        accepted_events=0,
+                        last_source_sequence=current_sequence,
+                        source_head_hash=current_hash,
+                        detail="Envelope head already accepted",
+                    )
+                return VesselRuntimeIngestResult(
+                    vessel_runtime_id=envelope.vessel_runtime_id,
+                    status=VesselRuntimeIngestStatus.CONFLICT,
+                    accepted_events=0,
+                    last_source_sequence=current_sequence,
+                    source_head_hash=current_hash,
+                    detail="Envelope source head conflicts with stored cursor",
+                )
+
+            if envelope.after_sequence > current_sequence:
+                return VesselRuntimeIngestResult(
+                    vessel_runtime_id=envelope.vessel_runtime_id,
+                    status=VesselRuntimeIngestStatus.GAP,
+                    accepted_events=0,
+                    last_source_sequence=current_sequence,
+                    source_head_hash=current_hash,
+                    detail="Envelope starts after the stored vessel-runtime cursor",
+                )
+
+            if envelope.after_sequence < current_sequence:
+                return VesselRuntimeIngestResult(
+                    vessel_runtime_id=envelope.vessel_runtime_id,
+                    status=VesselRuntimeIngestStatus.CONFLICT,
+                    accepted_events=0,
+                    last_source_sequence=current_sequence,
+                    source_head_hash=current_hash,
+                    detail="Envelope starts behind the stored vessel-runtime cursor",
+                )
+
+            if envelope.base_source_hash != current_hash:
+                return VesselRuntimeIngestResult(
+                    vessel_runtime_id=envelope.vessel_runtime_id,
+                    status=VesselRuntimeIngestStatus.CONFLICT,
+                    accepted_events=0,
+                    last_source_sequence=current_sequence,
+                    source_head_hash=current_hash,
+                    detail="Envelope base hash conflicts with stored vessel-runtime history",
+                )
+
+            accepted = 0
+            for projected in envelope.events:
+                event = projected.event
+                existing = session.scalar(
+                    select(EventRow).where(EventRow.event_id == event.id)
+                )
+                if existing is not None:
+                    stored = OperationsEvent.model_validate_json(existing.payload)
+                    if stored != event:
+                        session.rollback()
+                        return VesselRuntimeIngestResult(
+                            vessel_runtime_id=envelope.vessel_runtime_id,
+                            status=VesselRuntimeIngestStatus.CONFLICT,
+                            accepted_events=0,
+                            last_source_sequence=current_sequence,
+                            source_head_hash=current_hash,
+                            detail=f"Projected event id conflict: {event.id}",
+                        )
+                    continue
+
+                session.add(EventRow(
+                    event_id=event.id,
+                    occurred_at=event.occurred_at,
+                    category=event.category,
+                    severity=event.severity.value,
+                    payload=event.model_dump_json(),
+                ))
+                accepted += 1
+
+            if cursor is None:
+                cursor = VesselRuntimeCursorRow(
+                    vessel_runtime_id=envelope.vessel_runtime_id,
+                    source_mode=envelope.source_mode.value,
+                    last_source_sequence=envelope.last_source_sequence,
+                    source_head_hash=envelope.source_head_hash,
+                    updated_at=now,
+                )
+                session.add(cursor)
+            else:
+                cursor.source_mode = envelope.source_mode.value
+                cursor.last_source_sequence = envelope.last_source_sequence
+                cursor.source_head_hash = envelope.source_head_hash
+                cursor.updated_at = now
+
+            session.commit()
+            return VesselRuntimeIngestResult(
+                vessel_runtime_id=envelope.vessel_runtime_id,
+                status=VesselRuntimeIngestStatus.ACCEPTED,
+                accepted_events=accepted,
+                last_source_sequence=envelope.last_source_sequence,
+                source_head_hash=envelope.source_head_hash,
+            )
+
+    def vessel_runtime_cursor(
+        self,
+        vessel_runtime_id: str,
+    ) -> tuple[int, str] | None:
+        with Session(self.engine) as session:
+            cursor = session.get(VesselRuntimeCursorRow, vessel_runtime_id)
+            if cursor is None:
+                return None
+            return cursor.last_source_sequence, cursor.source_head_hash
 
     def upsert_incident(self, incident: Incident) -> None:
         with Session(self.engine) as session:
@@ -303,4 +445,5 @@ class OperationsStore:
             session.query(RecoveryReceiptRow).delete()
             session.query(OutboundEnvelopeRow).delete()
             session.query(ReplayReceiptRow).delete()
+            session.query(VesselRuntimeCursorRow).delete()
             session.commit()
