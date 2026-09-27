@@ -432,8 +432,8 @@ export default function App() {
   if (!state) {
     return (
       <div className="boot">
-        PORTFLOW
-        <span>Loading operations picture...</span>
+        KRATIA
+        <span>Loading shore operations picture...</span>
       </div>
     )
   }
@@ -442,10 +442,10 @@ export default function App() {
     <div className="shell">
       <aside className="sidebar">
         <div className="brand">
-          <div className="brandmark">PF</div>
+          <div className="brandmark">K</div>
           <div>
-            <b>PORTFLOW</b>
-            <span>OPERATIONS</span>
+            <b>KRATIA</b>
+            <span>MARITIME · SHORE</span>
           </div>
         </div>
 
@@ -471,7 +471,7 @@ export default function App() {
       <main>
         <header>
           <div>
-            <p className="eyebrow">PORT OPERATIONS CONTROL TOWER</p>
+            <p className="eyebrow">KRATIA SHORE · OPERATIONS CONTROL TOWER</p>
             <h1>{state.port_name}</h1>
           </div>
           <div className="header-right">
@@ -481,6 +481,13 @@ export default function App() {
             </div>
           </div>
         </header>
+
+        <div className="kratia-context-strip" aria-label="KRATIA Shore authority boundary">
+          <span>SHORE COORDINATION</span>
+          <span>PRIVACY-MINIMIZED VESSEL EVENTS</span>
+          <span>HUMAN APPROVAL</span>
+          <span className="locked">NO VESSEL ACTUATION</span>
+        </div>
 
         {actionError && <div className="action-error">{actionError}</div>}
 

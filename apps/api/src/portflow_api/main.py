@@ -98,7 +98,7 @@ async def lifespan(app: FastAPI):
         task.cancel()
 
 
-app = FastAPI(title="PortFlow API", version=__version__, lifespan=lifespan)
+app = FastAPI(title="KRATIA Shore", version=__version__, lifespan=lifespan)
 app.middleware("http")(observe_http)
 app.add_middleware(
     CORSMiddleware,

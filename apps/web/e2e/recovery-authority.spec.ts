@@ -421,3 +421,12 @@ test('shore operator sees privacy-minimized vessel exception resolution lifecycl
   await expect(panel).not.toContainText('producer private title')
   await expect(panel).not.toContainText('producer private summary')
 })
+
+test("KRATIA Shore public product shell keeps advisory authority visible", async ({ page }) => {
+  await page.goto("/");
+  await expect(page.getByText("KRATIA", { exact: true })).toBeVisible();
+  await expect(page.getByText("MARITIME · SHORE", { exact: true })).toBeVisible();
+  await expect(page.getByText("KRATIA SHORE · OPERATIONS CONTROL TOWER", { exact: true })).toBeVisible();
+  await expect(page.getByText("NO VESSEL ACTUATION", { exact: true })).toBeVisible();
+  await expect(page).toHaveTitle(/KRATIA Shore/);
+});
