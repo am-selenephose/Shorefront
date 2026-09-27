@@ -2,9 +2,14 @@ import { createHash } from 'node:crypto'
 import { defineConfig } from '@playwright/test'
 
 const e2eToken = 'portflow-e2e-test-only'
-const e2eDataDir = '/tmp/portflow-e2e-v015-' + process.pid
+const e2eIntegrationToken = 'portflow-e2e-integration-test-only'
+const e2eDataDir = '/tmp/portflow-e2e-v016-' + process.pid
 const tokenDigest = createHash('sha256').update(e2eToken).digest('hex')
+const integrationTokenDigest = createHash('sha256')
+  .update(e2eIntegrationToken)
+  .digest('hex')
 process.env.PORTFLOW_E2E_OPERATOR_TOKEN = e2eToken
+process.env.PORTFLOW_E2E_INTEGRATION_TOKEN = e2eIntegrationToken
 
 const approvers = JSON.stringify([
   {
@@ -12,6 +17,15 @@ const approvers = JSON.stringify([
     operator_id: 'operator-e2e',
     display_name: 'E2E Operator',
     role: 'operator',
+  },
+])
+
+const integrations = JSON.stringify([
+  {
+    token_sha256: integrationTokenDigest,
+    integration_id: 'vessel-runtime-e2e',
+    display_name: 'E2E Vessel Runtime',
+    vessel_ids: ['v-aurora'],
   },
 ])
 
@@ -41,6 +55,7 @@ export default defineConfig({
       reuseExistingServer: false,
       env: {
         PORTFLOW_APPROVERS_JSON: approvers,
+        PORTFLOW_INTEGRATIONS_JSON: integrations,
         PORTFLOW_DATA_DIR: e2eDataDir,
         PORTFLOW_AIS_URL: 'http://127.0.0.1:9/e2e-unavailable',
         PORTFLOW_AIS_PROVIDER: 'E2E unavailable AIS',

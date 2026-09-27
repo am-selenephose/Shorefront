@@ -3,6 +3,7 @@ import { BerthTimeline } from './BerthTimeline'
 import { DataSourcesPanel } from './DataSourcesPanel'
 import { IncidentControls } from './IncidentControls'
 import { RecoveryPanel } from './RecoveryPanel'
+import { VesselExceptionsPanel } from './VesselExceptionsPanel'
 import { ResourceBoard, ServiceChain } from './ServiceChain'
 import type {
   AdapterSnapshot,
@@ -13,6 +14,7 @@ import type {
   RecoveryContingency,
   RecoveryProposal,
   RecoveryReceipt,
+  VesselOperationalException,
   ScenarioFixture,
 } from './types'
 import './styles.css'
@@ -108,6 +110,7 @@ export default function App() {
   const [adapters, setAdapters] = useState<AdapterSnapshot[]>([])
   const [recoveryProposals, setRecoveryProposals] = useState<RecoveryProposal[]>([])
   const [recoveryReceipts, setRecoveryReceipts] = useState<RecoveryReceipt[]>([])
+  const [vesselExceptions, setVesselExceptions] = useState<VesselOperationalException[]>([])
   const [contingencyNotice, setContingencyNotice] = useState<string | null>(null)
 
   useEffect(() => {
@@ -213,6 +216,30 @@ export default function App() {
     }
   }
 
+  async function loadVesselExceptions(token = operatorToken) {
+    if (!token) {
+      setVesselExceptions([])
+      return
+    }
+
+    const response = await fetch('/api/v1/operations/vessel-exceptions?limit=100', {
+      headers: { Authorization: 'Bearer ' + token },
+    })
+
+    if (response.ok) {
+      const payload = await response.json()
+      setVesselExceptions(payload.exceptions || [])
+      return
+    }
+
+    if (response.status === 401) {
+      setVesselExceptions([])
+      return
+    }
+
+    throw new Error('Vessel exception query failed')
+  }
+
   async function connectOperator(token: string): Promise<boolean> {
     setAuthBusy(true)
     setActionError(null)
@@ -236,12 +263,16 @@ export default function App() {
       } catch {
         // Session still works even if browser storage is unavailable.
       }
-      await loadRecovery(token)
+      await Promise.all([
+        loadRecovery(token),
+        loadVesselExceptions(token),
+      ])
       return true
     } catch (error) {
       setOperatorIdentity(null)
       setOperatorToken('')
       setRecoveryReceipts([])
+      setVesselExceptions([])
       try {
         sessionStorage.removeItem('portflow.operator_token')
       } catch {
@@ -258,6 +289,7 @@ export default function App() {
     setOperatorIdentity(null)
     setOperatorToken('')
     setRecoveryReceipts([])
+    setVesselExceptions([])
     setActionError(null)
     try {
       sessionStorage.removeItem('portflow.operator_token')
@@ -425,6 +457,7 @@ export default function App() {
           <a href="#resources">Resources</a>
           <a href="#data-feeds">Data Feeds</a>
           <a href="#recovery">Recovery Plans</a>
+          <a href="#vessel-exceptions">Vessel Exceptions</a>
           <a href="#ledger">Operations Ledger</a>
         </nav>
 
@@ -621,6 +654,15 @@ export default function App() {
             onRefresh={loadRecovery}
             onConnect={connectOperator}
             onDisconnect={disconnectOperator}
+          />
+        </section>
+
+        <section className="panel vessel-exceptions-shell" id="vessel-exceptions">
+          <VesselExceptionsPanel
+            exceptions={vesselExceptions}
+            identity={operatorIdentity}
+            busy={busy || authBusy}
+            onRefresh={loadVesselExceptions}
           />
         </section>
 

@@ -710,7 +710,7 @@ def test_readiness_reports_runtime_and_schema_contract():
         assert health.json() == {
             "ok": True,
             "service": "portflow-api",
-            "version": "0.15.1",
+            "version": "0.16.0",
         }
 
         ready = client.get("/readyz")
@@ -1021,3 +1021,224 @@ def test_vessel_coordination_snapshot_is_advisory_only():
         proposal["requires_approval"] is True
         for proposal in payload["recovery_proposals"]
     )
+
+
+
+def _crew_exception_wire_event(
+    *,
+    exception_ref: str,
+    runtime_event_type: str,
+    state: str,
+    sequence: int,
+    occurred_at: datetime,
+) -> dict[str, object]:
+    return {
+        "contract_version": "portflow.vessel-event.v1",
+        "event_id": f"evt-crew-exception-{sequence}-{uuid4().hex[:12]}",
+        "occurred_at": occurred_at.isoformat(),
+        "vessel_id": "v-aurora",
+        "port_call_id": "pc-aurora",
+        "event_type": "constraint",
+        "sequence": sequence,
+        "source_system": "maritime-runtime:v-aurora",
+        "payload": {
+            "runtime_event_type": runtime_event_type,
+            "title": "producer-controlled title must not pass through",
+            "summary": "producer-controlled private text must not pass through",
+            "risk": "critical",
+            "source_sequence": sequence,
+            "exception_ref": exception_ref,
+            "category": "crew_operational_exception",
+            "state": state,
+            "privacy_minimized": True,
+            "advisory_only": True,
+            "execution_authorized": False,
+            # Deliberate accidental/private expansion. Shore projection must
+            # never echo these fields into the human exception view.
+            "actor_id": "second-engineer",
+            "task_id": "private-duty-task",
+            "declared_minutes": 240,
+            "evidence_minutes": 300,
+            "override_reason": "private local reason",
+        },
+        "evidence_refs": [],
+    }
+
+
+def test_operator_vessel_exception_view_aggregates_current_v078_lifecycle_privately():
+    exception_ref = "mrt-exception-" + uuid4().hex[:20]
+    base = datetime.now(timezone.utc).replace(microsecond=0)
+    lifecycle = [
+        ("crew.exception.opened", "open"),
+        ("crew.attention.acknowledged", "acknowledged"),
+        ("crew.attention.claimed", "claimed"),
+        ("crew.exception.override_recorded", "override_recorded"),
+        ("crew.attention.resolved", "resolved"),
+    ]
+    events = [
+        _crew_exception_wire_event(
+            exception_ref=exception_ref,
+            runtime_event_type=event_type,
+            state=state,
+            sequence=900 + index,
+            occurred_at=base + timedelta(seconds=index),
+        )
+        for index, (event_type, state) in enumerate(lifecycle)
+    ]
+
+    with TestClient(app) as client:
+        for event in events:
+            response = client.post(
+                "/api/v1/integration/vessel-events",
+                headers=auth_headers(INTEGRATION_TOKEN),
+                json=event,
+            )
+            assert response.status_code == 200
+
+        assert client.get(
+            "/api/v1/operations/vessel-exceptions"
+        ).status_code == 401
+        assert client.get(
+            "/api/v1/operations/vessel-exceptions",
+            headers=auth_headers(INTEGRATION_TOKEN),
+        ).status_code == 401
+
+        viewed = client.get(
+            "/api/v1/operations/vessel-exceptions",
+            headers=auth_headers(VIEWER_TOKEN),
+        )
+        assert viewed.status_code == 200
+        body = viewed.json()
+        match = next(
+            item
+            for item in body["exceptions"]
+            if item["exception_ref"] == exception_ref
+        )
+
+    assert match["vessel_id"] == "v-aurora"
+    assert match["port_call_id"] == "pc-aurora"
+    assert match["state"] == "resolved"
+    assert match["risk"] == "low"
+    assert match["title"] == "Crew operational exception resolved"
+    assert match["privacy_minimized"] is True
+    assert match["advisory_only"] is True
+    assert match["execution_authorized"] is False
+    assert match["first_source_sequence"] == 900
+    assert match["latest_source_sequence"] == 904
+    assert datetime.fromisoformat(
+        match["opened_at"].replace("Z", "+00:00")
+    ) == datetime.fromisoformat(str(events[0]["occurred_at"]))
+    assert datetime.fromisoformat(
+        match["updated_at"].replace("Z", "+00:00")
+    ) == datetime.fromisoformat(str(events[-1]["occurred_at"]))
+    assert [row["state"] for row in match["history"]] == [
+        "open",
+        "acknowledged",
+        "claimed",
+        "override_recorded",
+        "resolved",
+    ]
+    assert [row["source_sequence"] for row in match["history"]] == [
+        900,
+        901,
+        902,
+        903,
+        904,
+    ]
+
+    rendered = json.dumps(match).lower()
+    for forbidden in (
+        "second-engineer",
+        "private-duty-task",
+        "private local reason",
+        "declared_minutes",
+        "evidence_minutes",
+        "producer-controlled",
+        "source_entry_hash",
+        "maritime-ledger:",
+        "evidence_refs",
+        "integration_id",
+        "source_system",
+    ):
+        assert forbidden not in rendered
+
+
+def test_operator_vessel_exception_view_rejects_malformed_or_non_v078_contracts():
+    base = datetime.now(timezone.utc).replace(microsecond=0)
+    exception_ref = "mrt-exception-" + uuid4().hex[:20]
+    malformed = _crew_exception_wire_event(
+        exception_ref=exception_ref,
+        runtime_event_type="crew.exception.opened",
+        state="open",
+        sequence=980,
+        occurred_at=base,
+    )
+    malformed["evidence_refs"] = ["maritime-ledger:" + "a" * 64]
+
+    unrelated = _crew_exception_wire_event(
+        exception_ref="mrt-exception-" + uuid4().hex[:20],
+        runtime_event_type="equipment.unavailable",
+        state="open",
+        sequence=981,
+        occurred_at=base + timedelta(seconds=1),
+    )
+
+    with TestClient(app) as client:
+        for event in (malformed, unrelated):
+            assert client.post(
+                "/api/v1/integration/vessel-events",
+                headers=auth_headers(INTEGRATION_TOKEN),
+                json=event,
+            ).status_code == 200
+
+        viewed = client.get(
+            "/api/v1/operations/vessel-exceptions",
+            headers=auth_headers(VIEWER_TOKEN),
+        )
+        assert viewed.status_code == 200
+
+    refs = {
+        item["exception_ref"]
+        for item in viewed.json()["exceptions"]
+    }
+    assert exception_ref not in refs
+    assert unrelated["payload"]["exception_ref"] not in refs
+
+
+def test_operator_vessel_exception_view_rejects_state_after_resolution():
+    exception_ref = "mrt-exception-" + uuid4().hex[:20]
+    base = datetime.now(timezone.utc).replace(microsecond=0)
+    lifecycle = [
+        ("crew.exception.opened", "open"),
+        ("crew.attention.acknowledged", "acknowledged"),
+        ("crew.attention.claimed", "claimed"),
+        ("crew.attention.resolved", "resolved"),
+        ("crew.attention.claimed", "claimed"),
+    ]
+
+    with TestClient(app) as client:
+        for index, (event_type, state) in enumerate(lifecycle):
+            response = client.post(
+                "/api/v1/integration/vessel-events",
+                headers=auth_headers(INTEGRATION_TOKEN),
+                json=_crew_exception_wire_event(
+                    exception_ref=exception_ref,
+                    runtime_event_type=event_type,
+                    state=state,
+                    sequence=990 + index,
+                    occurred_at=base + timedelta(seconds=index),
+                ),
+            )
+            assert response.status_code == 200
+
+        viewed = client.get(
+            "/api/v1/operations/vessel-exceptions",
+            headers=auth_headers(VIEWER_TOKEN),
+        )
+        assert viewed.status_code == 200
+
+    refs = {
+        item["exception_ref"]
+        for item in viewed.json()["exceptions"]
+    }
+    assert exception_ref not in refs

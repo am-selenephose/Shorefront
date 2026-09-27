@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test'
 
 const operatorToken = process.env.PORTFLOW_E2E_OPERATOR_TOKEN || 'portflow-e2e-test-only'
+const integrationToken = process.env.PORTFLOW_E2E_INTEGRATION_TOKEN || 'portflow-e2e-integration-test-only'
 
 test('incident to authenticated recovery receipt survives reload', async ({ page, request }) => {
   const reset = await request.post('/api/v1/demo/reset')
@@ -341,4 +342,74 @@ test('stale selected recovery resource loads ranked contingency and requires re-
   )
   expect(afterNodes.bunker.state).not.toBe('blocked')
   expect(afterNodes.departure.state).not.toBe('blocked')
+})
+
+
+test('shore operator sees privacy-minimized vessel exception resolution lifecycle', async ({ page, request }) => {
+  const reset = await request.post('/api/v1/demo/reset')
+  expect(reset.ok()).toBeTruthy()
+
+  const exceptionRef = 'mrt-exception-0123456789abcdefabcd'
+  const privateActor = 'private-second-engineer'
+  const privateReason = 'private supervisor rationale must stay onboard'
+  const lifecycle = [
+    ['crew.exception.opened', 'open', 'medium'],
+    ['crew.attention.acknowledged', 'acknowledged', 'low'],
+    ['crew.attention.claimed', 'claimed', 'low'],
+    ['crew.attention.resolved', 'resolved', 'low'],
+  ] as const
+  const base = Date.now()
+
+  for (const [index, [runtimeEventType, state, risk]] of lifecycle.entries()) {
+    const response = await request.post('/api/v1/integration/vessel-events', {
+      headers: {
+        Authorization: 'Bearer ' + integrationToken,
+      },
+      data: {
+        contract_version: 'portflow.vessel-event.v1',
+        event_id: 'evt-e2e-exception-' + index,
+        occurred_at: new Date(base + index * 1000).toISOString(),
+        vessel_id: 'v-aurora',
+        port_call_id: 'pc-aurora',
+        event_type: 'constraint',
+        sequence: 1200 + index,
+        source_system: 'maritime-runtime:v-aurora',
+        payload: {
+          runtime_event_type: runtimeEventType,
+          title: 'producer private title',
+          summary: 'producer private summary',
+          risk,
+          source_sequence: 1200 + index,
+          exception_ref: exceptionRef,
+          category: 'crew_operational_exception',
+          state,
+          privacy_minimized: true,
+          advisory_only: true,
+          execution_authorized: false,
+          actor_id: privateActor,
+          resolution_reason: privateReason,
+        },
+        evidence_refs: [],
+      },
+    })
+    expect(response.ok()).toBeTruthy()
+  }
+
+  await page.goto('/')
+  const panel = page.locator('#vessel-exceptions')
+  await expect(panel.getByText('OPERATOR SESSION REQUIRED')).toBeVisible()
+
+  await page.getByLabel('Operator access token').fill(operatorToken)
+  await page.getByRole('button', { name: 'Verify' }).click()
+
+  await expect(panel.getByText('RESOLVED', { exact: true })).toBeVisible()
+  await expect(panel.getByText('Crew operational exception resolved')).toBeVisible()
+  await expect(panel.getByText('4 LIFECYCLE EVENTS')).toBeVisible()
+  await expect(panel.getByText(/SEQ 1200.*1203/)).toBeVisible()
+  await expect(panel).toContainText('PRIVACY MINIMIZED')
+  await expect(panel).toContainText('NO ACTUATION')
+  await expect(panel).not.toContainText(privateActor)
+  await expect(panel).not.toContainText(privateReason)
+  await expect(panel).not.toContainText('producer private title')
+  await expect(panel).not.toContainText('producer private summary')
 })

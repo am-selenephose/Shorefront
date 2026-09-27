@@ -8,11 +8,12 @@ from uuid import uuid4
 from datetime import datetime, timezone
 from contextlib import asynccontextmanager
 
-from fastapi import Depends, FastAPI, HTTPException, Response, WebSocket, WebSocketDisconnect
+from fastapi import Depends, FastAPI, HTTPException, Query, Response, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
+from . import __version__
 from .adapters import get_adapter_snapshot, list_adapter_snapshots
 from .domain import detect_berth_conflicts, score_port_call
 from .observability import metrics, observe_http
@@ -21,7 +22,7 @@ from .models import (
     IncidentStatus, IncidentType, IntegrationIdentity, LinkMode, OperationsEvent,
     OperatorIdentity, RiskLevel, ScenarioRunEvidence, ServiceDurationCalibration,
     ServiceKind, VesselCoordinationSnapshot, VesselRuntimeEvent,
-    VesselRuntimeEventReceipt, VesselRuntimeEventRecord, VesselRuntimeEventType,
+    VesselOperationalException, VesselRuntimeEventReceipt, VesselRuntimeEventRecord, VesselRuntimeEventType,
 )
 from .simulator import HarborSimulator, RecoveryProposalStaleError
 from .security import (
@@ -97,7 +98,7 @@ async def lifespan(app: FastAPI):
         task.cancel()
 
 
-app = FastAPI(title="PortFlow API", version="0.15.1", lifespan=lifespan)
+app = FastAPI(title="PortFlow API", version=__version__, lifespan=lifespan)
 app.middleware("http")(observe_http)
 app.add_middleware(
     CORSMiddleware,
@@ -135,7 +136,7 @@ def healthz():
     return {
         "ok": True,
         "service": "portflow-api",
-        "version": "0.15.1",
+        "version": __version__,
     }
 
 
@@ -152,7 +153,7 @@ def readyz():
     payload = {
         "ok": ready,
         "service": "portflow-api",
-        "version": "0.15.1",
+        "version": __version__,
         "runtime_ready": _runtime_ready,
         "schema_mode": _schema_mode,
         "schema": schema,
@@ -356,6 +357,288 @@ def vessel_runtime_events(
     allowed = set(identity.vessel_ids)
     rows = [row for row in rows if row.event.vessel_id in allowed]
     return {"count": len(rows), "events": rows}
+
+
+_CREW_EXCEPTION_EVENT_STATE = {
+    "crew.exception.opened": "open",
+    "crew.attention.acknowledged": "acknowledged",
+    "crew.attention.claimed": "claimed",
+    "crew.attention.escalated": "escalated",
+    "crew.attention.released": "released",
+    "crew.exception.override_recorded": "override_recorded",
+    "crew.attention.resolved": "resolved",
+}
+
+_CREW_EXCEPTION_RISK = {
+    "open": RiskLevel.MEDIUM,
+    "acknowledged": RiskLevel.LOW,
+    "claimed": RiskLevel.LOW,
+    "escalated": RiskLevel.MEDIUM,
+    "released": RiskLevel.MEDIUM,
+    "override_recorded": RiskLevel.LOW,
+    "resolved": RiskLevel.LOW,
+}
+
+
+def _crew_exception_copy(state: str) -> tuple[str, str]:
+    if state == "open":
+        return (
+            "Crew operational exception requires review",
+            (
+                "Vessel runtime opened a local advisory operational exception. "
+                "Private supporting evidence remains onboard."
+            ),
+        )
+    if state == "acknowledged":
+        return (
+            "Crew operational exception acknowledged",
+            "A vessel supervisor acknowledged the local advisory exception.",
+        )
+    if state == "claimed":
+        return (
+            "Crew operational exception under review",
+            (
+                "A vessel supervisor claimed local review ownership. "
+                "Private review context remains onboard."
+            ),
+        )
+    if state == "escalated":
+        return (
+            "Crew operational exception escalated",
+            "Local review was escalated onboard.",
+        )
+    if state == "released":
+        return (
+            "Crew operational exception released",
+            "Local review ownership was released onboard.",
+        )
+    if state == "override_recorded":
+        return (
+            "Crew operational override recorded",
+            (
+                "A reason-bound local override decision was recorded. "
+                "Private rationale remains onboard."
+            ),
+        )
+    return (
+        "Crew operational exception resolved",
+        "The vessel supervisor resolved the local advisory exception.",
+    )
+
+
+def _crew_exception_lifecycle_valid(
+    lifecycle: list[VesselOperationalException],
+) -> bool:
+    if not lifecycle or lifecycle[0].state != "open":
+        return False
+
+    allowed_next = {
+        "open": {"acknowledged"},
+        "acknowledged": {"claimed"},
+        "claimed": {
+            "escalated",
+            "released",
+            "override_recorded",
+            "resolved",
+        },
+        "escalated": {
+            "escalated",
+            "released",
+            "override_recorded",
+            "resolved",
+        },
+        "override_recorded": {
+            "escalated",
+            "released",
+            "resolved",
+        },
+        "released": {"claimed"},
+        "resolved": set(),
+    }
+    override_seen = False
+    current = "open"
+    for item in lifecycle[1:]:
+        next_state = item.state
+        if next_state not in allowed_next[current]:
+            return False
+        if next_state == "override_recorded":
+            if override_seen:
+                return False
+            override_seen = True
+        current = next_state
+    return True
+
+
+def _project_vessel_operational_exception(
+    record: VesselRuntimeEventRecord,
+) -> VesselOperationalException | None:
+    event = record.event
+    if event.event_type is not VesselRuntimeEventType.CONSTRAINT:
+        return None
+
+    payload = event.payload
+    if payload.get("category") != "crew_operational_exception":
+        return None
+    if payload.get("privacy_minimized") is not True:
+        return None
+    if payload.get("advisory_only") is not True:
+        return None
+    if payload.get("execution_authorized") is not False:
+        return None
+    if event.evidence_refs:
+        # Crew-exception evidence is vessel-private in the v0.0.78 contract.
+        return None
+
+    runtime_event_type = str(
+        payload.get("runtime_event_type") or ""
+    )
+    expected_state = _CREW_EXCEPTION_EVENT_STATE.get(
+        runtime_event_type
+    )
+    state = str(payload.get("state") or "")
+    if expected_state is None or state != expected_state:
+        return None
+
+    exception_ref = str(payload.get("exception_ref") or "")
+    if (
+        not exception_ref.startswith("mrt-exception-")
+        or len(exception_ref) != 34
+        or any(
+            character not in "0123456789abcdef"
+            for character in exception_ref.removeprefix(
+                "mrt-exception-"
+            )
+        )
+    ):
+        return None
+
+    title, summary = _crew_exception_copy(state)
+    return VesselOperationalException(
+        vessel_id=event.vessel_id,
+        port_call_id=event.port_call_id,
+        exception_ref=exception_ref,
+        state=state,
+        risk=_CREW_EXCEPTION_RISK[state],
+        title=title,
+        summary=summary,
+        first_source_sequence=event.sequence,
+        latest_source_sequence=event.sequence,
+        opened_at=event.occurred_at,
+        updated_at=event.occurred_at,
+        opened_event_id=event.event_id,
+        latest_event_id=event.event_id,
+        lifecycle_event_count=1,
+        history=[
+            {
+                "state": state,
+                "source_sequence": event.sequence,
+                "occurred_at": event.occurred_at,
+            }
+        ],
+        privacy_minimized=True,
+        advisory_only=True,
+        execution_authorized=False,
+    )
+
+
+@app.get("/api/v1/operations/vessel-exceptions")
+def operator_vessel_exceptions(
+    limit: int = Query(default=100, ge=1, le=500),
+    vessel_id: str | None = Query(default=None, max_length=80),
+    identity: OperatorIdentity = Depends(current_operator),
+):
+    del identity  # Authorization is the boundary; this endpoint is read-only.
+    rows = store.list_vessel_runtime_events(
+        limit=1000,
+        vessel_id=vessel_id,
+    )
+    lifecycle_by_ref: dict[str, list[VesselOperationalException]] = {}
+    for record in rows:
+        item = _project_vessel_operational_exception(record)
+        if item is None:
+            continue
+        lifecycle_by_ref.setdefault(
+            item.exception_ref,
+            [],
+        ).append(item)
+
+    projected: list[VesselOperationalException] = []
+    for exception_ref, lifecycle in lifecycle_by_ref.items():
+        ordered = sorted(
+            lifecycle,
+            key=lambda item: (
+                item.latest_source_sequence,
+                item.updated_at,
+                item.latest_event_id,
+            ),
+        )
+        opening = ordered[0]
+
+        # One monotonically ordered, privacy-safe lifecycle per opaque ref.
+        # Impossible transitions and state after terminal resolution fail closed.
+        if any(
+            current.latest_source_sequence
+            <= previous.latest_source_sequence
+            for previous, current in zip(
+                ordered,
+                ordered[1:],
+            )
+        ):
+            continue
+        if not _crew_exception_lifecycle_valid(ordered):
+            continue
+
+        latest = ordered[-1]
+        title, summary = _crew_exception_copy(
+            latest.state
+        )
+        projected.append(
+            VesselOperationalException(
+                vessel_id=latest.vessel_id,
+                port_call_id=latest.port_call_id,
+                exception_ref=exception_ref,
+                state=latest.state,
+                risk=_CREW_EXCEPTION_RISK[
+                    latest.state
+                ],
+                title=title,
+                summary=summary,
+                first_source_sequence=(
+                    opening.first_source_sequence
+                ),
+                latest_source_sequence=(
+                    latest.latest_source_sequence
+                ),
+                opened_at=opening.opened_at,
+                updated_at=latest.updated_at,
+                opened_event_id=opening.opened_event_id,
+                latest_event_id=latest.latest_event_id,
+                lifecycle_event_count=len(ordered),
+                history=[
+                    history_item
+                    for item in ordered
+                    for history_item in item.history
+                ],
+                privacy_minimized=True,
+                advisory_only=True,
+                execution_authorized=False,
+            )
+        )
+
+    projected = sorted(
+        projected,
+        key=lambda item: (
+            item.updated_at,
+            item.latest_source_sequence,
+            item.exception_ref,
+        ),
+        reverse=True,
+    )[:limit]
+    return {
+        "count": len(projected),
+        "exceptions": projected,
+        "execution_authorized": False,
+    }
 
 
 @app.get(

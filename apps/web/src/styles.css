@@ -255,3 +255,41 @@
   .adapter-row{align-items:flex-start;flex-direction:column}
   .adapter-row-actions{width:100%;justify-content:space-between}
 }
+
+
+/* KRATIA maritime pilot: privacy-minimized vessel exceptions */
+.vessel-exceptions-shell{margin-top:10px}
+.vessel-exceptions-panel{padding:14px}
+.vessel-exceptions-head{display:flex;align-items:center;justify-content:space-between;gap:12px;padding-bottom:12px;border-bottom:1px solid #193042}
+.vessel-exceptions-head>div:first-child>span{display:block;color:#67849a;font:600 8px 'IBM Plex Mono';letter-spacing:1.3px}
+.vessel-exceptions-head>div:first-child>b{display:block;font-size:12px;margin-top:4px}
+.vessel-exceptions-actions{display:flex;align-items:center;gap:8px}
+.vessel-exceptions-actions small{font:700 7px 'IBM Plex Mono';letter-spacing:.6px;color:#8fb4c6}
+.vessel-exceptions-actions button{background:#123146;color:#dff6ff;border:1px solid #4d829c;border-radius:3px;padding:7px 10px;font:600 8px 'IBM Plex Mono';cursor:pointer}
+.vessel-exceptions-actions button:disabled{opacity:.45;cursor:not-allowed}
+.vessel-exceptions-empty{padding:16px 2px 4px}
+.vessel-exceptions-empty b{display:block;font-size:10px;color:#c5d8e2}
+.vessel-exceptions-empty span{display:block;margin-top:5px;color:#5f7b8f;font-size:8px}
+.vessel-exception-list{display:grid;gap:7px;padding-top:12px}
+.vessel-exception{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:16px;padding:11px 12px;border:1px solid #193244;border-radius:5px;background:#08141f}
+.vessel-exception.open,.vessel-exception.escalated,.vessel-exception.released{border-left:2px solid #e8b85c}
+.vessel-exception.acknowledged,.vessel-exception.claimed,.vessel-exception.override_recorded{border-left:2px solid #69d4ff}
+.vessel-exception.resolved{border-left:2px solid #63d19a}
+.vessel-exception-title{display:flex;align-items:center;gap:7px;flex-wrap:wrap}
+.vessel-exception-title>b{font-size:10px;color:#d3e4ec}
+.vessel-exception-status{font:700 7px 'IBM Plex Mono';letter-spacing:.5px;border-radius:3px;padding:4px 6px}
+.vessel-exception-status.open,.vessel-exception-status.escalated,.vessel-exception-status.released{color:#e8c56f;border:1px solid #725f2e;background:#241e0c}
+.vessel-exception-status.acknowledged,.vessel-exception-status.claimed,.vessel-exception-status.override_recorded{color:#8fd7f1;border:1px solid #3c6f83;background:#0b202a}
+.vessel-exception-status.resolved{color:#82dda9;border:1px solid #34704d;background:#0b2118}
+.vessel-exception-main p{margin:7px 0 0;color:#6d8798;font-size:8px;line-height:1.45}
+.vessel-exception-meta{display:flex;gap:12px;flex-wrap:wrap;margin-top:8px}
+.vessel-exception-meta span{font:7px 'IBM Plex Mono';color:#567286}
+.vessel-exception-proof{min-width:190px;display:flex;flex-direction:column;align-items:flex-end;gap:4px;text-align:right}
+.vessel-exception-proof>span{font:600 6px 'IBM Plex Mono';letter-spacing:.7px;color:#557487}
+.vessel-exception-proof>b{font:600 7px 'IBM Plex Mono';color:#87afc2}
+.vessel-exception-proof>small{margin-top:3px;font:700 6px 'IBM Plex Mono';letter-spacing:.6px;color:#7bd6a4}
+@media(max-width:760px){
+  .vessel-exceptions-head{align-items:flex-start;flex-direction:column}
+  .vessel-exception{grid-template-columns:1fr}
+  .vessel-exception-proof{align-items:flex-start;text-align:left;min-width:0}
+}

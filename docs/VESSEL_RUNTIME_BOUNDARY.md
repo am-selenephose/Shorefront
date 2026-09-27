@@ -140,3 +140,34 @@ The useful idea is preserved as a vessel-runtime-side design candidate:
 - use event_id idempotency at the PortFlow boundary
 
 If implemented, the vessel runtime may use its own hash-chain internally while still emitting the stable portflow.vessel-event.v1 envelope to PortFlow.
+
+## v0.16 human-visible crew exception lifecycle
+
+Maritime Runtime v0.0.78 uses the existing portflow.vessel-event.v1 constraint
+event without expanding the contract schema. Crew-private evidence remains
+vessel-owned.
+
+PortFlow stores the normalized privacy-minimized lifecycle through the machine
+integration credential and exposes a separate human-authenticated reduced view
+at:
+
+    GET /api/v1/operations/vessel-exceptions
+
+Authority remains separated:
+
+    vessel integration credential
+      -> may submit allowlisted vessel events
+      -> cannot read the human operational exception view
+      -> cannot approve recovery
+
+    human viewer/operator/supervisor credential
+      -> may inspect reduced exception state
+      -> does not receive raw crew evidence or vessel integration secrets
+
+The reduced view accepts only validated crew_operational_exception lifecycle
+events with privacy_minimized=true, advisory_only=true,
+execution_authorized=false and empty evidence_refs.
+
+The exception_ref is a pseudonymous continuity handle generated onboard. It is
+not a crew identity and does not expose the private task, actor, discrepancy,
+override reason, or resolution reason.

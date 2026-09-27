@@ -205,6 +205,56 @@ class VesselRuntimeEventRecord(BaseModel):
     received_at: datetime
 
 
+class VesselOperationalExceptionHistoryItem(BaseModel):
+    state: Literal[
+        "open",
+        "acknowledged",
+        "claimed",
+        "escalated",
+        "released",
+        "override_recorded",
+        "resolved",
+    ]
+    source_sequence: int = Field(ge=0)
+    occurred_at: datetime
+
+
+class VesselOperationalException(BaseModel):
+    vessel_id: str
+    port_call_id: str | None = None
+    exception_ref: str = Field(
+        min_length=34,
+        max_length=34,
+        pattern=r"^mrt-exception-[0-9a-f]{20}$",
+    )
+    state: Literal[
+        "open",
+        "acknowledged",
+        "claimed",
+        "escalated",
+        "released",
+        "override_recorded",
+        "resolved",
+    ]
+    risk: RiskLevel
+    title: str
+    summary: str
+    first_source_sequence: int = Field(ge=0)
+    latest_source_sequence: int = Field(ge=0)
+    opened_at: datetime
+    updated_at: datetime
+    opened_event_id: str
+    latest_event_id: str
+    lifecycle_event_count: int = Field(ge=1)
+    history: list[VesselOperationalExceptionHistoryItem] = Field(
+        default_factory=list,
+        max_length=64,
+    )
+    privacy_minimized: Literal[True] = True
+    advisory_only: Literal[True] = True
+    execution_authorized: Literal[False] = False
+
+
 class ScenarioAction(BaseModel):
     action_type: ScenarioActionType
     incident_type: IncidentType | None = None
