@@ -1089,3 +1089,25 @@ Machine integration credentials and human operator credentials are separate.
 Schema v3 adds vessel_runtime_event as an immutable integration ledger.
 
 The event boundary does not silently mutate the canonical harbor model. Mapping vessel events into canonical state remains an explicit future adapter/domain decision so arbitrary machine payloads cannot bypass provenance or human-approval controls.
+
+## Privacy-minimized vessel exceptions (v0.16)
+
+PortFlow's vessel integration ledger remains the durable intake boundary.
+v0.16 adds a human read projection rather than another truth store.
+
+    Maritime Runtime local ledger
+      -> portflow.vessel-event.v1 constraint lifecycle
+      -> vessel_runtime_event durable rows
+      -> reduced server-side projection
+      -> human operator UI
+
+The reduction step is intentionally lossy. Arbitrary upstream title, summary,
+risk, actor, task, reason, and evidence fields are not passed through. Human
+copy and risk are derived from the validated lifecycle state.
+
+The UI shows the highest source sequence per pseudonymous exception_ref. This
+avoids alert multiplication while retaining the immutable underlying event
+history for integration audit.
+
+No PortFlow component becomes a crew-private record system or physical
+execution authority.

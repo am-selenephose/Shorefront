@@ -280,3 +280,45 @@ export interface RecoveryReceipt {
   approved_role: OperatorRole
   approved_display_name?: string | null
 }
+
+
+export interface VesselOperationalExceptionHistoryItem {
+  state:
+    | "open"
+    | "acknowledged"
+    | "claimed"
+    | "escalated"
+    | "released"
+    | "override_recorded"
+    | "resolved"
+  source_sequence: number
+  occurred_at: string
+}
+
+export interface VesselOperationalException {
+  vessel_id: string
+  port_call_id?: string | null
+  exception_ref: string
+  state:
+    | "open"
+    | "acknowledged"
+    | "claimed"
+    | "escalated"
+    | "released"
+    | "override_recorded"
+    | "resolved"
+  risk: Risk
+  title: string
+  summary: string
+  first_source_sequence: number
+  latest_source_sequence: number
+  opened_at: string
+  updated_at: string
+  opened_event_id: string
+  latest_event_id: string
+  lifecycle_event_count: number
+  history: VesselOperationalExceptionHistoryItem[]
+  privacy_minimized: true
+  advisory_only: true
+  execution_authorized: false
+}

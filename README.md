@@ -4,7 +4,7 @@ PortFlow is a port-call operations control tower for continuously updated vessel
 
 ## Status
 
-Private portfolio build, v0.15 calibration + retry/backoff + contingency recovery + deployment hardening + TLS/observability.
+Private portfolio build, v0.16 human-visible privacy-minimized vessel exception integration on top of the completed v0.15 port coordination boundary.
 
 ## Product principles
 
@@ -2182,3 +2182,152 @@ Current gate includes:
 - integration ledger persistence across API restart
 
 With this boundary documented and executable, the v0.15 PortFlow productization roadmap is complete.
+
+## v0.16 crew operational exception view
+
+PortFlow v0.16 consumes the privacy-minimized crew exception lifecycle shipped
+by Maritime Runtime v0.0.78 without expanding PortFlow into a crew-private
+system of record.
+
+### Human view, machine ingest
+
+The machine integration plane remains:
+
+    POST /api/v1/integration/vessel-events
+
+with vessel-scoped integration credentials.
+
+Human port/shore users now have a separate read-only surface:
+
+    GET /api/v1/operations/vessel-exceptions
+
+This endpoint requires a configured human operator credential. A vessel
+integration credential cannot read it.
+
+### Minimum-necessary projection
+
+The human endpoint never forwards arbitrary integration payload dictionaries.
+It recognizes only the Maritime Runtime v0.0.78 lifecycle contract:
+
+    category = crew_operational_exception
+    privacy_minimized = true
+    advisory_only = true
+    execution_authorized = false
+
+and the explicit lifecycle mapping:
+
+    crew.exception.opened             -> open
+    crew.attention.acknowledged       -> acknowledged
+    crew.attention.claimed            -> claimed
+    crew.attention.escalated          -> escalated
+    crew.attention.released           -> released
+    crew.exception.override_recorded  -> override_recorded
+    crew.attention.resolved           -> resolved
+
+Crew-exception evidence_refs must be empty. The endpoint rejects malformed or
+spoofed lifecycle combinations and exposes only:
+
+- vessel and optional port call;
+- pseudonymous exception_ref;
+- latest lifecycle state;
+- server-derived risk/title/summary;
+- first/latest source sequence and open/update timestamps;
+- privacy-safe lifecycle state/sequence/timestamp history;
+- privacy/advisory/no-actuation flags.
+
+It does not expose actor identity, task identity, work/rest minutes, private
+reason text, source-system credential metadata, integration identity, or raw
+payload.
+
+### Latest state, not alert spam
+
+A single exception can produce several lifecycle events. The shore view groups
+by exception_ref and shows one current row rather than several alerts. It keeps
+only the privacy-safe state/sequence/timestamp lifecycle history needed to
+explain that current row.
+
+Source sequence, not wall-clock arrival order, determines lifecycle ordering.
+Impossible transitions, duplicate/non-increasing positions, state after terminal
+resolution, malformed references, crew evidence refs, and non-v0.0.78 event
+types fail closed and are omitted from the human view.
+
+### Operator UI
+
+The existing PortFlow web application adds a Vessel Exceptions panel using the
+existing human operator session. It does not receive or store the vessel
+integration credential.
+
+The panel shows:
+
+- active/resolved lifecycle state;
+- vessel and port-call context;
+- source sequence and time;
+- pseudonymous vessel-safe exception reference;
+- explicit PRIVACY MINIMIZED / ADVISORY / NO ACTUATION boundary.
+
+No new recovery or equipment authority is introduced.
+
+### Cross-repository contract proof
+
+A fresh proof used current Maritime Runtime v0.0.78 code to generate the real
+five-state exception lifecycle and validated every event against the current
+PortFlow vessel-event model and v0.16 reduced projection.
+
+Observed states:
+
+    open
+    acknowledged
+    claimed
+    override_recorded
+    resolved
+
+The proof confirmed one stable exception_ref, empty crew evidence refs,
+PortFlow acceptance of the real wire model, latest-state collapse to resolved,
+and absence of unique crew-private task/override/resolution sentinel strings.
+
+This is the first KRATIA Maritime worker-to-shore vertical slice:
+
+    local operational evidence
+      -> human-owned vessel exception
+      -> reason-bound local decision
+      -> privacy-minimized queued shore lifecycle
+      -> human-readable shore state
+
+It remains advisory. Physical execution remains outside PortFlow.
+
+### v0.16 verification
+
+Exact feature tree verification before release:
+
+- API package version: 0.16.0;
+- web package version: 0.16.0;
+- Docker image default tag: v0.16.0;
+- full API suite: 104 passing;
+- focused human vessel-exception contract suite: 3 passing;
+- production TypeScript/Vite build: PASS;
+- Playwright browser E2E suite: 6/6 passing, including the privacy-minimized vessel exception shore panel;
+- npm production audit: 0 vulnerabilities;
+- development and production Docker Compose config rendering: PASS with
+  non-secret required-variable proof values;
+- git diff/whitespace check: PASS.
+
+Fresh cross-repository contract proof used current Maritime Runtime v0.0.78
+code, not a hand-authored lifecycle fixture:
+
+    MARITIME_V078_LIFECYCLE_STATES=open,acknowledged,claimed,override_recorded,resolved
+    PORTFLOW_CURRENT_MODEL_ACCEPTS_REAL_V078_WIRE=PASS
+    PORTFLOW_LATEST_STATE_COLLAPSE=resolved
+    CROSS_REPO_PRIVATE_SENTINELS_ABSENT=PASS
+    CROSS_REPO_CONTRACT_PROOF=PASS
+
+The proof confirmed that one pseudonymous exception_ref survives the full local
+human lifecycle, crew-private evidence_refs remain empty, and unique private
+task/override/resolution sentinel strings never cross the Maritime Runtime wire
+boundary.
+
+The human endpoint's own API tests separately prove the authority boundary:
+missing human authentication returns 401, a machine integration credential
+returns 401, and a configured human viewer can inspect only the reduced
+privacy-safe lifecycle view.
+
+Physical execution remains outside PortFlow.
