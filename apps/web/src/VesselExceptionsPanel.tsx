@@ -85,6 +85,25 @@ export function VesselExceptionsPanel({
                   </span>
                   <span>{new Date(item.updated_at).toLocaleString()}</span>
                 </div>
+                <div
+                  className="vessel-exception-history"
+                  data-exception-history={item.exception_ref}
+                  aria-label="Exception lifecycle"
+                >
+                  {item.history.map((entry, index) => (
+                    <span
+                      className={'vessel-exception-history-state ' + entry.state}
+                      key={entry.source_sequence + ':' + entry.state}
+                      title={new Date(entry.occurred_at).toLocaleString()}
+                    >
+                      <b data-exception-state={entry.state}>
+                        {entry.state.replace('_', ' ').toUpperCase()}
+                      </b>
+                      <small>#{entry.source_sequence}</small>
+                      {index < item.history.length - 1 && <i aria-hidden="true">→</i>}
+                    </span>
+                  ))}
+                </div>
               </div>
 
               <div className="vessel-exception-proof">

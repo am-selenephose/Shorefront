@@ -402,10 +402,18 @@ test('shore operator sees privacy-minimized vessel exception resolution lifecycl
   await page.getByLabel('Operator access token').fill(operatorToken)
   await page.getByRole('button', { name: 'Verify' }).click()
 
-  await expect(panel.getByText('RESOLVED', { exact: true })).toBeVisible()
+  await expect(panel.locator('.vessel-exception-status.resolved')).toHaveText('RESOLVED')
   await expect(panel.getByText('Crew operational exception resolved')).toBeVisible()
   await expect(panel.getByText('4 LIFECYCLE EVENTS')).toBeVisible()
   await expect(panel.getByText(/SEQ 1200.*1203/)).toBeVisible()
+
+  const lifecycleTrail = panel.locator(
+    `[data-exception-history="${exceptionRef}"]`,
+  )
+  await expect(lifecycleTrail).toBeVisible()
+  await expect(
+    lifecycleTrail.locator('[data-exception-state]'),
+  ).toHaveText(['OPEN', 'ACKNOWLEDGED', 'CLAIMED', 'RESOLVED'])
   await expect(panel).toContainText('PRIVACY MINIMIZED')
   await expect(panel).toContainText('NO ACTUATION')
   await expect(panel).not.toContainText(privateActor)

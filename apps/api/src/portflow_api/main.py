@@ -369,6 +369,9 @@ _CREW_EXCEPTION_EVENT_STATE = {
     "crew.attention.resolved": "resolved",
 }
 
+_MAX_CREW_EXCEPTION_LIFECYCLE_EVENTS = 64
+
+
 _CREW_EXCEPTION_RISK = {
     "open": RiskLevel.MEDIUM,
     "acknowledged": RiskLevel.LOW,
@@ -552,18 +555,36 @@ def operator_vessel_exceptions(
         limit=1000,
         vessel_id=vessel_id,
     )
-    lifecycle_by_ref: dict[str, list[VesselOperationalException]] = {}
+    lifecycle_by_key: dict[
+        tuple[str, str],
+        list[tuple[str, VesselOperationalException]],
+    ] = {}
     for record in rows:
         item = _project_vessel_operational_exception(record)
         if item is None:
             continue
-        lifecycle_by_ref.setdefault(
-            item.exception_ref,
+        lifecycle_by_key.setdefault(
+            (item.vessel_id, item.exception_ref),
             [],
-        ).append(item)
+        ).append((record.integration_id, item))
 
     projected: list[VesselOperationalException] = []
-    for exception_ref, lifecycle in lifecycle_by_ref.items():
+    for (vessel_id, exception_ref), scoped_lifecycle in lifecycle_by_key.items():
+        integration_ids = {
+            integration_id
+            for integration_id, _ in scoped_lifecycle
+        }
+        if len(integration_ids) != 1:
+            # One opaque exception lifecycle must have exactly one machine
+            # integration authority inside a vessel scope. Conflicting
+            # producers fail closed instead of being merged or duplicated.
+            continue
+        lifecycle = [
+            item
+            for _, item in scoped_lifecycle
+        ]
+        if len(lifecycle) > _MAX_CREW_EXCEPTION_LIFECYCLE_EVENTS:
+            continue
         ordered = sorted(
             lifecycle,
             key=lambda item: (
@@ -594,7 +615,7 @@ def operator_vessel_exceptions(
         )
         projected.append(
             VesselOperationalException(
-                vessel_id=latest.vessel_id,
+                vessel_id=vessel_id,
                 port_call_id=latest.port_call_id,
                 exception_ref=exception_ref,
                 state=latest.state,

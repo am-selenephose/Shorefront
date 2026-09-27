@@ -15,7 +15,7 @@ services:
     restart: unless-stopped
 
   migrate:
-    image: portflow-api:${PORTFLOW_IMAGE_TAG:-v0.16.0}
+    image: portflow-api:${PORTFLOW_IMAGE_TAG:-v0.16.1}
     environment:
       DATABASE_URL: postgresql+psycopg://portflow:${PORTFLOW_DB_PASSWORD:?PORTFLOW_DB_PASSWORD is required}@postgres:5432/portflow
     depends_on:
@@ -33,7 +33,7 @@ services:
     restart: "no"
 
   api:
-    image: portflow-api:${PORTFLOW_IMAGE_TAG:-v0.16.0}
+    image: portflow-api:${PORTFLOW_IMAGE_TAG:-v0.16.1}
     build:
       context: ./apps/api
     environment:
@@ -70,7 +70,7 @@ services:
     restart: unless-stopped
 
   web:
-    image: portflow-web:${PORTFLOW_IMAGE_TAG:-v0.16.0}
+    image: portflow-web:${PORTFLOW_IMAGE_TAG:-v0.16.1}
     build:
       context: ./apps/web
     depends_on:

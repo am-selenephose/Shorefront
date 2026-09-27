@@ -284,6 +284,14 @@
 .vessel-exception-main p{margin:7px 0 0;color:#6d8798;font-size:8px;line-height:1.45}
 .vessel-exception-meta{display:flex;gap:12px;flex-wrap:wrap;margin-top:8px}
 .vessel-exception-meta span{font:7px 'IBM Plex Mono';color:#567286}
+.vessel-exception-history{display:flex;align-items:center;gap:5px;flex-wrap:wrap;margin-top:10px;padding-top:8px;border-top:1px solid #132838}
+.vessel-exception-history-state{display:inline-flex;align-items:center;gap:4px;font:700 6px 'IBM Plex Mono';letter-spacing:.45px;color:#8fb4c6;border:1px solid #24465a;border-radius:3px;padding:4px 5px;background:#0a1a25}
+.vessel-exception-history-state b{font:inherit;font-weight:700;color:inherit}
+.vessel-exception-history-state small{font:600 6px 'IBM Plex Mono';color:#557487}
+.vessel-exception-history-state i{font-style:normal;color:#47677a;margin-left:2px}
+.vessel-exception-history-state.open,.vessel-exception-history-state.escalated,.vessel-exception-history-state.released{color:#e8c56f;border-color:#725f2e;background:#241e0c}
+.vessel-exception-history-state.acknowledged,.vessel-exception-history-state.claimed,.vessel-exception-history-state.override_recorded{color:#8fd7f1;border-color:#3c6f83;background:#0b202a}
+.vessel-exception-history-state.resolved{color:#82dda9;border-color:#34704d;background:#0b2118}
 .vessel-exception-proof{min-width:190px;display:flex;flex-direction:column;align-items:flex-end;gap:4px;text-align:right}
 .vessel-exception-proof>span{font:600 6px 'IBM Plex Mono';letter-spacing:.7px;color:#557487}
 .vessel-exception-proof>b{font:600 7px 'IBM Plex Mono';color:#87afc2}
