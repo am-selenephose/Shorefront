@@ -43,7 +43,9 @@ os.environ["PORTFLOW_INTEGRATIONS_JSON"] = json.dumps([
 ])
 
 from portflow_api.adapters import configured_live_adapters
+import portflow_api.main as main_module
 from portflow_api.main import app
+from portflow_api.models import VesselRuntimeEvent, VesselRuntimeEventRecord
 
 
 def auth_headers(token: str) -> dict[str, str]:
@@ -710,7 +712,7 @@ def test_readiness_reports_runtime_and_schema_contract():
         assert health.json() == {
             "ok": True,
             "service": "portflow-api",
-            "version": "0.16.0",
+            "version": "0.16.1",
         }
 
         ready = client.get("/readyz")
@@ -1031,16 +1033,18 @@ def _crew_exception_wire_event(
     state: str,
     sequence: int,
     occurred_at: datetime,
+    vessel_id: str = "v-aurora",
+    port_call_id: str | None = "pc-aurora",
 ) -> dict[str, object]:
     return {
         "contract_version": "portflow.vessel-event.v1",
         "event_id": f"evt-crew-exception-{sequence}-{uuid4().hex[:12]}",
         "occurred_at": occurred_at.isoformat(),
-        "vessel_id": "v-aurora",
-        "port_call_id": "pc-aurora",
+        "vessel_id": vessel_id,
+        "port_call_id": port_call_id,
         "event_type": "constraint",
         "sequence": sequence,
-        "source_system": "maritime-runtime:v-aurora",
+        "source_system": f"maritime-runtime:{vessel_id}",
         "payload": {
             "runtime_event_type": runtime_event_type,
             "title": "producer-controlled title must not pass through",
@@ -1242,3 +1246,158 @@ def test_operator_vessel_exception_view_rejects_state_after_resolution():
         for item in viewed.json()["exceptions"]
     }
     assert exception_ref not in refs
+
+
+def _crew_exception_record(
+    *,
+    integration_id: str,
+    exception_ref: str,
+    runtime_event_type: str,
+    state: str,
+    sequence: int,
+    occurred_at: datetime,
+    vessel_id: str = "v-aurora",
+    port_call_id: str | None = "pc-aurora",
+) -> VesselRuntimeEventRecord:
+    event = VesselRuntimeEvent.model_validate(
+        _crew_exception_wire_event(
+            exception_ref=exception_ref,
+            runtime_event_type=runtime_event_type,
+            state=state,
+            sequence=sequence,
+            occurred_at=occurred_at,
+            vessel_id=vessel_id,
+            port_call_id=port_call_id,
+        )
+    )
+    return VesselRuntimeEventRecord(
+        event=event,
+        integration_id=integration_id,
+        received_at=occurred_at + timedelta(milliseconds=100),
+    )
+
+
+def test_operator_vessel_exception_view_scopes_same_ref_by_vessel(
+    monkeypatch,
+):
+    exception_ref = "mrt-exception-" + "a" * 20
+    base = datetime.now(timezone.utc).replace(microsecond=0)
+    records = [
+        _crew_exception_record(
+            integration_id="runtime-aurora",
+            exception_ref=exception_ref,
+            runtime_event_type="crew.exception.opened",
+            state="open",
+            sequence=100,
+            occurred_at=base,
+            vessel_id="v-aurora",
+            port_call_id="pc-aurora",
+        ),
+        _crew_exception_record(
+            integration_id="runtime-aurora",
+            exception_ref=exception_ref,
+            runtime_event_type="crew.attention.acknowledged",
+            state="acknowledged",
+            sequence=101,
+            occurred_at=base + timedelta(seconds=1),
+            vessel_id="v-aurora",
+            port_call_id="pc-aurora",
+        ),
+        _crew_exception_record(
+            integration_id="runtime-glory",
+            exception_ref=exception_ref,
+            runtime_event_type="crew.exception.opened",
+            state="open",
+            sequence=200,
+            occurred_at=base + timedelta(seconds=2),
+            vessel_id="v-glory",
+            port_call_id="pc-glory",
+        ),
+        _crew_exception_record(
+            integration_id="runtime-glory",
+            exception_ref=exception_ref,
+            runtime_event_type="crew.attention.acknowledged",
+            state="acknowledged",
+            sequence=201,
+            occurred_at=base + timedelta(seconds=3),
+            vessel_id="v-glory",
+            port_call_id="pc-glory",
+        ),
+    ]
+    monkeypatch.setattr(
+        main_module.store,
+        "list_vessel_runtime_events",
+        lambda **_: records,
+    )
+
+    with TestClient(app) as client:
+        response = client.get(
+            "/api/v1/operations/vessel-exceptions",
+            headers=auth_headers(VIEWER_TOKEN),
+        )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["count"] == 2
+    assert {
+        (item["vessel_id"], item["exception_ref"], item["state"])
+        for item in body["exceptions"]
+    } == {
+        ("v-aurora", exception_ref, "acknowledged"),
+        ("v-glory", exception_ref, "acknowledged"),
+    }
+
+
+def test_operator_vessel_exception_view_fails_closed_on_oversized_lifecycle(
+    monkeypatch,
+):
+    exception_ref = "mrt-exception-" + "b" * 20
+    base = datetime.now(timezone.utc).replace(microsecond=0)
+    records = [
+        _crew_exception_record(
+            integration_id="runtime-aurora",
+            exception_ref=exception_ref,
+            runtime_event_type="crew.exception.opened",
+            state="open",
+            sequence=300,
+            occurred_at=base,
+        ),
+        _crew_exception_record(
+            integration_id="runtime-aurora",
+            exception_ref=exception_ref,
+            runtime_event_type="crew.attention.acknowledged",
+            state="acknowledged",
+            sequence=301,
+            occurred_at=base + timedelta(seconds=1),
+        ),
+    ]
+    for index in range(2, 65):
+        claimed = index % 2 == 0
+        records.append(
+            _crew_exception_record(
+                integration_id="runtime-aurora",
+                exception_ref=exception_ref,
+                runtime_event_type=(
+                    "crew.attention.claimed"
+                    if claimed
+                    else "crew.attention.released"
+                ),
+                state="claimed" if claimed else "released",
+                sequence=300 + index,
+                occurred_at=base + timedelta(seconds=index),
+            )
+        )
+    monkeypatch.setattr(
+        main_module.store,
+        "list_vessel_runtime_events",
+        lambda **_: records,
+    )
+
+    with TestClient(app, raise_server_exceptions=False) as client:
+        response = client.get(
+            "/api/v1/operations/vessel-exceptions",
+            headers=auth_headers(VIEWER_TOKEN),
+        )
+
+    assert response.status_code == 200
+    assert response.json()["exceptions"] == []
