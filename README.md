@@ -1,13 +1,13 @@
-# Archived — PortFlow moved into AM-Maritime
+# Archived — PortFlow moved into KRATIA
 
-PortFlow is now maintained as the shore/port service inside the canonical **AM-Maritime** monorepo:
+PortFlow is now maintained as the shore/port service inside the canonical **KRATIA** monorepo:
 
-https://github.com/am-selenephos/AM-Maritime
+https://github.com/am-selenephos/KRATIA
 
 Canonical path:
 `apps/portflow/`
 
-This standalone repository is preserved read-only for historical tags, branches, release provenance, and migration traceability. New development belongs in AM-Maritime.
+This standalone repository is preserved read-only for historical tags, branches, release provenance, and migration traceability. New development belongs in KRATIA.
 
 ---
 
