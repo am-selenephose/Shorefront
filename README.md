@@ -1,4 +1,25 @@
-# PortFlow
+# KRATIA Maritime — Shore Coordination
+
+> Public product surface: **KRATIA Shore**. Internal service names, environment
+> variables and portflow.* integration contracts remain stable for
+> compatibility.
+
+## v0.17.0 — KRATIA Shore public product UI
+
+The shore product surface now carries the KRATIA Maritime identity while
+preserving the existing PortFlow engine and wire compatibility.
+
+Visible operator changes:
+- KRATIA / MARITIME · SHORE brand shell;
+- KRATIA Shore operations-control-tower title;
+- explicit authority strip for shore coordination, privacy-minimized vessel
+  events, human approval and NO VESSEL ACTUATION;
+- existing vessel-exception provenance/resolution UI remains intact;
+- browser and OpenAPI titles now identify the public module as KRATIA Shore.
+
+This is a public-product/UI rename, not a protocol migration. Existing
+portflow.* contracts, API paths, environment variables, persistence schema and
+integration credentials remain stable.
 
 PortFlow is a port-call operations control tower for continuously updated vessel, berth, weather, incident, delay, connectivity, and schedule state.
 
