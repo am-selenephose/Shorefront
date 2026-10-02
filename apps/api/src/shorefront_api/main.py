@@ -14,6 +14,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from . import __version__
+from .config import setting
 from .adapters import get_adapter_snapshot, list_adapter_snapshots
 from .domain import detect_berth_conflicts, score_port_call
 from .observability import metrics, observe_http
@@ -70,14 +71,14 @@ async def lifespan(app: FastAPI):
 
     configured_approvers()
     configured_integrations()
-    _schema_mode = os.getenv("PORTFLOW_SCHEMA_MODE", "migrate").strip().lower()
+    _schema_mode = setting("SCHEMA_MODE", "migrate").strip().lower()
     if _schema_mode == "migrate":
         store.migrate_schema()
     elif _schema_mode == "verify":
         store.verify_schema()
     else:
         raise RuntimeError(
-            "PORTFLOW_SCHEMA_MODE must be either 'migrate' or 'verify'"
+            "SHOREFRONT_SCHEMA_MODE must be either 'migrate' or 'verify'"
         )
 
     sim = build_simulator()
@@ -168,7 +169,7 @@ def readyz():
 
 
 def public_portfolio_mode() -> bool:
-    return os.getenv("PORTFLOW_PUBLIC_MODE", "").strip().lower() in {
+    return setting("PUBLIC_MODE", "").strip().lower() in {
         "1", "true", "yes", "on"
     }
 
@@ -1104,7 +1105,7 @@ async def harbor_ws(ws: WebSocket):
         return
 
 def _mount_optional_static_frontend() -> None:
-    static_dir = os.getenv("PORTFLOW_STATIC_DIR")
+    static_dir = setting("STATIC_DIR")
     if not static_dir:
         return
 
@@ -1112,7 +1113,7 @@ def _mount_optional_static_frontend() -> None:
     index_path = os.path.join(static_path, "index.html")
     if not os.path.isdir(static_path) or not os.path.isfile(index_path):
         raise RuntimeError(
-            "PORTFLOW_STATIC_DIR must contain a built frontend with index.html"
+            "SHOREFRONT_STATIC_DIR must contain a built frontend with index.html"
         )
 
     app.mount(

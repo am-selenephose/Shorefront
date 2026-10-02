@@ -1,15 +1,15 @@
 import { createHash } from 'node:crypto'
 import { defineConfig } from '@playwright/test'
 
-const e2eToken = 'portflow-e2e-test-only'
-const e2eIntegrationToken = 'portflow-e2e-integration-test-only'
-const e2eDataDir = '/tmp/portflow-e2e-v016-' + process.pid
+const e2eToken = 'shorefront-e2e-test-only'
+const e2eIntegrationToken = 'shorefront-e2e-integration-test-only'
+const e2eDataDir = '/tmp/shorefront-e2e-v016-' + process.pid
 const tokenDigest = createHash('sha256').update(e2eToken).digest('hex')
 const integrationTokenDigest = createHash('sha256')
   .update(e2eIntegrationToken)
   .digest('hex')
-process.env.PORTFLOW_E2E_OPERATOR_TOKEN = e2eToken
-process.env.PORTFLOW_E2E_INTEGRATION_TOKEN = e2eIntegrationToken
+process.env.SHOREFRONT_E2E_OPERATOR_TOKEN = e2eToken
+process.env.SHOREFRONT_E2E_INTEGRATION_TOKEN = e2eIntegrationToken
 
 const approvers = JSON.stringify([
   {
@@ -54,11 +54,11 @@ export default defineConfig({
       timeout: 60_000,
       reuseExistingServer: false,
       env: {
-        PORTFLOW_APPROVERS_JSON: approvers,
-        PORTFLOW_INTEGRATIONS_JSON: integrations,
-        PORTFLOW_DATA_DIR: e2eDataDir,
-        PORTFLOW_AIS_URL: 'http://127.0.0.1:9/e2e-unavailable',
-        PORTFLOW_AIS_PROVIDER: 'E2E unavailable AIS',
+        SHOREFRONT_APPROVERS_JSON: approvers,
+        SHOREFRONT_INTEGRATIONS_JSON: integrations,
+        SHOREFRONT_DATA_DIR: e2eDataDir,
+        SHOREFRONT_AIS_URL: 'http://127.0.0.1:9/e2e-unavailable',
+        SHOREFRONT_AIS_PROVIDER: 'E2E unavailable AIS',
       },
     },
     {
@@ -67,7 +67,7 @@ export default defineConfig({
       timeout: 60_000,
       reuseExistingServer: false,
       env: {
-        PORTFLOW_API_TARGET: 'http://127.0.0.1:8150',
+        SHOREFRONT_API_TARGET: 'http://127.0.0.1:8150',
       },
     },
   ],

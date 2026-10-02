@@ -7,14 +7,14 @@ from shorefront_api.security import authenticate_token, configured_approvers
 
 
 def test_security_config_rejects_invalid_json(monkeypatch):
-    monkeypatch.setenv("PORTFLOW_APPROVERS_JSON", "{not-json")
+    monkeypatch.setenv("SHOREFRONT_APPROVERS_JSON", "{not-json")
     with pytest.raises(RuntimeError, match="valid JSON"):
         configured_approvers()
 
 
 def test_security_config_rejects_non_sha256_digest(monkeypatch):
     monkeypatch.setenv(
-        "PORTFLOW_APPROVERS_JSON",
+        "SHOREFRONT_APPROVERS_JSON",
         json.dumps([
             {
                 "token_sha256": "not-a-digest",
@@ -31,7 +31,7 @@ def test_security_config_rejects_non_sha256_digest(monkeypatch):
 def test_authenticate_token_returns_configured_identity(monkeypatch):
     token = "unit-test-operator"
     monkeypatch.setenv(
-        "PORTFLOW_APPROVERS_JSON",
+        "SHOREFRONT_APPROVERS_JSON",
         json.dumps([
             {
                 "token_sha256": hashlib.sha256(token.encode()).hexdigest(),

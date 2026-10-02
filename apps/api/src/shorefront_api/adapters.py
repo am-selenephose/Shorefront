@@ -4,11 +4,12 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 import hashlib
 import json
-import os
 from threading import Lock
 from typing import Callable, Protocol
 from urllib.parse import urlparse
 from urllib.request import Request, urlopen
+
+from .config import setting
 
 from .models import (
     AdapterHealth,
@@ -301,24 +302,24 @@ def configured_live_adapters() -> dict[str, HttpJsonAdapter]:
         (
             "live-ais",
             DataDomain.AIS,
-            "PORTFLOW_AIS_URL",
-            "PORTFLOW_AIS_PROVIDER",
+            "AIS_URL",
+            "AIS_PROVIDER",
             "Configured AIS provider",
             120,
         ),
         (
             "live-weather",
             DataDomain.WEATHER_TIDE,
-            "PORTFLOW_WEATHER_URL",
-            "PORTFLOW_WEATHER_PROVIDER",
+            "WEATHER_URL",
+            "WEATHER_PROVIDER",
             "Configured weather/tide provider",
             300,
         ),
         (
             "live-berth-plan",
             DataDomain.BERTH_PLAN,
-            "PORTFLOW_BERTH_PLAN_URL",
-            "PORTFLOW_BERTH_PLAN_PROVIDER",
+            "BERTH_PLAN_URL",
+            "BERTH_PLAN_PROVIDER",
             "Configured berth-plan provider",
             600,
         ),
@@ -327,11 +328,11 @@ def configured_live_adapters() -> dict[str, HttpJsonAdapter]:
     desired: dict[str, HttpJsonAdapter] = {}
     with _LIVE_ADAPTERS_LOCK:
         for adapter_id, domain, url_env, provider_env, provider_default, stale_after in specs:
-            url = os.getenv(url_env, "").strip()
+            url = setting(url_env, "").strip()
             if not url:
                 continue
 
-            provider = os.getenv(provider_env, provider_default).strip() or provider_default
+            provider = setting(provider_env, provider_default).strip() or provider_default
             candidate = HttpJsonAdapter(
                 adapter_id=adapter_id,
                 domain=domain,

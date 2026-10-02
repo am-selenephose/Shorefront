@@ -961,14 +961,14 @@ def test_degraded_cached_snapshot_cannot_mutate_harbor_truth():
 
 
 def test_configured_live_adapter_instance_is_reused_while_config_is_unchanged(monkeypatch):
-    monkeypatch.setenv("PORTFLOW_AIS_URL", "https://example.invalid/ais")
-    monkeypatch.setenv("PORTFLOW_AIS_PROVIDER", "Persistent AIS")
+    monkeypatch.setenv("SHOREFRONT_AIS_URL", "https://example.invalid/ais")
+    monkeypatch.setenv("SHOREFRONT_AIS_PROVIDER", "Persistent AIS")
 
     first = configured_live_adapters()["live-ais"]
     second = configured_live_adapters()["live-ais"]
     assert first is second
 
-    monkeypatch.setenv("PORTFLOW_AIS_PROVIDER", "Changed AIS")
+    monkeypatch.setenv("SHOREFRONT_AIS_PROVIDER", "Changed AIS")
     third = configured_live_adapters()["live-ais"]
     assert third is not first
 

@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test'
 
-const operatorToken = process.env.PORTFLOW_E2E_OPERATOR_TOKEN || 'portflow-e2e-test-only'
-const integrationToken = process.env.PORTFLOW_E2E_INTEGRATION_TOKEN || 'portflow-e2e-integration-test-only'
+const operatorToken = process.env.SHOREFRONT_E2E_OPERATOR_TOKEN || 'shorefront-e2e-test-only'
+const integrationToken = process.env.SHOREFRONT_E2E_INTEGRATION_TOKEN || 'shorefront-e2e-integration-test-only'
 
 test('incident to authenticated recovery receipt survives reload', async ({ page, request }) => {
   const reset = await request.post('/api/v1/demo/reset')

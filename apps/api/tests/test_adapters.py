@@ -75,13 +75,13 @@ def test_live_http_adapter_converts_loader_failure_to_error_health():
 
 
 def test_live_adapter_registry_only_includes_configured_urls(monkeypatch):
-    for name in ("PORTFLOW_AIS_URL", "PORTFLOW_WEATHER_URL", "PORTFLOW_BERTH_PLAN_URL"):
+    for name in ("SHOREFRONT_AIS_URL", "SHOREFRONT_WEATHER_URL", "SHOREFRONT_BERTH_PLAN_URL"):
         monkeypatch.delenv(name, raising=False)
 
     assert configured_live_adapters() == {}
 
-    monkeypatch.setenv("PORTFLOW_AIS_URL", "https://feeds.example.test/ais")
-    monkeypatch.setenv("PORTFLOW_AIS_PROVIDER", "Example AIS")
+    monkeypatch.setenv("SHOREFRONT_AIS_URL", "https://feeds.example.test/ais")
+    monkeypatch.setenv("SHOREFRONT_AIS_PROVIDER", "Example AIS")
 
     adapters = configured_live_adapters()
     assert set(adapters) == {"live-ais"}

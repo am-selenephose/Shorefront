@@ -3,7 +3,6 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
-import os
 from typing import Any
 
 from fastapi import Depends, HTTPException
@@ -11,6 +10,7 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, Field, ValidationError
 
 from .models import IntegrationIdentity, OperatorIdentity, OperatorRole
+from .config import setting
 
 
 class ApproverRecord(BaseModel):
@@ -35,19 +35,19 @@ def token_digest(token: str) -> str:
 
 
 def configured_approvers() -> list[ApproverRecord]:
-    raw = os.getenv("PORTFLOW_APPROVERS_JSON", "[]")
+    raw = setting("APPROVERS_JSON", "[]")
     try:
         payload: Any = json.loads(raw)
     except json.JSONDecodeError as exc:
-        raise RuntimeError("PORTFLOW_APPROVERS_JSON must be valid JSON") from exc
+        raise RuntimeError("SHOREFRONT_APPROVERS_JSON must be valid JSON") from exc
 
     if not isinstance(payload, list):
-        raise RuntimeError("PORTFLOW_APPROVERS_JSON must be a JSON array")
+        raise RuntimeError("SHOREFRONT_APPROVERS_JSON must be a JSON array")
 
     try:
         records = [ApproverRecord.model_validate(item) for item in payload]
     except ValidationError as exc:
-        raise RuntimeError("PORTFLOW_APPROVERS_JSON contains an invalid approver record") from exc
+        raise RuntimeError("SHOREFRONT_APPROVERS_JSON contains an invalid approver record") from exc
 
     for record in records:
         digest = record.token_sha256.lower().strip()
@@ -59,20 +59,20 @@ def configured_approvers() -> list[ApproverRecord]:
 
 
 def configured_integrations() -> list[IntegrationRecord]:
-    raw = os.getenv("PORTFLOW_INTEGRATIONS_JSON", "[]")
+    raw = setting("INTEGRATIONS_JSON", "[]")
     try:
         payload: Any = json.loads(raw)
     except json.JSONDecodeError as exc:
-        raise RuntimeError("PORTFLOW_INTEGRATIONS_JSON must be valid JSON") from exc
+        raise RuntimeError("SHOREFRONT_INTEGRATIONS_JSON must be valid JSON") from exc
 
     if not isinstance(payload, list):
-        raise RuntimeError("PORTFLOW_INTEGRATIONS_JSON must be a JSON array")
+        raise RuntimeError("SHOREFRONT_INTEGRATIONS_JSON must be a JSON array")
 
     try:
         records = [IntegrationRecord.model_validate(item) for item in payload]
     except ValidationError as exc:
         raise RuntimeError(
-            "PORTFLOW_INTEGRATIONS_JSON contains an invalid integration record"
+            "SHOREFRONT_INTEGRATIONS_JSON contains an invalid integration record"
         ) from exc
 
     for record in records:

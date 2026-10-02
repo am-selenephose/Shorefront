@@ -5,6 +5,8 @@ from collections.abc import Callable
 from datetime import datetime, timezone
 from pathlib import Path
 
+from .config import setting
+
 from sqlalchemy import DateTime, Integer, String, Text, create_engine, inspect, select, text
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column
 
@@ -128,9 +130,16 @@ def default_database_url() -> str:
     configured = os.getenv("DATABASE_URL")
     if configured:
         return normalize_database_url(configured)
-    data_dir = Path(os.getenv("PORTFLOW_DATA_DIR", ".data"))
+    data_dir = Path(setting("DATA_DIR", ".data"))
     data_dir.mkdir(parents=True, exist_ok=True)
-    return f"sqlite:///{(data_dir / 'portflow.db').resolve()}"
+    canonical = data_dir / "shorefront.db"
+    legacy = data_dir / "portflow.db"
+    if canonical.exists() and legacy.exists():
+        raise RuntimeError(
+            "Both current and legacy databases exist; set DATABASE_URL explicitly."
+        )
+    database = legacy if legacy.exists() else canonical
+    return f"sqlite:///{database.resolve()}"
 
 
 class OperationsStore:

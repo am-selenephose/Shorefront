@@ -3,6 +3,7 @@ import hashlib
 import json
 import logging
 import os
+import pytest
 from uuid import uuid4
 
 from fastapi.testclient import TestClient
@@ -12,7 +13,7 @@ OPERATOR_TOKEN = "operator-test-token"
 SUPERVISOR_TOKEN = "supervisor-test-token"
 INTEGRATION_TOKEN = "vessel-runtime-test-token"
 
-os.environ["PORTFLOW_APPROVERS_JSON"] = json.dumps([
+os.environ["SHOREFRONT_APPROVERS_JSON"] = json.dumps([
     {
         "token_sha256": hashlib.sha256(VIEWER_TOKEN.encode()).hexdigest(),
         "operator_id": "viewer-01",
@@ -33,7 +34,7 @@ os.environ["PORTFLOW_APPROVERS_JSON"] = json.dumps([
     },
 ])
 
-os.environ["PORTFLOW_INTEGRATIONS_JSON"] = json.dumps([
+os.environ["SHOREFRONT_INTEGRATIONS_JSON"] = json.dumps([
     {
         "token_sha256": hashlib.sha256(INTEGRATION_TOKEN.encode()).hexdigest(),
         "integration_id": "vessel-runtime-aurora",
@@ -62,6 +63,20 @@ def test_openapi_uses_standalone_product_identity():
         response = client.get('/openapi.json')
     assert response.status_code == 200
     assert response.json()['info']['title'] == 'Shorefront'
+
+@pytest.mark.parametrize('prefix', ['PORTFLOW', 'SHOREFRONT'])
+def test_renamed_api_accepts_existing_operator_and_integration_config(monkeypatch, prefix):
+    for suffix in ('APPROVERS_JSON', 'INTEGRATIONS_JSON'):
+        records = os.environ['SHOREFRONT_' + suffix]
+        monkeypatch.delenv('SHOREFRONT_' + suffix)
+        monkeypatch.delenv('PORTFLOW_' + suffix, raising=False)
+        monkeypatch.setenv(prefix + '_' + suffix, records)
+    with TestClient(app) as client:
+        operator = client.get('/api/v1/auth/me', headers=auth_headers(OPERATOR_TOKEN))
+        integration = client.get('/api/v1/integration/vessel-events', headers=auth_headers(INTEGRATION_TOKEN))
+    assert operator.status_code == 200
+    assert operator.json()['operator_id'] == 'operator-17'
+    assert integration.status_code == 200
 
 def test_harbor_overview_contract():
     with TestClient(app) as client:
@@ -438,8 +453,8 @@ def test_live_adapter_preview_reuses_last_good_across_api_requests(monkeypatch):
     from datetime import datetime, timezone
 
     base = datetime.now(timezone.utc).replace(microsecond=0)
-    monkeypatch.setenv("PORTFLOW_AIS_URL", "https://example.invalid/ais")
-    monkeypatch.setenv("PORTFLOW_AIS_PROVIDER", "Persistent API AIS")
+    monkeypatch.setenv("SHOREFRONT_AIS_URL", "https://example.invalid/ais")
+    monkeypatch.setenv("SHOREFRONT_AIS_PROVIDER", "Persistent API AIS")
 
     adapter = configured_live_adapters()["live-ais"]
     calls = {"count": 0}
@@ -889,7 +904,7 @@ def test_scenario_and_recovery_evidence_are_durable_authenticated_audit_surfaces
 
 
 def test_public_portfolio_mode_hides_metrics(monkeypatch):
-    monkeypatch.setenv("PORTFLOW_PUBLIC_MODE", "1")
+    monkeypatch.setenv("SHOREFRONT_PUBLIC_MODE", "1")
     with TestClient(app) as client:
         response = client.get("/metrics")
     assert response.status_code == 404
