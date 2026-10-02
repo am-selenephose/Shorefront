@@ -1,11 +1,26 @@
 #!/bin/sh
 set -eu
 
-ROOT=/workspace/portflow
-TOOLS=/workspace/.portflow-tools
+ROOT="${SHOREFRONT_ROOT:-/workspace/shorefront}"
+TOOLS=/workspace/.shorefront-tools
 VENV="$ROOT/apps/api/.venv"
-SCHEMA="${PORTFLOW_DB_SCHEMA:-portflow_portfolio}"
-LOCKDIR=/workspace/.portflow-boot.lock
+SCHEMA="${SHOREFRONT_DB_SCHEMA-${PORTFLOW_DB_SCHEMA-}}"
+LOCKDIR=/workspace/.shorefront-boot.lock
+
+# Never infer a new database schema from a renamed deployment folder.
+: "${SCHEMA:?Set SHOREFRONT_DB_SCHEMA explicitly; upgrades must select the existing schema}"
+case "$SCHEMA" in
+  *[!a-zA-Z0-9_]*|[0-9]*) echo "invalid SHOREFRONT_DB_SCHEMA" >&2; exit 2 ;;
+esac
+if [ "${#SCHEMA}" -gt 63 ]; then
+  echo "SHOREFRONT_DB_SCHEMA is too long" >&2
+  exit 2
+fi
+export SHOREFRONT_DB_SCHEMA="$SCHEMA"
+if [ "${SHOREFRONT_BOOT_PREFLIGHT_ONLY:-0}" = "1" ]; then
+  echo "preflight=ok (schema configuration only; no database connection checked)"
+  exit 0
+fi
 
 acquire_boot_lock() {
   if mkdir "$LOCKDIR" 2>/dev/null; then
@@ -51,9 +66,9 @@ RAW_DATABASE_URL="${DATABASE_URL:?BasicDeploy must provide DATABASE_URL}"
 import os
 import psycopg
 
-schema = os.environ.get("PORTFLOW_DB_SCHEMA", "portflow_portfolio")
+schema = os.environ["SHOREFRONT_DB_SCHEMA"]
 if not schema.replace("_", "").isalnum():
-    raise SystemExit("invalid PORTFLOW_DB_SCHEMA")
+    raise SystemExit("invalid SHOREFRONT_DB_SCHEMA")
 
 with psycopg.connect(os.environ["DATABASE_URL"]) as conn:
     conn.execute(f'CREATE SCHEMA IF NOT EXISTS "{schema}"')
@@ -64,7 +79,7 @@ export DATABASE_URL="$("$VENV/bin/python" - <<'PY'
 import os
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
-schema = os.environ.get("PORTFLOW_DB_SCHEMA", "portflow_portfolio")
+schema = os.environ["SHOREFRONT_DB_SCHEMA"]
 parts = urlsplit(os.environ["DATABASE_URL"])
 scheme = parts.scheme
 if scheme in {"postgres", "postgresql"}:
@@ -85,11 +100,11 @@ PY
 )"
 
 export PYTHONPATH="$ROOT/apps/api/src"
-export PORTFLOW_SCHEMA_MODE=verify
-export PORTFLOW_STATIC_DIR="$ROOT/apps/web/dist"
-export PORTFLOW_PUBLIC_MODE=1
-export PORTFLOW_APPROVERS_JSON="${PORTFLOW_APPROVERS_JSON:-[]}"
-export PORTFLOW_INTEGRATIONS_JSON="${PORTFLOW_INTEGRATIONS_JSON:-[]}"
+export SHOREFRONT_SCHEMA_MODE=verify
+export SHOREFRONT_STATIC_DIR="$ROOT/apps/web/dist"
+export SHOREFRONT_PUBLIC_MODE=1
+export SHOREFRONT_APPROVERS_JSON="${SHOREFRONT_APPROVERS_JSON-${PORTFLOW_APPROVERS_JSON-[]}}"
+export SHOREFRONT_INTEGRATIONS_JSON="${SHOREFRONT_INTEGRATIONS_JSON-${PORTFLOW_INTEGRATIONS_JSON-[]}}"
 
 cd "$ROOT/apps/api"
 "$VENV/bin/python" -m shorefront_api.migrate

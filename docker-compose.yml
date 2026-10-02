@@ -2,18 +2,18 @@ services:
   postgres:
     image: postgres:17-alpine
     environment:
-      POSTGRES_DB: portflow
-      POSTGRES_USER: portflow
-      POSTGRES_PASSWORD: portflow-dev-only
+      POSTGRES_DB: shorefront
+      POSTGRES_USER: shorefront
+      POSTGRES_PASSWORD: shorefront-dev-only
     ports:
       - "55432:5432"
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U portflow -d portflow"]
+      test: ["CMD-SHELL", "pg_isready -U shorefront -d shorefront"]
       interval: 3s
       timeout: 3s
       retries: 20
     volumes:
-      - portflow_pg:/var/lib/postgresql/data
+      - shorefront_pg:/var/lib/postgresql/data
 
 volumes:
-  portflow_pg:
+  shorefront_pg:

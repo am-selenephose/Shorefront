@@ -1,7 +1,7 @@
 #!/bin/sh
 set -eu
 
-ROOT=/workspace/portflow
+ROOT=/workspace/shorefront
 
 if [ ! -f "$ROOT/apps/api/pyproject.toml" ]; then
   echo "Shorefront deploy bundle is missing apps/api/pyproject.toml" >&2

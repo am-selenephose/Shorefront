@@ -1,0 +1,16 @@
+# Upgrade only: keep the original Compose project (-p) and physical database.
+services:
+  postgres:
+    environment:
+      POSTGRES_DB: ${SHOREFRONT_DB_NAME:?Set the existing database name for upgrade}
+      POSTGRES_USER: ${SHOREFRONT_DB_USER:?Set the existing database user for upgrade}
+  migrate:
+    environment:
+      DATABASE_URL: postgresql+psycopg://${SHOREFRONT_DB_USER:?Set existing database user}:${SHOREFRONT_DB_PASSWORD-${PORTFLOW_DB_PASSWORD:?Set database password}}@postgres:5432/${SHOREFRONT_DB_NAME:?Set existing database name}
+  api:
+    environment:
+      DATABASE_URL: postgresql+psycopg://${SHOREFRONT_DB_USER:?Set existing database user}:${SHOREFRONT_DB_PASSWORD-${PORTFLOW_DB_PASSWORD:?Set database password}}@postgres:5432/${SHOREFRONT_DB_NAME:?Set existing database name}
+volumes:
+  shorefront_prod_pg:
+    external: true
+    name: ${SHOREFRONT_EXISTING_PG_VOLUME:?Set the exact existing PostgreSQL volume name}

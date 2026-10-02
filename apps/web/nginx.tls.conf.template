@@ -2,7 +2,7 @@ server {
     listen 80;
     server_name _;
 
-    return 308 ${PORTFLOW_PUBLIC_HTTPS_ORIGIN}$request_uri;
+    return 308 ${SHOREFRONT_PUBLIC_HTTPS_ORIGIN}$request_uri;
 }
 
 server {
@@ -13,7 +13,7 @@ server {
     ssl_certificate /etc/nginx/tls/tls.crt;
     ssl_certificate_key /etc/nginx/tls/tls.key;
     ssl_protocols TLSv1.2 TLSv1.3;
-    ssl_session_cache shared:PORTFLOW_TLS:10m;
+    ssl_session_cache shared:SHOREFRONT_TLS:10m;
     ssl_session_timeout 1d;
     ssl_session_tickets off;
 

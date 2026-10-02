@@ -35,18 +35,18 @@ jobs:
       - run: npm ci
       - run: npm run build
       - run: npm audit --omit=dev --audit-level=high
-      - run: ../../deploy/basicdeploy_bundle.sh /tmp/portflow-public-deploy.tgz
+      - run: ../../deploy/basicdeploy_bundle.sh /tmp/shorefront-public-deploy.tgz
 
   deployment:
     runs-on: ubuntu-latest
     env:
-      PORTFLOW_DB_PASSWORD: ci-placeholder
-      PORTFLOW_APPROVERS_JSON: '[]'
-      PORTFLOW_IMAGE_TAG: ci
-      PORTFLOW_HTTPS_PORT: 8443
-      PORTFLOW_PUBLIC_HTTPS_ORIGIN: https://localhost:8443
-      PORTFLOW_TLS_CERT_FILE: /tmp/portflow-ci.crt
-      PORTFLOW_TLS_KEY_FILE: /tmp/portflow-ci.key
+      SHOREFRONT_DB_PASSWORD: ci-placeholder
+      SHOREFRONT_APPROVERS_JSON: '[]'
+      SHOREFRONT_IMAGE_TAG: ci
+      SHOREFRONT_HTTPS_PORT: 8443
+      SHOREFRONT_PUBLIC_HTTPS_ORIGIN: https://localhost:8443
+      SHOREFRONT_TLS_CERT_FILE: /tmp/shorefront-ci.crt
+      SHOREFRONT_TLS_KEY_FILE: /tmp/shorefront-ci.key
     steps:
       - uses: actions/checkout@v4
       - run: sh -n deploy/basicdeploy_boot.sh deploy/basicdeploy_prepare.sh deploy/basicdeploy_bundle.sh
