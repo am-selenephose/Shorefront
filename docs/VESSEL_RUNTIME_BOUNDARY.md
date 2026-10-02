@@ -1,8 +1,13 @@
-# PortFlow <-> Vessel Runtime Boundary v1
+# Shorefront <-> Vessel Runtime Boundary v1
+
+> The product name is Shorefront. The `portflow.*.v1` identifiers below are
+> deliberately frozen published contracts; senders need not rename envelopes.
+> Runtime configuration uses `SHOREFRONT_*`, with legacy aliases and explicit
+> precedence documented in [Renaming and upgrading](RENAMING_AND_UPGRADING.md).
 
 ## Purpose
 
-PortFlow is the port-side coordination and recovery-control plane.
+Shorefront is the port-side coordination and recovery-control plane.
 A future vessel-side intelligence runtime is a separate repository and a separate operational authority domain.
 
 The two systems exchange normalized operational messages, but they do not share code ownership or permission authority.
@@ -11,11 +16,11 @@ The two systems exchange normalized operational messages, but they do not share 
 
 Vessel runtime owns raw navigation and machinery sensors, onboard perception, equipment health, local voyage/energy/navigation reasoning, bridge and engine-room HMIs, future actuator integrations, vessel-local safety interlocks, and high-rate telemetry retention.
 
-PortFlow owns port-call timelines, berth/resource coordination, service dependencies, port-side incidents, recovery proposals, human approval receipts, evidence snapshots, and the port-side integration event ledger.
+Shorefront owns port-call timelines, berth/resource coordination, service dependencies, port-side incidents, recovery proposals, human approval receipts, evidence snapshots, and the port-side integration event ledger.
 
 ## Hard safety boundary
 
-PortFlow coordination responses are advisory only.
+Shorefront coordination responses are advisory only.
 
 Every coordination snapshot carries:
 
@@ -23,14 +28,14 @@ Every coordination snapshot carries:
 - requires_human_approval = true
 - actuation_allowed = false
 
-PortFlow does not directly command helm, propulsion, thrusters, steering gear, autopilot, DP, machinery, or onboard safety systems.
+Shorefront does not directly command helm, propulsion, thrusters, steering gear, autopilot, DP, machinery, or onboard safety systems.
 
-A vessel-runtime integration credential is not an operator credential and cannot approve a PortFlow recovery proposal.
+A vessel-runtime integration credential is not an operator credential and cannot approve a Shorefront recovery proposal.
 
 ## Authentication plane
 
-Human operator credentials use PORTFLOW_APPROVERS_JSON.
-Machine integration credentials use PORTFLOW_INTEGRATIONS_JSON.
+Human operator credentials use SHOREFRONT_APPROVERS_JSON.
+Machine integration credentials use SHOREFRONT_INTEGRATIONS_JSON.
 
 Each integration record contains token_sha256, integration_id, display_name, and vessel_ids.
 The vessel_ids allowlist scopes the integration to explicitly authorized vessels.
@@ -61,7 +66,7 @@ event_id is the idempotency key.
 Repeating the same event id with identical content under the same integration returns duplicate=true and the original acceptance time.
 Reusing the same event id with different content or another integration returns HTTP 409.
 
-The sequence field is source-local ordering metadata. PortFlow stores it but does not assume globally ordered delivery.
+The sequence field is source-local ordering metadata. Shorefront stores it but does not assume globally ordered delivery.
 
 ## Durable event ledger
 
@@ -84,7 +89,7 @@ The integration must be authorized for the vessel attached to the requested port
 
 The response includes port-call identity, vessel and berth, arrival/departure ETA, delay/risk, stage dependencies, service steps, active incidents, recovery proposals, and the advisory/no-actuation flags.
 
-Recovery proposals remain normal PortFlow proposals with requires_approval=true.
+Recovery proposals remain normal Shorefront proposals with requires_approval=true.
 
 ## Contract discovery
 
@@ -118,9 +123,9 @@ Do not silently reinterpret an existing version.
 
 Transport changes alone do not require a semantic version change if the envelope meaning remains identical.
 
-## Explicit non-goals for PortFlow
+## Explicit non-goals for Shorefront
 
-PortFlow is not a ship autopilot, DP controller, engine controller, raw NMEA/fieldbus recorder, machinery PLC replacement, bridge decision replacement, or vessel-side perception stack.
+Shorefront is not a ship autopilot, DP controller, engine controller, raw NMEA/fieldbus recorder, machinery PLC replacement, bridge decision replacement, or vessel-side perception stack.
 
 Those capabilities, if ever built, belong in the separate vessel-runtime repository with its own safety architecture.
 
@@ -129,17 +134,17 @@ Those capabilities, if ever built, belong in the separate vessel-runtime reposit
 
 A parallel main-branch prototype explored a second batch envelope with source-sequence cursors and hash-chain heads.
 
-That prototype is intentionally not exposed as a second PortFlow transport contract because it would duplicate the semantic boundary already defined by portflow.vessel-event.v1.
+That prototype is intentionally not exposed as a second Shorefront transport contract because it would duplicate the semantic boundary already defined by portflow.vessel-event.v1.
 
 The useful idea is preserved as a vessel-runtime-side design candidate:
 
 - maintain a local append-only source ledger
 - track source-local monotonic sequence
 - bind source entries to hashes
-- project only privacy-approved normalized events into PortFlow
-- use event_id idempotency at the PortFlow boundary
+- project only privacy-approved normalized events into Shorefront
+- use event_id idempotency at the Shorefront boundary
 
-If implemented, the vessel runtime may use its own hash-chain internally while still emitting the stable portflow.vessel-event.v1 envelope to PortFlow.
+If implemented, the vessel runtime may use its own hash-chain internally while still emitting the stable portflow.vessel-event.v1 envelope to Shorefront.
 
 ## v0.16 human-visible crew exception lifecycle
 
@@ -147,7 +152,7 @@ Maritime Runtime v0.0.78 uses the existing portflow.vessel-event.v1 constraint
 event without expanding the contract schema. Crew-private evidence remains
 vessel-owned.
 
-PortFlow stores the normalized privacy-minimized lifecycle through the machine
+Shorefront stores the normalized privacy-minimized lifecycle through the machine
 integration credential and exposes a separate human-authenticated reduced view
 at:
 

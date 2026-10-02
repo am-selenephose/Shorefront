@@ -1,4 +1,11 @@
-# PortFlow architecture
+# Shorefront architecture
+
+> Current identity: **Shorefront**, a standalone product. Version-specific sections
+> below describe the architecture's development history; their past test claims
+> are not fresh release evidence. For current entrypoints, environment aliases,
+> database selection and deployment cutover use [Renaming and upgrading](RENAMING_AND_UPGRADING.md).
+> Schema version is currently 3. Published `portflow.*` v1 wire formats and metric
+> series remain compatibility identifiers, not current branding.
 
 ## v0.15
 
@@ -79,7 +86,7 @@ Offline-edge mode currently accumulates queued event count. The next milestone a
 
 ## Durable outbound replay
 
-PortFlow separates two concepts:
+Shorefront separates two concepts:
 
 1. local operations ledger
 2. remote-delivery spool
@@ -122,7 +129,7 @@ Dependency-state propagation continues downstream until no graph state changes r
 
 ## Standards / local-process boundary
 
-PortFlow distinguishes standardized port-call information exchange from local operational sequencing.
+Shorefront distinguishes standardized port-call information exchange from local operational sequencing.
 
 Standards-backed boundary:
 
@@ -134,10 +141,10 @@ Standards-backed boundary:
 Local-model boundary:
 
 - the ordering and dependency of bunker, stores, documents, customs, gate, cargo, and departure can differ by terminal, port, trade, vessel, authority, and contract;
-- PortFlow's v0.9 edge set is therefore a canonical demo fixture;
+- Shorefront's v0.9 edge set is therefore a canonical demo fixture;
 - production use requires a port-specific dependency map before those edges are treated as operational rules.
 
-A Rotterdam-specific implementation pattern supports including bunker completion and cargo completion in departure planning, but PortFlow does not generalize that local practice into a universal legal dependency.
+A Rotterdam-specific implementation pattern supports including bunker completion and cargo completion in departure planning, but Shorefront does not generalize that local practice into a universal legal dependency.
 
 ## Recovery decision support
 
@@ -178,7 +185,7 @@ The score is an internal comparison heuristic, not a market price or safety cert
 
 ## Recovery authority
 
-PortFlow does not auto-execute corrective actions.
+Shorefront does not auto-execute corrective actions.
 
 The authority boundary is explicit:
 
@@ -267,7 +274,7 @@ Recovery proposals themselves remain readable without approval authority so plan
 
 ## Credential configuration
 
-PORTFLOW_APPROVERS_JSON is a JSON array of records containing:
+SHOREFRONT_APPROVERS_JSON is a JSON array of records containing:
 
 - token_sha256
 - operator_id
@@ -276,7 +283,7 @@ PORTFLOW_APPROVERS_JSON is a JSON array of records containing:
 
 Only the digest is configured server-side.
 
-docker-compose.prod.yml requires PORTFLOW_APPROVERS_JSON so a production-shaped stack cannot silently start with an open recovery approval path.
+docker-compose.prod.yml requires SHOREFRONT_APPROVERS_JSON so a production-shaped stack cannot silently start with an open recovery approval path.
 
 The API validates approver configuration at startup.
 
@@ -354,7 +361,7 @@ The suite uses system Chromium rather than a mocked DOM environment.
 
 ## Development transport configuration
 
-Vite uses PORTFLOW_API_TARGET when present and defaults to http://127.0.0.1:8100.
+Vite uses SHOREFRONT_API_TARGET when present and defaults to http://127.0.0.1:8100.
 
 The WebSocket target is derived from the same backend target.
 
@@ -528,7 +535,7 @@ This prevents externally sourced values from being silently modified while retai
 
 Older persisted snapshots may contain the previous seven-kind service graph.
 
-On simulator restore, PortFlow verifies the canonical service-kind set independently for every port call. If any persisted call graph lacks v0.9 service kinds, service steps are reconstructed from the persisted port-call state.
+On simulator restore, Shorefront verifies the canonical service-kind set independently for every port call. If any persisted call graph lacks v0.9 service kinds, service steps are reconstructed from the persisted port-call state.
 
 This migration prevents an old snapshot from silently projecting an incomplete dependency model after an application upgrade.
 
@@ -765,7 +772,7 @@ The browser projects retry metadata but does not schedule retries itself. The ad
 
 Recovery proposal ids bind the state fingerprint, so any relevant operational-state change can invalidate a previously displayed plan.
 
-PortFlow now keeps a bounded runtime proposal-history cache solely to preserve enough context to explain and replace a stale decision.
+Shorefront now keeps a bounded runtime proposal-history cache solely to preserve enough context to explain and replace a stale decision.
 
 The stale-plan flow is:
 
@@ -794,7 +801,7 @@ RecoveryContingency carries:
 
 No contingency result mutates canonical harbor state.
 
-Explicit target_resource_id support on tug/bunker incidents lets PortFlow represent failure of a recovery candidate before it was assigned. In that case the resource is marked unavailable through incident truth, but the target port-call schedule is not shifted merely because a backup candidate disappeared.
+Explicit target_resource_id support on tug/bunker incidents lets Shorefront represent failure of a recovery candidate before it was assigned. In that case the resource is marked unavailable through incident truth, but the target port-call schedule is not shifted merely because a backup candidate disappeared.
 
 Assigned-resource failures keep the existing delay behavior.
 
@@ -808,9 +815,9 @@ Production persistence is now explicitly versioned.
 The schema authority chain is:
 
     PostgreSQL
-      -> one-shot portflow_api.migrate
+      -> one-shot shorefront_api.migrate
       -> schema_version = 2
-      -> API PORTFLOW_SCHEMA_MODE=verify
+      -> API SHOREFRONT_SCHEMA_MODE=verify
       -> OperationsStore.verify_schema()
       -> simulator restore
       -> runtime_ready = true
@@ -842,7 +849,7 @@ This separation prevents a running Python process from being mistaken for a safe
 
 PostgreSQL backup uses custom-format pg_dump -Fc.
 
-Restore is explicitly destructive and requires PORTFLOW_RESTORE_CONFIRM=YES.
+Restore is explicitly destructive and requires SHOREFRONT_RESTORE_CONFIRM=YES.
 
 The restore sequence is:
 
@@ -1014,7 +1021,7 @@ Production remains:
 
 The public portfolio deployment deliberately remains separate from the containerized production topology.
 
-BasicDeploy provides the outer HTTPS proxy and PostgreSQL service. PortFlow binds FastAPI directly to 0.0.0.0:8080 and optionally mounts the prebuilt React frontend at the root through PORTFLOW_STATIC_DIR.
+BasicDeploy provides the outer HTTPS proxy and PostgreSQL service. Shorefront binds FastAPI directly to 0.0.0.0:8080 and optionally mounts the prebuilt React frontend at the root through SHOREFRONT_STATIC_DIR.
 
 The public flow is:
 
@@ -1029,7 +1036,7 @@ This profile avoids adding a second Nginx process inside a 256 MB Free container
 
 ### Public-mode boundary
 
-PORTFLOW_PUBLIC_MODE=1 changes only exposure policy, not domain behavior.
+SHOREFRONT_PUBLIC_MODE=1 changes only exposure policy, not domain behavior.
 
 In public mode:
 
@@ -1044,7 +1051,7 @@ The public profile does not enable live adapters or silently upgrade data confid
 
 Hosting providers commonly supply postgres:// or postgresql:// connection URLs.
 
-PortFlow standardizes both to the SQLAlchemy psycopg v3 dialect form:
+Shorefront standardizes both to the SQLAlchemy psycopg v3 dialect form:
 
     postgresql+psycopg://
 
@@ -1056,7 +1063,7 @@ BasicDeploy Free containers may sleep when idle.
 
 The executable /workspace/.bd_boot.sh is the authoritative wake command.
 
-The hook is POSIX-sh compatible and guarded by /workspace/.portflow-boot.lock.
+The hook is POSIX-sh compatible and guarded by /workspace/.shorefront-boot.lock.
 
 The lock stores the boot/server PID. If a second wake hook starts while that PID is alive, it exits without launching a duplicate server. After a real sleep/restart, a stale PID is detected and the lock is safely replaced before boot.
 
@@ -1065,7 +1072,7 @@ This keeps auto-wake idempotent while preserving the single-process Uvicorn depl
 
 ## v0.15 vessel-runtime integration boundary
 
-PortFlow now exposes a versioned, authenticated integration seam for a future separate vessel-side runtime.
+Shorefront now exposes a versioned, authenticated integration seam for a future separate vessel-side runtime.
 
 The detailed contract is in docs/VESSEL_RUNTIME_BOUNDARY.md.
 
@@ -1075,11 +1082,11 @@ Inbound direction:
       -> normalized portflow.vessel-event.v1
       -> integration credential + vessel allowlist
       -> immutable vessel_runtime_event ledger
-      -> PortFlow coordination/evidence plane
+      -> Shorefront coordination/evidence plane
 
 Return direction:
 
-    PortFlow canonical state
+    Shorefront canonical state
       -> portflow.coordination.v1
       -> vessel runtime or human interface
       -> no direct actuation
@@ -1092,7 +1099,7 @@ The event boundary does not silently mutate the canonical harbor model. Mapping 
 
 ## Privacy-minimized vessel exceptions (v0.16)
 
-PortFlow's vessel integration ledger remains the durable intake boundary.
+Shorefront's vessel integration ledger remains the durable intake boundary.
 v0.16 adds a human read projection rather than another truth store.
 
     Maritime Runtime local ledger
@@ -1109,5 +1116,5 @@ The UI shows the highest source sequence per pseudonymous exception_ref. This
 avoids alert multiplication while retaining the immutable underlying event
 history for integration audit.
 
-No PortFlow component becomes a crew-private record system or physical
+No Shorefront component becomes a crew-private record system or physical
 execution authority.

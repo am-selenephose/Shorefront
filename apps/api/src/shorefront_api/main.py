@@ -1119,7 +1119,7 @@ def _mount_optional_static_frontend() -> None:
     app.mount(
         "/",
         StaticFiles(directory=static_path, html=True),
-        name="portflow-frontend",
+        name="shorefront-frontend",
     )
 
 
