@@ -49,7 +49,7 @@ export default defineConfig({
   },
   webServer: [
     {
-      command: 'cd ../api && uv run uvicorn portflow_api.main:app --host 127.0.0.1 --port 8150',
+      command: 'cd ../api && uv run uvicorn shorefront_api.main:app --host 127.0.0.1 --port 8150',
       url: 'http://127.0.0.1:8150/healthz',
       timeout: 60_000,
       reuseExistingServer: false,

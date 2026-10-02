@@ -235,7 +235,7 @@ class OperationsStore:
             raise RuntimeError("Database is not reachable")
         if not bool(status["compatible"]):
             raise RuntimeError(
-                "Database schema is not compatible with this PortFlow build: "
+                "Database schema is not compatible with this Shorefront build: "
                 f"{status}"
             )
         return status

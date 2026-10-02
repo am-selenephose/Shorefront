@@ -26,7 +26,9 @@ const HarborMap = lazy(() =>
 
 function storedOperatorToken() {
   try {
-    return sessionStorage.getItem('portflow.operator_token') || ''
+    // Do not silently adopt credentials saved under the retired product identity.
+    sessionStorage.removeItem('portflow.operator_token')
+    return sessionStorage.getItem('shorefront.operator_token') || ''
   } catch {
     return ''
   }
@@ -259,7 +261,7 @@ export default function App() {
       setOperatorToken(token)
       setOperatorIdentity(identity)
       try {
-        sessionStorage.setItem('portflow.operator_token', token)
+        sessionStorage.setItem('shorefront.operator_token', token)
       } catch {
         // Session still works even if browser storage is unavailable.
       }
@@ -274,7 +276,7 @@ export default function App() {
       setRecoveryReceipts([])
       setVesselExceptions([])
       try {
-        sessionStorage.removeItem('portflow.operator_token')
+        sessionStorage.removeItem('shorefront.operator_token')
       } catch {
         // Ignore unavailable browser storage.
       }
@@ -292,7 +294,7 @@ export default function App() {
     setVesselExceptions([])
     setActionError(null)
     try {
-      sessionStorage.removeItem('portflow.operator_token')
+      sessionStorage.removeItem('shorefront.operator_token')
     } catch {
       // Ignore unavailable browser storage.
     }
@@ -432,7 +434,7 @@ export default function App() {
   if (!state) {
     return (
       <div className="boot">
-        KRATIA
+        Shorefront
         <span>Loading shore operations picture...</span>
       </div>
     )
@@ -442,9 +444,9 @@ export default function App() {
     <div className="shell">
       <aside className="sidebar">
         <div className="brand">
-          <div className="brandmark">K</div>
+          <div className="brandmark">S</div>
           <div>
-            <b>KRATIA</b>
+            <b>Shorefront</b>
             <span>MARITIME · SHORE</span>
           </div>
         </div>
@@ -471,7 +473,7 @@ export default function App() {
       <main>
         <header>
           <div>
-            <p className="eyebrow">KRATIA SHORE · OPERATIONS CONTROL TOWER</p>
+            <p className="eyebrow">SHOREFRONT · OPERATIONS CONTROL TOWER</p>
             <h1>{state.port_name}</h1>
           </div>
           <div className="header-right">
@@ -482,7 +484,7 @@ export default function App() {
           </div>
         </header>
 
-        <div className="kratia-context-strip" aria-label="KRATIA Shore authority boundary">
+        <div className="shorefront-context-strip" aria-label="Shorefront authority boundary">
           <span>SHORE COORDINATION</span>
           <span>PRIVACY-MINIMIZED VESSEL EVENTS</span>
           <span>HUMAN APPROVAL</span>

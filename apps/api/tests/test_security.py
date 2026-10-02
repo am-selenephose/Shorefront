@@ -3,7 +3,7 @@ import json
 
 import pytest
 
-from portflow_api.security import authenticate_token, configured_approvers
+from shorefront_api.security import authenticate_token, configured_approvers
 
 
 def test_security_config_rejects_invalid_json(monkeypatch):

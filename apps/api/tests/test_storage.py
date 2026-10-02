@@ -3,11 +3,11 @@ from pathlib import Path
 
 from sqlalchemy import text
 
-from portflow_api.adapters import HttpJsonAdapter, configured_live_adapters, get_adapter_snapshot
-from portflow_api.domain import detect_berth_conflicts
-from portflow_api.models import AdapterHealth, DataDomain, DataSourceMode, DataSourceProvenance, IncidentType, LinkMode, OperatorRole, ResourceUnavailableWindow, ServiceDurationCalibration, ServiceKind
-from portflow_api.simulator import HarborSimulator, RecoveryProposalStaleError
-from portflow_api.storage import OperationsStore, normalize_database_url
+from shorefront_api.adapters import HttpJsonAdapter, configured_live_adapters, get_adapter_snapshot
+from shorefront_api.domain import detect_berth_conflicts
+from shorefront_api.models import AdapterHealth, DataDomain, DataSourceMode, DataSourceProvenance, IncidentType, LinkMode, OperatorRole, ResourceUnavailableWindow, ServiceDurationCalibration, ServiceKind
+from shorefront_api.simulator import HarborSimulator, RecoveryProposalStaleError
+from shorefront_api.storage import OperationsStore, normalize_database_url
 
 
 def make_store(tmp_path: Path) -> OperationsStore:
@@ -393,7 +393,7 @@ def test_recorded_ais_ingest_updates_source_and_survives_restart(tmp_path):
 
     source = next(item for item in sim.data_sources if item.source_id == "recorded-ais")
     assert source.mode.value == "recorded"
-    assert source.provider == "PortFlow recorded AIS fixture"
+    assert source.provider == "Shorefront recorded AIS fixture"
     assert source.stale is False
 
     restored = HarborSimulator(initial=store.load_snapshot())

@@ -1,7 +1,7 @@
 from datetime import datetime, timedelta, timezone
 
-from portflow_api.domain import dependency_violations, detect_berth_conflicts, score_port_call
-from portflow_api.models import PortCall, PortCallStage, RiskLevel, WeatherState
+from shorefront_api.domain import dependency_violations, detect_berth_conflicts, score_port_call
+from shorefront_api.models import PortCall, PortCallStage, RiskLevel, WeatherState
 
 
 def make_call(call_id: str, berth: str, start: datetime, duration_h: int = 4, delay: int = 0):

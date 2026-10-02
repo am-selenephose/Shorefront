@@ -42,10 +42,10 @@ os.environ["PORTFLOW_INTEGRATIONS_JSON"] = json.dumps([
     }
 ])
 
-from portflow_api.adapters import configured_live_adapters
-import portflow_api.main as main_module
-from portflow_api.main import app
-from portflow_api.models import VesselRuntimeEvent, VesselRuntimeEventRecord
+from shorefront_api.adapters import configured_live_adapters
+import shorefront_api.main as main_module
+from shorefront_api.main import app
+from shorefront_api.models import VesselRuntimeEvent, VesselRuntimeEventRecord
 
 
 def auth_headers(token: str) -> dict[str, str]:
@@ -57,10 +57,16 @@ def test_healthz():
     assert response.status_code == 200
     assert response.json()["ok"] is True
 
+def test_openapi_uses_standalone_product_identity():
+    with TestClient(app) as client:
+        response = client.get('/openapi.json')
+    assert response.status_code == 200
+    assert response.json()['info']['title'] == 'Shorefront'
+
 def test_harbor_overview_contract():
     with TestClient(app) as client:
         data = client.get("/api/v1/harbor").json()
-    assert data["port_name"] == "PortFlow Demo Harbor"
+    assert data["port_name"] == "Shorefront Demo Harbor"
     assert len(data["vessels"]) >= 5
     assert len(data["berths"]) >= 5
     assert len(data["port_calls"]) >= 3
@@ -711,7 +717,7 @@ def test_readiness_reports_runtime_and_schema_contract():
         assert health.status_code == 200
         assert health.json() == {
             "ok": True,
-            "service": "portflow-api",
+            "service": "shorefront-api",
             "version": "0.17.0",
         }
 

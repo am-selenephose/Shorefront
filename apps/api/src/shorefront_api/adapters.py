@@ -90,7 +90,7 @@ def _http_json_loader(url: str, timeout_seconds: float) -> dict:
         url,
         headers={
             "Accept": "application/json",
-            "User-Agent": "PortFlow/adapter",
+            "User-Agent": "Shorefront/adapter",
         },
         method="GET",
     )
@@ -361,7 +361,7 @@ ADAPTERS: dict[str, RecordedFixtureAdapter] = {
     "recorded-ais": RecordedFixtureAdapter(
         adapter_id="recorded-ais",
         domain=DataDomain.AIS,
-        provider="PortFlow recorded AIS fixture",
+        provider="Shorefront recorded AIS fixture",
         stale_after_seconds=120,
         age_seconds=18,
         detail="Recorded fixture replay. Not a live AIS provider.",
@@ -387,7 +387,7 @@ ADAPTERS: dict[str, RecordedFixtureAdapter] = {
     "recorded-weather": RecordedFixtureAdapter(
         adapter_id="recorded-weather",
         domain=DataDomain.WEATHER_TIDE,
-        provider="PortFlow recorded metocean fixture",
+        provider="Shorefront recorded metocean fixture",
         stale_after_seconds=300,
         age_seconds=42,
         detail="Recorded weather/tide fixture. Not a live metocean feed.",
@@ -404,7 +404,7 @@ ADAPTERS: dict[str, RecordedFixtureAdapter] = {
     "recorded-berth-plan": RecordedFixtureAdapter(
         adapter_id="recorded-berth-plan",
         domain=DataDomain.BERTH_PLAN,
-        provider="PortFlow recorded berth-plan fixture",
+        provider="Shorefront recorded berth-plan fixture",
         stale_after_seconds=600,
         age_seconds=75,
         detail="Recorded berth-plan fixture. Not a terminal operating system connection.",
@@ -426,7 +426,7 @@ ADAPTERS: dict[str, RecordedFixtureAdapter] = {
     "stale-weather-fixture": RecordedFixtureAdapter(
         adapter_id="stale-weather-fixture",
         domain=DataDomain.WEATHER_TIDE,
-        provider="PortFlow stale metocean fixture",
+        provider="Shorefront stale metocean fixture",
         stale_after_seconds=300,
         age_seconds=1200,
         detail="Intentionally stale fixture used to prove freshness handling.",

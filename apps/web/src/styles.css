@@ -257,7 +257,7 @@
 }
 
 
-/* KRATIA maritime pilot: privacy-minimized vessel exceptions */
+/* Shorefront maritime pilot: privacy-minimized vessel exceptions */
 .vessel-exceptions-shell{margin-top:10px}
 .vessel-exceptions-panel{padding:14px}
 .vessel-exceptions-head{display:flex;align-items:center;justify-content:space-between;gap:12px;padding-bottom:12px;border-bottom:1px solid #193042}
@@ -302,16 +302,16 @@
   .vessel-exception-proof{align-items:flex-start;text-align:left;min-width:0}
 }
 
-/* KRATIA Maritime public product shell */
-.kratia-context-strip{
+/* Shorefront public product shell */
+.shorefront-context-strip{
   display:flex;align-items:center;gap:7px;flex-wrap:wrap;margin:0 0 10px;padding:8px 10px;
   border:1px solid #173247;border-radius:5px;background:linear-gradient(90deg,#081723,#0a1320)
 }
-.kratia-context-strip span{
+.shorefront-context-strip span{
   padding:4px 7px;border:1px solid #24445a;border-radius:999px;
   color:#6f91a4;font:700 7px 'IBM Plex Mono';letter-spacing:.65px
 }
-.kratia-context-strip span.locked{
+.shorefront-context-strip span.locked{
   color:#8fd7f1;border-color:#356f84;background:#0b202b
 }
 .brandmark{
@@ -327,5 +327,5 @@
   font:800 22px 'IBM Plex Mono'
 }
 @media(max-width:760px){
-  .kratia-context-strip{align-items:flex-start}
+  .shorefront-context-strip{align-items:flex-start}
 }

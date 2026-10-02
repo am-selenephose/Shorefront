@@ -256,7 +256,7 @@ wheels = [
 ]
 
 [[package]]
-name = "portflow-api"
+name = "shorefront-api"
 version = "0.17.0"
 source = { editable = "." }
 dependencies = [

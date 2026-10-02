@@ -54,5 +54,5 @@ jobs:
       - run: bash -n ops/restore-postgres.sh
       - run: docker compose -f docker-compose.prod.yml config >/dev/null
       - run: docker compose -f docker-compose.prod.yml -f docker-compose.tls.yml config >/dev/null
-      - run: docker build -t portflow-api:ci apps/api
-      - run: docker build -t portflow-web:ci apps/web
+      - run: docker build -t shorefront-api:ci apps/api
+      - run: docker build -t shorefront-web:ci apps/web

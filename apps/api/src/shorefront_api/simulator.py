@@ -71,7 +71,7 @@ class HarborSimulator:
             self._restore(initial)
             return
 
-        self.port_name = "PortFlow Demo Harbor"
+        self.port_name = "Shorefront Demo Harbor"
         self.center = Coordinate(lat=51.948, lon=4.142)
         self._started = datetime.now(timezone.utc).replace(microsecond=0)
         self.vessels = self._make_vessels()
@@ -179,7 +179,7 @@ class HarborSimulator:
                 source_id="synthetic-ais",
                 domain=DataDomain.AIS,
                 mode=DataSourceMode.SYNTHETIC,
-                provider="PortFlow synthetic harbor generator",
+                provider="Shorefront synthetic harbor generator",
                 observed_at=now,
                 received_at=now,
                 freshness_seconds=0,
@@ -193,7 +193,7 @@ class HarborSimulator:
                 source_id="synthetic-weather",
                 domain=DataDomain.WEATHER_TIDE,
                 mode=DataSourceMode.SYNTHETIC,
-                provider="PortFlow synthetic metocean generator",
+                provider="Shorefront synthetic metocean generator",
                 observed_at=now,
                 received_at=now,
                 freshness_seconds=0,
@@ -207,7 +207,7 @@ class HarborSimulator:
                 source_id="synthetic-berth-plan",
                 domain=DataDomain.BERTH_PLAN,
                 mode=DataSourceMode.SYNTHETIC,
-                provider="PortFlow synthetic berth-plan generator",
+                provider="Shorefront synthetic berth-plan generator",
                 observed_at=now,
                 received_at=now,
                 freshness_seconds=0,
@@ -221,7 +221,7 @@ class HarborSimulator:
                 source_id="synthetic-service-calibration",
                 domain=DataDomain.SERVICE_CALIBRATION,
                 mode=DataSourceMode.SYNTHETIC,
-                provider="PortFlow synthetic service-duration calibration",
+                provider="Shorefront synthetic service-duration calibration",
                 observed_at=now,
                 received_at=now,
                 freshness_seconds=0,
@@ -716,7 +716,7 @@ class HarborSimulator:
                 duration_minutes=self._default_service_duration_minutes(kind),
                 source_id="synthetic-service-calibration",
                 mode=DataSourceMode.SYNTHETIC,
-                provider="PortFlow synthetic service-duration calibration",
+                provider="Shorefront synthetic service-duration calibration",
                 observed_at=self._started,
                 detail="Synthetic duration assumption for the portfolio demo.",
             )
@@ -2371,7 +2371,7 @@ class HarborSimulator:
             self.set_connectivity(LinkMode.OFFLINE_EDGE)
             severity = RiskLevel.HIGH
             title = "Control-center link lost"
-            details = "PortFlow switched to local edge mode; outbound events are durably spooled."
+            details = "Shorefront switched to local edge mode; outbound events are durably spooled."
             berth_id = None
 
         else:

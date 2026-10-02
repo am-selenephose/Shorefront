@@ -1,7 +1,7 @@
 from datetime import datetime, timedelta, timezone
 
-from portflow_api.adapters import HttpJsonAdapter, configured_live_adapters
-from portflow_api.models import DataDomain
+from shorefront_api.adapters import HttpJsonAdapter, configured_live_adapters
+from shorefront_api.models import DataDomain
 
 
 def test_live_http_adapter_normalizes_fresh_payload():

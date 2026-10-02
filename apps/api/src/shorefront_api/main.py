@@ -98,7 +98,7 @@ async def lifespan(app: FastAPI):
         task.cancel()
 
 
-app = FastAPI(title="KRATIA Shore", version=__version__, lifespan=lifespan)
+app = FastAPI(title="Shorefront", version=__version__, lifespan=lifespan)
 app.middleware("http")(observe_http)
 app.add_middleware(
     CORSMiddleware,
@@ -135,7 +135,7 @@ class ServiceDurationCalibrationRequest(BaseModel):
 def healthz():
     return {
         "ok": True,
-        "service": "portflow-api",
+        "service": "shorefront-api",
         "version": __version__,
     }
 
@@ -152,7 +152,7 @@ def readyz():
     )
     payload = {
         "ok": ready,
-        "service": "portflow-api",
+        "service": "shorefront-api",
         "version": __version__,
         "runtime_ready": _runtime_ready,
         "schema_mode": _schema_mode,

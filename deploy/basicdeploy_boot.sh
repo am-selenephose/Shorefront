@@ -92,9 +92,9 @@ export PORTFLOW_APPROVERS_JSON="${PORTFLOW_APPROVERS_JSON:-[]}"
 export PORTFLOW_INTEGRATIONS_JSON="${PORTFLOW_INTEGRATIONS_JSON:-[]}"
 
 cd "$ROOT/apps/api"
-"$VENV/bin/python" -m portflow_api.migrate
+"$VENV/bin/python" -m shorefront_api.migrate
 
-exec "$VENV/bin/python" -m uvicorn portflow_api.main:app \
+exec "$VENV/bin/python" -m uvicorn shorefront_api.main:app \
   --host 0.0.0.0 \
   --port 8080 \
   --proxy-headers \

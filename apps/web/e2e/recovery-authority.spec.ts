@@ -37,13 +37,18 @@ test('incident to authenticated recovery receipt survives reload', async ({ page
   expect(await conflicts.json()).toEqual([])
 
   const storedToken = await page.evaluate(() =>
-    sessionStorage.getItem('portflow.operator_token'),
+    sessionStorage.getItem('shorefront.operator_token'),
   )
   expect(storedToken).toBe(operatorToken)
 
   await page.reload()
   await expect(page.getByText('E2E Operator').first()).toBeVisible()
   await expect(page.getByText(/RECENT OPERATOR RECEIPTS · 1/)).toBeVisible()
+  await page.getByRole('button', { name: 'End session' }).click()
+  await expect(page.getByText('Not authenticated', { exact: true })).toBeVisible()
+  expect(await page.evaluate(() => sessionStorage.getItem('shorefront.operator_token'))).toBeNull()
+  await page.reload()
+  await expect(page.getByText('Not authenticated', { exact: true })).toBeVisible()
 })
 
 
@@ -86,7 +91,7 @@ test('operator ingests healthy recorded AIS while stale adapter stays blocked', 
   const recordedSource = page.locator('[data-source-id="recorded-ais"]')
   await expect(recordedSource).toBeVisible()
   await expect(recordedSource.locator('.source-mode.recorded')).toHaveText('recorded')
-  await expect(recordedSource.getByText('PortFlow recorded AIS fixture')).toBeVisible()
+  await expect(recordedSource.getByText('Shorefront recorded AIS fixture')).toBeVisible()
 
   const harbor = await request.get('/api/v1/harbor')
   expect(harbor.ok()).toBeTruthy()
@@ -422,11 +427,21 @@ test('shore operator sees privacy-minimized vessel exception resolution lifecycl
   await expect(panel).not.toContainText('producer private summary')
 })
 
-test("KRATIA Shore public product shell keeps advisory authority visible", async ({ page }) => {
+test("Shorefront public product shell keeps advisory authority visible", async ({ page }) => {
   await page.goto("/");
-  await expect(page.getByText("KRATIA", { exact: true })).toBeVisible();
+  await expect(page.getByText("Shorefront", { exact: true })).toBeVisible();
   await expect(page.getByText("MARITIME · SHORE", { exact: true })).toBeVisible();
-  await expect(page.getByText("KRATIA SHORE · OPERATIONS CONTROL TOWER", { exact: true })).toBeVisible();
+  await expect(page.getByText("SHOREFRONT · OPERATIONS CONTROL TOWER", { exact: true })).toBeVisible();
   await expect(page.getByText("NO VESSEL ACTUATION", { exact: true })).toBeVisible();
-  await expect(page).toHaveTitle(/KRATIA Shore/);
+  await expect(page).toHaveTitle(/Shorefront/);
 });
+
+test('retired browser credential is cleared and does not authenticate', async ({ page }) => {
+  await page.addInitScript(token => {
+    sessionStorage.setItem('portflow.operator_token', token)
+  }, operatorToken)
+  await page.goto('/')
+  await expect(page.locator('.shell')).toBeVisible()
+  await expect.poll(() => page.evaluate(() => sessionStorage.getItem('portflow.operator_token'))).toBeNull()
+  await expect(page.getByRole('button', { name: 'Verify' })).toBeVisible()
+})
