@@ -445,3 +445,26 @@ test('retired browser credential is cleared and does not authenticate', async ({
   await expect.poll(() => page.evaluate(() => sessionStorage.getItem('portflow.operator_token'))).toBeNull()
   await expect(page.getByRole('button', { name: 'Verify' })).toBeVisible()
 })
+
+test('Shorefront identity remains visible across viewports', async ({ page }, testInfo) => {
+  for (const [name, width, height] of [['desktop', 1280, 900], ['tablet', 768, 1024], ['mobile', 375, 812]] as const) {
+    await page.setViewportSize({ width, height })
+    await page.goto('/')
+    await expect(page.getByText('SHOREFRONT · OPERATIONS CONTROL TOWER', { exact: true })).toBeVisible()
+    await expect(page.getByLabel('Shorefront authority boundary')).toBeVisible()
+    await expect(page).toHaveTitle(/Shorefront/)
+    await page.screenshot({ path: testInfo.outputPath(`shorefront-${name}.png`), fullPage: false })
+  }
+  const token = page.getByLabel('Operator access token')
+  await token.fill(operatorToken)
+  await page.keyboard.press('Tab')
+  await expect(page.getByRole('button', { name: 'Verify' })).toBeFocused()
+})
+
+test('initial loading state uses Shorefront identity', async ({ page }) => {
+  await page.route('**/api/v1/harbor', route => route.abort())
+  await page.routeWebSocket('**/ws/harbor', () => {})
+  await page.goto('/')
+  await expect(page.locator('.boot')).toContainText('Shorefront')
+  await expect(page.locator('.boot')).not.toContainText('KRATIA')
+})

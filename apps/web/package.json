@@ -4,9 +4,10 @@
   "version": "0.17.0",
   "type": "module",
   "scripts": {
-    "dev": "vite",
-    "build": "tsc -b && vite build",
+    "dev": "vite --config vite.config.ts",
+    "build": "tsc -b && vite build --config vite.config.ts",
     "typecheck": "tsc -b",
+    "test:config": "node --experimental-strip-types --test tests/runtime-config.test.mjs",
     "test:e2e": "playwright test"
   },
   "dependencies": {

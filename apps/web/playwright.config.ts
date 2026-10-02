@@ -1,9 +1,12 @@
 import { createHash } from 'node:crypto'
+import { mkdtempSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { defineConfig } from '@playwright/test'
 
 const e2eToken = 'shorefront-e2e-test-only'
 const e2eIntegrationToken = 'shorefront-e2e-integration-test-only'
-const e2eDataDir = '/tmp/shorefront-e2e-v016-' + process.pid
+const e2eDataDir = mkdtempSync(join(tmpdir(), 'shorefront-e2e-'))
 const tokenDigest = createHash('sha256').update(e2eToken).digest('hex')
 const integrationTokenDigest = createHash('sha256')
   .update(e2eIntegrationToken)
@@ -54,11 +57,17 @@ export default defineConfig({
       timeout: 60_000,
       reuseExistingServer: false,
       env: {
+        DATABASE_URL: `sqlite:///${join(e2eDataDir, 'test.db')}`,
+        SHOREFRONT_SCHEMA_MODE: 'migrate',
+        SHOREFRONT_PUBLIC_MODE: '0',
+        SHOREFRONT_STATIC_DIR: '',
         SHOREFRONT_APPROVERS_JSON: approvers,
         SHOREFRONT_INTEGRATIONS_JSON: integrations,
         SHOREFRONT_DATA_DIR: e2eDataDir,
         SHOREFRONT_AIS_URL: 'http://127.0.0.1:9/e2e-unavailable',
         SHOREFRONT_AIS_PROVIDER: 'E2E unavailable AIS',
+        SHOREFRONT_WEATHER_URL: '',
+        SHOREFRONT_BERTH_PLAN_URL: '',
       },
     },
     {
