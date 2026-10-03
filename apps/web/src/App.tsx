@@ -5,6 +5,9 @@ import { IncidentControls } from './IncidentControls'
 import { RecoveryPanel } from './RecoveryPanel'
 import { VesselExceptionsPanel } from './VesselExceptionsPanel'
 import { ResourceBoard, ServiceChain } from './ServiceChain'
+import { ArchitectureView, GuidedDemo, Pulse, RecoveryComparison } from './DecisionViews'
+import { readJson, useHarborStream } from './useHarborStream'
+import { isRecoveryProposal } from './runtimeValidation'
 import type {
   AdapterSnapshot,
   HarborState,
@@ -17,11 +20,23 @@ import type {
   VesselOperationalException,
   ScenarioFixture,
 } from './types'
-import './styles.css'
 
 const HarborMap = lazy(() =>
   import('./HarborMap').then(module => ({ default: module.HarborMap })),
 )
+
+const workspaces = [
+  ['pulse', 'Pulse', 'What needs attention now?'],
+  ['plan', 'Plan', 'Plan the next move'],
+  ['calls', 'Calls', 'Follow each port call'],
+  ['exceptions', 'Exceptions', 'Understand what changed'],
+  ['recovery', 'Recovery', 'Choose a recovery path'],
+  ['evidence', 'Evidence', 'Inspect the operational record'],
+] as const
+function currentWorkspace() {
+  const value = location.hash.slice(1)
+  return value === 'control-tower' || workspaces.some(([id]) => id === value) ? value : 'pulse'
+}
 
 
 function storedOperatorToken() {
@@ -101,40 +116,58 @@ function PortCallCard({ call, state }: { call: PortCall; state: HarborState }) {
 
 
 export default function App() {
-  const [state, setState] = useState<HarborState | null>(null)
-  const [online, setOnline] = useState(false)
-  const [busy, setBusy] = useState(false)
+  const [theme, setTheme] = useState<'light' | 'dark'>(() =>
+    document.documentElement.dataset.theme === 'dark' ? 'dark' : 'light',
+  )
+  const { state, setState, online, error: connectionError, stale, retry } = useHarborStream()
+  const [actionBusy, setBusy] = useState(false)
+  const busy = actionBusy || stale || !online || !!connectionError
+  const [workspace, setWorkspace] = useState(currentWorkspace)
+  const [surface, setSurface] = useState<'operations' | 'demo' | 'architecture'>('operations')
+  const [roleLens, setRoleLens] = useState('Berth Planner')
   const [authBusy, setAuthBusy] = useState(false)
   const [actionError, setActionError] = useState<string | null>(null)
   const [operatorToken, setOperatorToken] = useState(storedOperatorToken)
   const [operatorIdentity, setOperatorIdentity] = useState<OperatorIdentity | null>(null)
   const [scenarios, setScenarios] = useState<ScenarioFixture[]>([])
+  const [demoControls, setDemoControls] = useState(false)
   const [adapters, setAdapters] = useState<AdapterSnapshot[]>([])
   const [recoveryProposals, setRecoveryProposals] = useState<RecoveryProposal[]>([])
+  const [recoveryStatus, setRecoveryStatus] = useState<'loading' | 'ready' | 'error'>('loading')
   const [recoveryReceipts, setRecoveryReceipts] = useState<RecoveryReceipt[]>([])
   const [vesselExceptions, setVesselExceptions] = useState<VesselOperationalException[]>([])
   const [contingencyNotice, setContingencyNotice] = useState<string | null>(null)
 
   useEffect(() => {
-    let ws: WebSocket | undefined
-    let dead = false
-
-    const connect = () => {
-      const protocol = location.protocol === 'https:' ? 'wss' : 'ws'
-      ws = new WebSocket(protocol + '://' + location.host + '/ws/harbor')
-      ws.onopen = () => setOnline(true)
-      ws.onmessage = event => setState(JSON.parse(event.data))
-      ws.onclose = () => {
-        setOnline(false)
-        if (!dead) setTimeout(connect, 1500)
-      }
+    const controller = new AbortController()
+    void readJson<{ demo_controls_enabled: boolean }>('/api/v1/runtime/capabilities', controller.signal)
+      .then(value => { if (!controller.signal.aborted) setDemoControls(value.demo_controls_enabled === true) })
+      .catch(() => { if (!controller.signal.aborted) setDemoControls(false) })
+    const changed = () => { setWorkspace(currentWorkspace()); setSurface('operations'); window.scrollTo(0, 0) }
+    window.addEventListener('hashchange', changed)
+    return () => {
+      controller.abort()
+      window.removeEventListener('hashchange', changed)
     }
+  }, [])
 
-    fetch('/api/v1/harbor')
-      .then(response => response.json())
-      .then(setState)
-      .catch(() => {})
+  const visible = (...names: string[]) => surface === 'operations' && (workspace === 'control-tower' || names.includes(workspace))
 
+  function toggleTheme() {
+    const next = theme === 'dark' ? 'light' : 'dark'
+    // Apply tokens before React updates the canvas; do not remount the workspace.
+    document.documentElement.dataset.theme = next
+    const meta = document.querySelector<HTMLMetaElement>('meta[name="theme-color"]')
+    if (meta) meta.content = getComputedStyle(document.documentElement).getPropertyValue('--background').trim()
+    try {
+      localStorage.setItem('shorefront.theme', next)
+    } catch {
+      // The switch still works for this visit when persistence is unavailable.
+    }
+    setTheme(next)
+  }
+
+  useEffect(() => {
     fetch('/api/v1/scenarios')
       .then(response => response.json())
       .then(setScenarios)
@@ -145,12 +178,6 @@ export default function App() {
       .then(setAdapters)
       .catch(() => setAdapters([]))
 
-    connect()
-
-    return () => {
-      dead = true
-      ws?.close()
-    }
   }, [])
 
   useEffect(() => {
@@ -163,22 +190,22 @@ export default function App() {
     if (!state) return
     const controller = new AbortController()
 
-    fetch('/api/v1/recovery/proposals', { signal: controller.signal })
-      .then(response => {
-        if (!response.ok) throw new Error('Recovery query failed')
-        return response.json()
+    setRecoveryStatus('loading')
+    readJson<{ proposals: RecoveryProposal[] }>('/api/v1/recovery/proposals', controller.signal)
+      .then(payload => {
+        if (!controller.signal.aborted) {
+          if (!Array.isArray(payload.proposals) || !payload.proposals.every(isRecoveryProposal)) throw new Error('Invalid proposal response')
+          setRecoveryProposals(payload.proposals)
+          setRecoveryStatus('ready')
+        }
       })
-      .then(payload => setRecoveryProposals(payload.proposals || []))
-      .catch(error => {
-        if (error?.name !== 'AbortError') setRecoveryProposals([])
+      .catch(() => {
+        if (!controller.signal.aborted) setRecoveryStatus('error')
       })
 
     return () => controller.abort()
   }, [
-    state?.metrics.active_incidents,
-    state?.metrics.berth_conflicts,
-    state?.metrics.blocked_services,
-    state?.metrics.delayed_services,
+    state?.decision_revision,
   ])
 
   const exposure = useMemo(
@@ -196,10 +223,15 @@ export default function App() {
 
   async function loadRecovery(token = operatorToken) {
     setContingencyNotice(null)
-    const proposalResponse = await fetch('/api/v1/recovery/proposals')
-    if (proposalResponse.ok) {
-      const payload = await proposalResponse.json()
-      setRecoveryProposals(payload.proposals || [])
+    setRecoveryStatus('loading')
+    try {
+      const payload = await readJson<{ proposals: RecoveryProposal[] }>('/api/v1/recovery/proposals')
+      if (!Array.isArray(payload.proposals) || !payload.proposals.every(isRecoveryProposal)) throw new Error('Invalid proposal response')
+      setRecoveryProposals(payload.proposals)
+      setRecoveryStatus('ready')
+    } catch {
+      setRecoveryStatus('error')
+      return
     }
 
     if (!token) {
@@ -301,6 +333,10 @@ export default function App() {
   }
 
   async function runAction(action: () => Promise<void>) {
+    if (stale || !online || connectionError) {
+      setActionError('Refresh the operational picture before making a change.')
+      return
+    }
     setBusy(true)
     setActionError(null)
     try {
@@ -435,7 +471,8 @@ export default function App() {
     return (
       <div className="boot">
         Shorefront
-        <span>Loading shore operations picture...</span>
+        <span role="status">{connectionError || 'Loading shore operations picture...'}</span>
+        {connectionError && <button onClick={retry}>Retry connection</button>}
       </div>
     )
   }
@@ -451,21 +488,14 @@ export default function App() {
           </div>
         </div>
 
-        <nav>
-          <a className="active" href="#overview">Harbor Overview</a>
-          <a href="#berth-schedule">Berth Schedule</a>
-          <a href="#port-calls">Port Calls</a>
-          <a href="#incidents">Incidents</a>
-          <a href="#resources">Resources</a>
-          <a href="#data-feeds">Data Feeds</a>
-          <a href="#recovery">Recovery Plans</a>
-          <a href="#vessel-exceptions">Vessel Exceptions</a>
-          <a href="#ledger">Operations Ledger</a>
+        <nav aria-label="Shorefront workspace">
+          {workspaces.map(([id, label], index) => <a key={id} className={workspace === id ? 'active' : ''} aria-current={workspace === id ? 'page' : undefined} href={'#' + id} onClick={() => setSurface('operations')}><span className="nav-index" aria-hidden="true">0{index + 1}</span>{label}</a>)}
+          <a href="#control-tower" className={workspace === 'control-tower' ? 'active' : ''} onClick={() => setSurface('operations')}>Full control tower</a>
         </nav>
 
         <div className="side-foot">
           <span className={online ? 'live-dot' : 'offline-dot'} />
-          {online ? 'LIVE STREAM' : 'RECONNECTING'}
+          {stale ? 'STALE PICTURE' : online ? 'CONNECTED' : 'RECONNECTING'}
           <small>Persistent synthetic operations</small>
         </div>
       </aside>
@@ -474,15 +504,31 @@ export default function App() {
         <header>
           <div>
             <p className="eyebrow">SHOREFRONT · OPERATIONS CONTROL TOWER</p>
-            <h1>{state.port_name}</h1>
+            <h1>{surface === 'demo' ? 'Guided demonstration' : surface === 'architecture' ? 'The decision infrastructure' : workspaces.find(([id]) => id === workspace)?.[2] || state.port_name}</h1>
           </div>
           <div className="header-right">
             <span>{new Date(state.generated_at).toLocaleString()}</span>
-            <div className={'system-state ' + (state.weather.restriction_active ? 'restricted' : 'normal')}>
-              {state.weather.restriction_active ? 'MOVEMENT RESTRICTED' : 'OPERATIONS NORMAL'}
+            <div className="header-controls">
+              <button className="theme-toggle" type="button" aria-label="Dark mode" aria-pressed={theme === 'dark'} onClick={toggleTheme}>
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <path d="M20.9 13.1A9 9 0 0 1 10.9 3.1a9 9 0 1 0 10 10Z" />
+                </svg>
+                <span>Dark mode</span>
+                <span className="theme-toggle-state" aria-hidden="true">{theme === 'dark' ? 'ON' : 'OFF'}</span>
+              </button>
+              <div className={'system-state ' + (stale || !online || connectionError || state.weather.restriction_active ? 'restricted' : 'normal')}>
+                {connectionError ? 'DATA ERROR · READ ONLY' : stale ? 'STALE DATA · READ ONLY' : !online ? 'DISCONNECTED · READ ONLY' : state.weather.restriction_active ? 'MOVEMENT RESTRICTED' : 'MODELED OPERATIONS'}
+              </div>
             </div>
           </div>
         </header>
+
+        <div className="workspace-toolbar">
+          <div className="surface-switch" aria-label="Product mode">{(['operations', 'demo', 'architecture'] as const).map(mode => <button type="button" key={mode} aria-pressed={surface === mode} onClick={() => setSurface(mode)}>{mode === 'demo' ? 'Guided demo' : mode === 'operations' ? 'Operations' : 'Architecture'}</button>)}</div>
+          <label className="role-lens">Role lens<select value={roleLens} onChange={event => setRoleLens(event.target.value)}>{['Berth Planner', 'Harbor Master', 'Terminal Ops', 'Carrier-Agent', 'Viewer'].map(role => <option key={role}>{role}</option>)}</select><small>View only · does not grant authority</small></label>
+        </div>
+
+        {(stale || !online || connectionError) && <div className="connection-warning" role="status">{connectionError || 'The operational stream is not current. Last verified picture retained; changes are disabled.'}<button onClick={retry}>Retry connection</button></div>}
 
         <div className="shorefront-context-strip" aria-label="Shorefront authority boundary">
           <span>SHORE COORDINATION</span>
@@ -493,7 +539,11 @@ export default function App() {
 
         {actionError && <div className="action-error">{actionError}</div>}
 
-        <section className="metrics metrics-seven" id="overview">
+        {surface === 'demo' && <GuidedDemo />}
+        {surface === 'architecture' && <ArchitectureView />}
+        {surface === 'operations' && workspace === 'pulse' && <Pulse state={state} role={roleLens} onDemo={() => setSurface('demo')} />}
+
+        {visible('plan') && <section className="metrics metrics-seven" id="overview">
           <Metric label="VESSELS IN PICTURE" value={state.metrics.vessels_in_port_picture} />
           <Metric
             label="BERTHS OCCUPIED"
@@ -508,9 +558,9 @@ export default function App() {
             detail={(state.metrics.delayed_services || 0) + ' delayed'}
           />
           <Metric label="MODELED EXPOSURE" value={usd(exposure)} />
-        </section>
+        </section>}
 
-        <section className="grid">
+        {visible('plan') && <section className="grid">
           <div className="panel map-panel">
             <div className="panel-title">
               <div>
@@ -521,7 +571,7 @@ export default function App() {
             </div>
 
             <Suspense fallback={<div className="harbor-map map-loading">Loading geospatial layer...</div>}>
-              <HarborMap state={state} />
+              <HarborMap state={state} theme={theme} />
             </Suspense>
 
             <div className="map-overlay">
@@ -575,7 +625,7 @@ export default function App() {
               <span>{state.connectivity.queued_events} queued</span>
             </div>
 
-            <div className="mode-buttons">
+            {demoControls && <div className="mode-buttons">
               {(['full', 'degraded', 'critical', 'offline_edge'] as LinkMode[]).map(mode => (
                 <button
                   className={state.connectivity.mode === mode ? 'selected' : ''}
@@ -586,11 +636,11 @@ export default function App() {
                   {mode.replace('_', ' ')}
                 </button>
               ))}
-            </div>
+            </div>}
           </div>
-        </section>
+        </section>}
 
-        <section className="panel timeline-panel" id="berth-schedule">
+        {visible('plan') && <section className="panel timeline-panel" id="berth-schedule">
           <div className="panel-title">
             <div>
               <span>BERTH SCHEDULE</span>
@@ -599,10 +649,10 @@ export default function App() {
             <small>{state.metrics.berth_conflicts || 0} mechanical conflict(s)</small>
           </div>
           <BerthTimeline state={state} />
-        </section>
+        </section>}
 
-        <section className="operations-grid" id="port-calls">
-          <div className="panel">
+        {visible('calls', 'exceptions', 'plan') && <section className={'operations-grid ' + (workspace !== 'control-tower' ? 'focused-grid' : '')} id="port-calls">
+          {visible('calls') && <div className="panel">
             <div className="panel-title">
               <div>
                 <span>PORT CALLS</span>
@@ -615,20 +665,21 @@ export default function App() {
                 <PortCallCard call={call} state={state} key={call.id} />
               ))}
             </div>
-          </div>
+          </div>}
 
           <div className="side-ops-stack">
-            <div className="panel" id="incidents">
+            {visible('exceptions') && <div className="panel" id="incidents">
               <IncidentControls
                 state={state}
+                demoEnabled={demoControls}
                 scenarios={scenarios}
                 busy={busy}
                 onRunScenario={runScenario}
                 onReset={resetDemo}
               />
-            </div>
+            </div>}
 
-            <div className="panel" id="resources">
+            {visible('plan') && <div className="panel" id="resources">
               <div className="panel-title">
                 <div>
                   <span>SERVICE RESOURCES</span>
@@ -637,11 +688,11 @@ export default function App() {
                 <small>{state.metrics.blocked_services || 0} blocked</small>
               </div>
               <ResourceBoard state={state} />
-            </div>
+            </div>}
           </div>
-        </section>
+        </section>}
 
-        <section className="panel data-feeds-shell" id="data-feeds">
+        {visible('evidence') && <section className="panel data-feeds-shell" id="data-feeds">
           <DataSourcesPanel
             current={state.data_sources || []}
             adapters={adapters}
@@ -649,33 +700,35 @@ export default function App() {
             busy={busy}
             onIngest={ingestAdapter}
           />
-        </section>
+        </section>}
 
-        <section className="panel recovery-shell" id="recovery">
+        {surface === 'operations' && workspace === 'recovery' && <RecoveryComparison revision={state.decision_revision} />}
+        {visible('recovery', 'evidence', 'exceptions') && <section className="panel recovery-shell" id="recovery">
           <RecoveryPanel
             proposals={recoveryProposals}
+            queryStatus={recoveryStatus}
             receipts={recoveryReceipts}
             identity={operatorIdentity}
             busy={busy}
             authBusy={authBusy}
             contingencyNotice={contingencyNotice}
             onApply={applyRecovery}
-            onRefresh={loadRecovery}
+            onRefresh={() => loadRecovery()}
             onConnect={connectOperator}
             onDisconnect={disconnectOperator}
           />
-        </section>
+        </section>}
 
-        <section className="panel vessel-exceptions-shell" id="vessel-exceptions">
+        {visible('exceptions') && <section className="panel vessel-exceptions-shell" id="vessel-exceptions">
           <VesselExceptionsPanel
             exceptions={vesselExceptions}
             identity={operatorIdentity}
             busy={busy || authBusy}
             onRefresh={loadVesselExceptions}
           />
-        </section>
+        </section>}
 
-        <section className="panel feed-panel" id="ledger">
+        {visible('evidence') && <section className="panel feed-panel" id="ledger">
           <div className="panel-title">
             <div>
               <span>DURABLE OPERATIONS LEDGER</span>
@@ -695,7 +748,7 @@ export default function App() {
               </div>
             ))}
           </div>
-        </section>
+        </section>}
 
         <footer>{state.data_disclaimer}</footer>
       </main>

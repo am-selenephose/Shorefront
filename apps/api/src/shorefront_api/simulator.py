@@ -39,6 +39,22 @@ class RecoveryProposalStaleError(ValueError):
 
 
 class HarborSimulator:
+    _callback_fields = frozenset({
+        'event_sink', 'incident_sink', 'snapshot_sink', 'spool_sink',
+        'replay_sink', 'pending_count', 'recovery_receipt_sink',
+        'recovery_proposal_evidence_sink',
+    })
+
+    def checkpoint(self) -> dict:
+        """Exact local rollback state; do not normalize via overview/restore."""
+        return deepcopy({key: value for key, value in vars(self).items() if key not in self._callback_fields})
+
+    def restore_checkpoint(self, checkpoint: dict) -> None:
+        for key in list(vars(self)):
+            if key not in self._callback_fields:
+                delattr(self, key)
+        vars(self).update(checkpoint)
+
     def __init__(
         self,
         seed: int = 42,
@@ -1479,6 +1495,19 @@ class HarborSimulator:
         payload = json.dumps(relevant, sort_keys=True, separators=(",", ":"))
         return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:16]
 
+    def _decision_workspace_revision(self) -> str:
+        """Reuse canonical decision inputs without invalidating on every clock tick."""
+        payload = {
+            "recovery": self._recovery_state_fingerprint("workspace"),
+            "calibrations": [item.model_dump(mode="json") for item in self.service_duration_calibrations],
+            "berths": [item.model_dump(mode="json") for item in self.berths],
+            "provenance": [
+                item.model_dump(mode="json", exclude={"freshness_seconds"})
+                for item in self.data_sources
+            ],
+        }
+        return hashlib.sha256(json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+
     def _proposal_id(
         self,
         actions: list[RecoveryAction],
@@ -2532,6 +2561,7 @@ class HarborSimulator:
 
         return HarborOverview(
             generated_at=datetime.now(timezone.utc).replace(microsecond=0),
+            decision_revision=self._decision_workspace_revision(),
             port_name=self.port_name,
             center=self.center,
             vessels=deepcopy(self.vessels),

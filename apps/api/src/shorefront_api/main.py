@@ -14,9 +14,10 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from . import __version__
-from .config import setting
+from .config import demo_controls_enabled, setting
 from .adapters import get_adapter_snapshot, list_adapter_snapshots
 from .domain import detect_berth_conflicts, score_port_call
+from .decision_workspace import guided_story, recovery_comparison
 from .observability import metrics, observe_http
 from .models import (
     AdapterHealth, DataDomain, DataSourceMode, DataSourceProvenance,
@@ -32,15 +33,30 @@ from .security import (
     current_integration,
     current_operator,
     recovery_approver,
+    require_demo_controls,
+    incident_operator,
 )
 from .scenarios import get_scenario, list_scenarios
 from .storage import OperationsStore
+from .operations import CommittedOperationError, OperationBoundary
 
 
 store = OperationsStore()
 sim = HarborSimulator()
 _runtime_ready = False
 _schema_mode = "uninitialized"
+
+
+def _replace_simulator(value):
+    global sim
+    sim = value
+
+
+operations = OperationBoundary(lambda: store, lambda: sim, _replace_simulator)
+
+
+def _record_metric(name: str, amount: int = 1):
+    store.after_commit(lambda: metrics.inc(name, amount))
 
 
 def build_simulator() -> HarborSimulator:
@@ -65,6 +81,32 @@ def build_simulator() -> HarborSimulator:
     )
 
 
+@operations.command
+def initialize_runtime():
+    global sim
+    sim = build_simulator()
+
+
+@operations.command
+def tick_runtime():
+    sim.tick()
+
+
+async def _finish_before_cancelling(awaitable):
+    """Cancellation cannot abandon a thread that still owns operational state."""
+    task = asyncio.ensure_future(awaitable)
+    cancelled = False
+    while not task.done():
+        try:
+            await asyncio.shield(task)
+        except asyncio.CancelledError:
+            cancelled = True
+    result = task.result()
+    if cancelled:
+        raise asyncio.CancelledError
+    return result
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global sim, _runtime_ready, _schema_mode
@@ -81,14 +123,18 @@ async def lifespan(app: FastAPI):
             "SHOREFRONT_SCHEMA_MODE must be either 'migrate' or 'verify'"
         )
 
-    sim = build_simulator()
+    await _finish_before_cancelling(asyncio.to_thread(initialize_runtime))
     _runtime_ready = True
     stop = asyncio.Event()
 
     async def runner():
         while not stop.is_set():
-            sim.tick()
-            await asyncio.sleep(2)
+            # Do not block the event loop while waiting for a worker-held lock.
+            await _finish_before_cancelling(asyncio.to_thread(tick_runtime))
+            try:
+                await asyncio.wait_for(stop.wait(), timeout=2)
+            except TimeoutError:
+                pass
 
     task = asyncio.create_task(runner())
     try:
@@ -96,7 +142,8 @@ async def lifespan(app: FastAPI):
     finally:
         _runtime_ready = False
         stop.set()
-        task.cancel()
+        # Let an in-flight transaction finish before releasing store ownership.
+        await _finish_before_cancelling(task)
 
 
 app = FastAPI(title="Shorefront", version=__version__, lifespan=lifespan)
@@ -175,6 +222,7 @@ def public_portfolio_mode() -> bool:
 
 
 @app.get("/metrics")
+@operations.query
 def prometheus_metrics():
     if public_portfolio_mode():
         raise HTTPException(status_code=404, detail="Not found")
@@ -194,6 +242,16 @@ def prometheus_metrics():
 @app.get("/api/v1/auth/me")
 def auth_me(identity: OperatorIdentity = Depends(current_operator)):
     return identity
+
+
+@app.get('/api/v1/runtime/capabilities')
+def runtime_capabilities():
+    return {
+        'demo_controls_enabled': demo_controls_enabled(),
+        'isolated_guided_demo': True,
+        'advisory_only': True,
+        'production_ready': False,
+    }
 
 
 def _require_integration_vessel(
@@ -243,6 +301,7 @@ def integration_contracts():
     "/api/v1/integration/vessel-events",
     response_model=VesselRuntimeEventReceipt,
 )
+@operations.command
 def ingest_vessel_runtime_event(
     event: VesselRuntimeEvent,
     identity: IntegrationIdentity = Depends(current_integration),
@@ -332,7 +391,7 @@ def ingest_vessel_runtime_event(
             source_id=identity.integration_id,
         )
     )
-    metrics.inc("portflow_vessel_events_total")
+    _record_metric("portflow_vessel_events_total")
 
     return VesselRuntimeEventReceipt(
         event_id=event.event_id,
@@ -342,6 +401,7 @@ def ingest_vessel_runtime_event(
 
 
 @app.get("/api/v1/integration/vessel-events")
+@operations.query
 def vessel_runtime_events(
     limit: int = 100,
     vessel_id: str | None = None,
@@ -546,6 +606,7 @@ def _project_vessel_operational_exception(
 
 
 @app.get("/api/v1/operations/vessel-exceptions")
+@operations.query
 def operator_vessel_exceptions(
     limit: int = Query(default=100, ge=1, le=500),
     vessel_id: str | None = Query(default=None, max_length=80),
@@ -667,6 +728,7 @@ def operator_vessel_exceptions(
     "/api/v1/integration/port-calls/{call_id}/coordination",
     response_model=VesselCoordinationSnapshot,
 )
+@operations.command
 def vessel_coordination(
     call_id: str,
     identity: IntegrationIdentity = Depends(current_integration),
@@ -713,6 +775,7 @@ def vessel_coordination(
 
 
 @app.get("/api/v1/service-duration-calibrations")
+@operations.query
 def service_duration_calibrations():
     rows = sorted(
         sim.service_duration_calibrations,
@@ -722,6 +785,7 @@ def service_duration_calibrations():
 
 
 @app.post("/api/v1/service-duration-calibrations")
+@operations.command
 def update_service_duration_calibration(
     req: ServiceDurationCalibrationRequest,
     identity: OperatorIdentity = Depends(recovery_approver),
@@ -768,7 +832,7 @@ def update_service_duration_calibration(
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
 
-    metrics.inc("portflow_calibration_updates_total")
+    _record_metric("portflow_calibration_updates_total")
     return {
         "calibration": updated,
         "provenance": provenance,
@@ -791,6 +855,7 @@ def adapter_preview(adapter_id: str):
 
 
 @app.post("/api/v1/adapters/{adapter_id}/ingest")
+@operations.command
 def adapter_ingest(
     adapter_id: str,
     identity: OperatorIdentity = Depends(recovery_approver),
@@ -808,7 +873,7 @@ def adapter_ingest(
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
 
-    metrics.inc("portflow_adapter_ingests_total")
+    _record_metric("portflow_adapter_ingests_total")
     return {
         "adapter": snapshot.provenance,
         "applied_records": applied,
@@ -826,7 +891,8 @@ def scenarios():
     return list_scenarios()
 
 
-@app.post("/api/v1/scenarios/{scenario_id}/run")
+@app.post("/api/v1/scenarios/{scenario_id}/run", dependencies=[Depends(require_demo_controls)])
+@operations.command
 def run_scenario(scenario_id: str):
     global sim
 
@@ -872,7 +938,7 @@ def run_scenario(scenario_id: str):
         recovery_proposals=proposals,
     )
     store.save_scenario_run_evidence(scenario_evidence)
-    metrics.inc("portflow_scenario_runs_total")
+    _record_metric("portflow_scenario_runs_total")
 
     return {
         "scenario": scenario,
@@ -883,28 +949,44 @@ def run_scenario(scenario_id: str):
 
 
 @app.get("/api/v1/harbor")
+@operations.query
 def harbor():
     return sim.overview()
 
 
-@app.post("/api/v1/connectivity")
+@app.get("/api/v1/recovery/comparison")
+@operations.query
+def compare_recovery():
+    return recovery_comparison(sim.overview())
+
+
+@app.get("/api/v1/demo/story")
+def demo_story():
+    return guided_story()
+
+
+@app.post("/api/v1/connectivity", dependencies=[Depends(require_demo_controls)])
+@operations.command
 def connectivity(req: ConnectivityRequest):
     sim.set_connectivity(req.mode)
     return sim.connectivity
 
 
 @app.get("/api/v1/events")
+@operations.query
 def events(limit: int = 100):
     return store.list_events(limit=limit)
 
 
 @app.get("/api/v1/incidents")
+@operations.query
 def incidents(limit: int = 100):
     return store.list_incidents(limit=limit)
 
 
 @app.post("/api/v1/incidents")
-def create_incident(req: IncidentRequest):
+@operations.command
+def create_incident(req: IncidentRequest, identity: OperatorIdentity | None = Depends(incident_operator)):
     try:
         return sim.inject_incident(
             incident_type=req.incident_type,
@@ -917,7 +999,8 @@ def create_incident(req: IncidentRequest):
 
 
 @app.patch("/api/v1/incidents/{incident_id}/resolve")
-def resolve_incident(incident_id: str):
+@operations.command
+def resolve_incident(incident_id: str, identity: OperatorIdentity | None = Depends(incident_operator)):
     try:
         return sim.resolve_incident(incident_id)
     except ValueError as exc:
@@ -925,6 +1008,7 @@ def resolve_incident(incident_id: str):
 
 
 @app.get("/api/v1/recovery/proposals")
+@operations.command
 def recovery_proposals(call_id: str | None = None):
     proposals = sim.generate_recovery_proposals(call_id=call_id)
     return {
@@ -936,6 +1020,7 @@ def recovery_proposals(call_id: str | None = None):
 
 
 @app.post("/api/v1/recovery/proposals/{proposal_id}/apply")
+@operations.command
 def apply_recovery_proposal(
     proposal_id: str,
     identity: OperatorIdentity = Depends(recovery_approver),
@@ -947,22 +1032,23 @@ def apply_recovery_proposal(
             approved_role=identity.role,
             approved_display_name=identity.display_name,
         )
-        metrics.inc("portflow_recovery_approvals_total")
+        _record_metric("portflow_recovery_approvals_total")
         return receipt
     except RecoveryProposalStaleError as exc:
-        metrics.inc("portflow_recovery_contingencies_total")
-        raise HTTPException(
+        _record_metric("portflow_recovery_contingencies_total")
+        raise CommittedOperationError(HTTPException(
             status_code=409,
             detail={
                 "code": "recovery_proposal_stale",
                 **exc.contingency.model_dump(mode="json"),
             },
-        ) from exc
+        )) from exc
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
 @app.get("/api/v1/recovery/receipts")
+@operations.query
 def recovery_receipts(
     limit: int = 100,
     identity: OperatorIdentity = Depends(current_operator),
@@ -971,6 +1057,7 @@ def recovery_receipts(
 
 
 @app.get("/api/v1/evidence/recovery-proposals")
+@operations.query
 def recovery_proposal_evidence(
     limit: int = 100,
     identity: OperatorIdentity = Depends(current_operator),
@@ -982,6 +1069,7 @@ def recovery_proposal_evidence(
 
 
 @app.get("/api/v1/evidence/scenario-runs")
+@operations.query
 def scenario_run_evidence(
     limit: int = 100,
     scenario_id: str | None = None,
@@ -998,6 +1086,7 @@ def scenario_run_evidence(
 
 
 @app.get("/api/v1/evidence/scenario-runs/{run_id}/pack")
+@operations.query
 def scenario_run_evidence_pack(
     run_id: str,
     identity: OperatorIdentity = Depends(current_operator),
@@ -1028,6 +1117,7 @@ def scenario_run_evidence_pack(
 
 
 @app.get("/api/v1/replay/pending")
+@operations.query
 def replay_pending():
     return {
         "pending": store.pending_outbound_count(),
@@ -1036,14 +1126,16 @@ def replay_pending():
 
 
 @app.get("/api/v1/replay/receipts")
+@operations.query
 def replay_receipts(limit: int = 100):
     return store.list_replay_receipts(limit=limit)
 
 
-@app.post("/api/v1/replay")
+@app.post("/api/v1/replay", dependencies=[Depends(require_demo_controls)])
+@operations.command
 def replay_now():
     receipts = store.replay_outbound_events(lambda event: True)
-    metrics.inc("portflow_replay_acks_total", len(receipts))
+    _record_metric("portflow_replay_acks_total", len(receipts))
     sim._refresh_queued_count()
     sim._persist()
     return {
@@ -1054,6 +1146,7 @@ def replay_now():
 
 
 @app.get("/api/v1/port-calls/{call_id}/dependency-graph")
+@operations.query
 def dependency_graph(call_id: str):
     try:
         return sim.dependency_graph(call_id)
@@ -1062,11 +1155,13 @@ def dependency_graph(call_id: str):
 
 
 @app.get("/api/v1/berth-conflicts")
+@operations.query
 def berth_conflicts():
     return [conflict.__dict__ for conflict in detect_berth_conflicts(sim.port_calls)]
 
 
 @app.get("/api/v1/port-calls/{call_id}/risk")
+@operations.query
 def port_call_risk(call_id: str):
     call = next((candidate for candidate in sim.port_calls if candidate.id == call_id), None)
     if call is None:
@@ -1077,7 +1172,8 @@ def port_call_risk(call_id: str):
     return {"found": True, "call_id": call.id, "risk": level, "score": score, "reasons": reasons}
 
 
-@app.post("/api/v1/demo/reset")
+@app.post("/api/v1/demo/reset", dependencies=[Depends(require_demo_controls)])
+@operations.command
 def reset_demo():
     global sim
     store.clear_demo_state()
@@ -1099,7 +1195,8 @@ async def harbor_ws(ws: WebSocket):
     await ws.accept()
     try:
         while True:
-            await ws.send_json(sim.overview().model_dump(mode="json"))
+            snapshot = await asyncio.to_thread(harbor)
+            await ws.send_json(snapshot.model_dump(mode="json"))
             await asyncio.sleep(2)
     except WebSocketDisconnect:
         return

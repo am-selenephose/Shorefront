@@ -1,6 +1,6 @@
 # Next work for Shorefront
 
-The current product is Shorefront. Keep it separate from KRATIA. Follow
+The current product is Shorefront, with its own runtime and release lifecycle. Follow
 [the migration guide](RENAMING_AND_UPGRADING.md) for existing state and consumers.
 Do not infer a completed deployment from source changes or older release notes.
 
@@ -14,9 +14,12 @@ Do not infer a completed deployment from source changes or older release notes.
    requirements and end-to-end acceptance checks.
 3. Validate actual feed contracts, data licensing, freshness/error behavior and
    recovery procedures before connecting live operations.
-4. Approve Shorefront's distinct colour system and the first representative
-   interface. Copper Quay belongs to KRATIA. The current source change is an
-   identity migration, not the high-end UI redesign.
+4. Review the cream-first geometric interface with the owner. Pale cream is the
+   base; Space Grotesk/Space Mono, larger operational type, timeline lanes and
+   mobile navigation are applied. A remembered, optional dark mode now restores
+   the original inverse palette while keeping cream as the default. Continue
+   task-oriented product design and commercial onboarding from this corrected
+   [brand direction](../brand.md). Keep this product's coastal identity independent.
 5. Verify complete desktop/mobile, keyboard, loading/error/stale and permission
    states; then measure performance and operator task completion.
 6. Exercise production-shaped PostgreSQL migrations, backup/restore and rollback

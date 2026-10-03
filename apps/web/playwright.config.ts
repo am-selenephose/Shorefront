@@ -60,6 +60,7 @@ export default defineConfig({
         DATABASE_URL: `sqlite:///${join(e2eDataDir, 'test.db')}`,
         SHOREFRONT_SCHEMA_MODE: 'migrate',
         SHOREFRONT_PUBLIC_MODE: '0',
+        SHOREFRONT_DEMO_CONTROLS: '1',
         SHOREFRONT_STATIC_DIR: '',
         SHOREFRONT_APPROVERS_JSON: approvers,
         SHOREFRONT_INTEGRATIONS_JSON: integrations,
@@ -71,7 +72,9 @@ export default defineConfig({
       },
     },
     {
-      command: 'npm run dev -- --host 127.0.0.1 --port 5175 --strictPort',
+      command: process.env.SHOREFRONT_E2E_BUILT === '1'
+        ? './node_modules/.bin/vite preview --config vite.config.ts --host 127.0.0.1 --port 5175 --strictPort'
+        : 'npm run dev -- --host 127.0.0.1 --port 5175 --strictPort',
       url: 'http://127.0.0.1:5175',
       timeout: 60_000,
       reuseExistingServer: false,

@@ -7,7 +7,7 @@ test('incident to authenticated recovery receipt survives reload', async ({ page
   const reset = await request.post('/api/v1/demo/reset')
   expect(reset.ok()).toBeTruthy()
 
-  await page.goto('/')
+  await page.goto('/#control-tower')
 
   const incidentButton = page.getByRole('button', { name: /B07 Berth Crunch/i })
   await expect(incidentButton).toBeVisible()
@@ -56,7 +56,7 @@ test('operator ingests healthy recorded AIS while stale adapter stays blocked', 
   const reset = await request.post('/api/v1/demo/reset')
   expect(reset.ok()).toBeTruthy()
 
-  await page.goto('/')
+  await page.goto('/#control-tower')
 
   const initialSource = page.locator('[data-source-id="synthetic-ais"]')
   const calibrationSource = page.locator('[data-source-id="synthetic-service-calibration"]')
@@ -120,7 +120,7 @@ test('bunker loss renders the branched DAG and operator recovery clears shared b
   const reset = await request.post('/api/v1/demo/reset')
   expect(reset.ok()).toBeTruthy()
 
-  await page.goto('/')
+  await page.goto('/#control-tower')
 
   const scenarioButton = page.getByRole('button', { name: /^Bunker Barge 4 Unavailable\b/i })
   await expect(scenarioButton).toBeVisible()
@@ -198,7 +198,7 @@ test('compound dual-resource recovery links both incidents and clears tug/bunker
   const reset = await request.post('/api/v1/demo/reset')
   expect(reset.ok()).toBeTruthy()
 
-  await page.goto('/')
+  await page.goto('/#control-tower')
 
   const scenarioButton = page.getByRole('button', {
     name: 'Tug 14 + Bunker Barge 4 Unavailable',
@@ -253,7 +253,7 @@ test('stale selected recovery resource loads ranked contingency and requires re-
   const reset = await request.post('/api/v1/demo/reset')
   expect(reset.ok()).toBeTruthy()
 
-  await page.goto('/')
+  await page.goto('/#control-tower')
 
   const scenarioButton = page.getByRole('button', {
     name: /^Bunker Barge 4 Unavailable\b/i,
@@ -400,7 +400,7 @@ test('shore operator sees privacy-minimized vessel exception resolution lifecycl
     expect(response.ok()).toBeTruthy()
   }
 
-  await page.goto('/')
+  await page.goto('/#control-tower')
   const panel = page.locator('#vessel-exceptions')
   await expect(panel.getByText('OPERATOR SESSION REQUIRED')).toBeVisible()
 
@@ -440,7 +440,7 @@ test('retired browser credential is cleared and does not authenticate', async ({
   await page.addInitScript(token => {
     sessionStorage.setItem('portflow.operator_token', token)
   }, operatorToken)
-  await page.goto('/')
+  await page.goto('/#control-tower')
   await expect(page.locator('.shell')).toBeVisible()
   await expect.poll(() => page.evaluate(() => sessionStorage.getItem('portflow.operator_token'))).toBeNull()
   await expect(page.getByRole('button', { name: 'Verify' })).toBeVisible()
@@ -449,7 +449,7 @@ test('retired browser credential is cleared and does not authenticate', async ({
 test('Shorefront identity remains visible across viewports', async ({ page }, testInfo) => {
   for (const [name, width, height] of [['desktop', 1280, 900], ['tablet', 768, 1024], ['mobile', 375, 812]] as const) {
     await page.setViewportSize({ width, height })
-    await page.goto('/')
+    await page.goto('/#control-tower')
     await expect(page.getByText('SHOREFRONT · OPERATIONS CONTROL TOWER', { exact: true })).toBeVisible()
     await expect(page.getByLabel('Shorefront authority boundary')).toBeVisible()
     await expect(page).toHaveTitle(/Shorefront/)
@@ -464,7 +464,7 @@ test('Shorefront identity remains visible across viewports', async ({ page }, te
 test('initial loading state uses Shorefront identity', async ({ page }) => {
   await page.route('**/api/v1/harbor', route => route.abort())
   await page.routeWebSocket('**/ws/harbor', () => {})
-  await page.goto('/')
+  await page.goto('/#control-tower')
   await expect(page.locator('.boot')).toContainText('Shorefront')
   await expect(page.locator('.boot')).not.toContainText('KRATIA')
 })

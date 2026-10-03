@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import os
+from contextlib import contextmanager
+from contextvars import ContextVar
+import logging
 from collections.abc import Callable
 from datetime import datetime, timezone
 from pathlib import Path
@@ -153,6 +156,53 @@ class OperationsStore:
         if url.startswith("sqlite:"):
             kwargs["connect_args"] = {"check_same_thread": False}
         self.engine = create_engine(url, **kwargs)
+        self._active_session: ContextVar[Session | None] = ContextVar(f'store_session_{id(self)}', default=None)
+        self._commit_callbacks: ContextVar[list | None] = ContextVar(f'store_callbacks_{id(self)}', default=None)
+
+    @contextmanager
+    def transaction(self):
+        """One command's callbacks share a transaction; failures propagate outward."""
+        if self._active_session.get() is not None:
+            raise RuntimeError('Nested command transactions are not supported')
+        callbacks = []
+        with Session(self.engine) as session:
+            token = self._active_session.set(session)
+            callback_token = self._commit_callbacks.set(callbacks)
+            try:
+                with session.begin():
+                    yield
+            finally:
+                self._active_session.reset(token)
+                self._commit_callbacks.reset(callback_token)
+        # Non-authoritative diagnostics run only after durability. A metrics
+        # failure cannot roll back a committed command or change its response.
+        for callback in callbacks:
+            try:
+                callback()
+            except Exception:
+                logging.getLogger(__name__).exception('Post-commit diagnostic failed')
+
+    def after_commit(self, callback: Callable[[], None]) -> None:
+        callbacks = self._commit_callbacks.get()
+        if callbacks is None:
+            callback()
+        else:
+            callbacks.append(callback)
+
+    @contextmanager
+    def _session(self):
+        active = self._active_session.get()
+        if active is not None:
+            yield active
+        else:
+            with Session(self.engine) as session:
+                yield session
+
+    def _finish_write(self, session: Session) -> None:
+        if self._active_session.get() is session:
+            session.flush()
+        else:
+            session.commit()
 
     @property
     def required_tables(self) -> set[str]:
@@ -257,24 +307,24 @@ class OperationsStore:
     def save_snapshot(self, overview: HarborOverview) -> None:
         payload = overview.model_dump_json()
         now = datetime.now(timezone.utc)
-        with Session(self.engine) as session:
+        with self._session() as session:
             row = session.get(SnapshotRow, 1)
             if row is None:
                 session.add(SnapshotRow(id=1, payload=payload, updated_at=now))
             else:
                 row.payload = payload
                 row.updated_at = now
-            session.commit()
+            self._finish_write(session)
 
     def load_snapshot(self) -> HarborOverview | None:
-        with Session(self.engine) as session:
+        with self._session() as session:
             row = session.get(SnapshotRow, 1)
             if row is None:
                 return None
             return HarborOverview.model_validate_json(row.payload)
 
     def append_event(self, event: OperationsEvent) -> bool:
-        with Session(self.engine) as session:
+        with self._session() as session:
             exists = session.scalar(select(EventRow.sequence).where(EventRow.event_id == event.id))
             if exists is not None:
                 return False
@@ -285,11 +335,11 @@ class OperationsStore:
                 severity=event.severity.value,
                 payload=event.model_dump_json(),
             ))
-            session.commit()
+            self._finish_write(session)
             return True
 
     def list_events(self, limit: int = 100) -> list[OperationsEvent]:
-        with Session(self.engine) as session:
+        with self._session() as session:
             rows = session.scalars(
                 select(EventRow)
                 .order_by(EventRow.sequence.desc())
@@ -298,7 +348,7 @@ class OperationsStore:
             return [OperationsEvent.model_validate_json(row.payload) for row in rows]
 
     def upsert_incident(self, incident: Incident) -> None:
-        with Session(self.engine) as session:
+        with self._session() as session:
             row = session.get(IncidentRow, incident.id)
             if row is None:
                 session.add(IncidentRow(
@@ -310,10 +360,10 @@ class OperationsStore:
             else:
                 row.status = incident.status.value
                 row.payload = incident.model_dump_json()
-            session.commit()
+            self._finish_write(session)
 
     def list_incidents(self, limit: int = 100) -> list[Incident]:
-        with Session(self.engine) as session:
+        with self._session() as session:
             rows = session.scalars(
                 select(IncidentRow)
                 .order_by(IncidentRow.started_at.desc())
@@ -322,7 +372,7 @@ class OperationsStore:
             return [Incident.model_validate_json(row.payload) for row in rows]
 
     def save_recovery_receipt(self, receipt: RecoveryApplicationReceipt) -> bool:
-        with Session(self.engine) as session:
+        with self._session() as session:
             if session.get(RecoveryReceiptRow, receipt.proposal_id) is not None:
                 return False
             session.add(RecoveryReceiptRow(
@@ -331,11 +381,11 @@ class OperationsStore:
                 target_port_call_id=receipt.target_port_call_id,
                 payload=receipt.model_dump_json(),
             ))
-            session.commit()
+            self._finish_write(session)
             return True
 
     def list_recovery_receipts(self, limit: int = 100) -> list[RecoveryApplicationReceipt]:
-        with Session(self.engine) as session:
+        with self._session() as session:
             rows = session.scalars(
                 select(RecoveryReceiptRow)
                 .order_by(RecoveryReceiptRow.applied_at.desc())
@@ -350,7 +400,7 @@ class OperationsStore:
         self,
         evidence: RecoveryProposalEvidenceBatch,
     ) -> bool:
-        with Session(self.engine) as session:
+        with self._session() as session:
             if session.get(RecoveryProposalEvidenceRow, evidence.evidence_id) is not None:
                 return False
             session.add(
@@ -362,14 +412,14 @@ class OperationsStore:
                     payload=evidence.model_dump_json(),
                 )
             )
-            session.commit()
+            self._finish_write(session)
             return True
 
     def list_recovery_proposal_evidence(
         self,
         limit: int = 100,
     ) -> list[RecoveryProposalEvidenceBatch]:
-        with Session(self.engine) as session:
+        with self._session() as session:
             rows = session.scalars(
                 select(RecoveryProposalEvidenceRow)
                 .order_by(RecoveryProposalEvidenceRow.generated_at.desc())
@@ -384,7 +434,7 @@ class OperationsStore:
         self,
         evidence: ScenarioRunEvidence,
     ) -> bool:
-        with Session(self.engine) as session:
+        with self._session() as session:
             if session.get(ScenarioRunEvidenceRow, evidence.run_id) is not None:
                 return False
             session.add(
@@ -395,7 +445,7 @@ class OperationsStore:
                     payload=evidence.model_dump_json(),
                 )
             )
-            session.commit()
+            self._finish_write(session)
             return True
 
     def list_scenario_run_evidence(
@@ -403,7 +453,7 @@ class OperationsStore:
         limit: int = 100,
         scenario_id: str | None = None,
     ) -> list[ScenarioRunEvidence]:
-        with Session(self.engine) as session:
+        with self._session() as session:
             query = select(ScenarioRunEvidenceRow)
             if scenario_id is not None:
                 query = query.where(
@@ -423,7 +473,7 @@ class OperationsStore:
         self,
         run_id: str,
     ) -> ScenarioRunEvidence | None:
-        with Session(self.engine) as session:
+        with self._session() as session:
             row = session.get(ScenarioRunEvidenceRow, run_id)
             if row is None:
                 return None
@@ -434,7 +484,7 @@ class OperationsStore:
         record: VesselRuntimeEventRecord,
     ) -> bool:
         event = record.event
-        with Session(self.engine) as session:
+        with self._session() as session:
             if session.get(VesselRuntimeEventRow, event.event_id) is not None:
                 return False
             session.add(
@@ -449,14 +499,14 @@ class OperationsStore:
                     payload=record.model_dump_json(),
                 )
             )
-            session.commit()
+            self._finish_write(session)
             return True
 
     def get_vessel_runtime_event(
         self,
         event_id: str,
     ) -> VesselRuntimeEventRecord | None:
-        with Session(self.engine) as session:
+        with self._session() as session:
             row = session.get(VesselRuntimeEventRow, event_id)
             if row is None:
                 return None
@@ -468,7 +518,7 @@ class OperationsStore:
         integration_id: str | None = None,
         vessel_id: str | None = None,
     ) -> list[VesselRuntimeEventRecord]:
-        with Session(self.engine) as session:
+        with self._session() as session:
             query = select(VesselRuntimeEventRow)
             if integration_id is not None:
                 query = query.where(
@@ -491,7 +541,7 @@ class OperationsStore:
     def queue_outbound_event(self, event: OperationsEvent) -> bool:
         envelope_id = f"out-{event.id}"
         now = datetime.now(timezone.utc)
-        with Session(self.engine) as session:
+        with self._session() as session:
             existing = session.scalar(
                 select(OutboundEnvelopeRow.envelope_id)
                 .where(OutboundEnvelopeRow.event_id == event.id)
@@ -506,18 +556,18 @@ class OperationsStore:
                 attempts=0,
                 acknowledged_at=None,
             ))
-            session.commit()
+            self._finish_write(session)
             return True
 
     def pending_outbound_count(self) -> int:
-        with Session(self.engine) as session:
+        with self._session() as session:
             return len(session.scalars(
                 select(OutboundEnvelopeRow.envelope_id)
                 .where(OutboundEnvelopeRow.acknowledged_at.is_(None))
             ).all())
 
     def pending_outbound_events(self, limit: int = 1000) -> list[OperationsEvent]:
-        with Session(self.engine) as session:
+        with self._session() as session:
             rows = session.scalars(
                 select(OutboundEnvelopeRow)
                 .where(OutboundEnvelopeRow.acknowledged_at.is_(None))
@@ -532,7 +582,7 @@ class OperationsStore:
         limit: int = 1000,
     ) -> list[ReplayReceipt]:
         receipts: list[ReplayReceipt] = []
-        with Session(self.engine) as session:
+        with self._session() as session:
             rows = session.scalars(
                 select(OutboundEnvelopeRow)
                 .where(OutboundEnvelopeRow.acknowledged_at.is_(None))
@@ -576,12 +626,12 @@ class OperationsStore:
                     attempts=row.attempts,
                 ))
 
-            session.commit()
+            self._finish_write(session)
 
         return receipts
 
     def list_replay_receipts(self, limit: int = 100) -> list[ReplayReceipt]:
-        with Session(self.engine) as session:
+        with self._session() as session:
             rows = session.scalars(
                 select(ReplayReceiptRow)
                 .order_by(ReplayReceiptRow.replayed_at.desc())
@@ -599,11 +649,11 @@ class OperationsStore:
             ]
 
     def clear_demo_state(self) -> None:
-        with Session(self.engine) as session:
+        with self._session() as session:
             session.query(SnapshotRow).delete()
             session.query(EventRow).delete()
             session.query(IncidentRow).delete()
             session.query(RecoveryReceiptRow).delete()
             session.query(OutboundEnvelopeRow).delete()
             session.query(ReplayReceiptRow).delete()
-            session.commit()
+            self._finish_write(session)

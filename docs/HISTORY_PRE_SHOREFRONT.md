@@ -1,3 +1,11 @@
+# Historical source document — superseded
+
+This file preserves earlier wording verbatim below. It is not current product
+identity or an instruction to move development. Use the root README for the
+active standalone Shorefront project.
+
+---
+
 # Archived — PortFlow moved into KRATIA
 
 PortFlow is now maintained as the shore/port service inside the canonical **KRATIA** monorepo:

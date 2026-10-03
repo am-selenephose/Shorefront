@@ -185,6 +185,7 @@ export interface AdapterSnapshot {
 
 export interface HarborState {
   generated_at: string
+  decision_revision: string
   port_name: string
   center: Coordinate
   vessels: Vessel[]

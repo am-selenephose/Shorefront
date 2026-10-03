@@ -14,6 +14,7 @@ os.environ.update({
     'SHOREFRONT_DATA_DIR': _test_data.name,
     'SHOREFRONT_SCHEMA_MODE': 'migrate',
     'SHOREFRONT_PUBLIC_MODE': '0',
+    'SHOREFRONT_DEMO_CONTROLS': '1',
     'SHOREFRONT_STATIC_DIR': '',
     'SHOREFRONT_APPROVERS_JSON': '[]',
     'SHOREFRONT_INTEGRATIONS_JSON': '[]',

@@ -28,6 +28,7 @@ function actionLabel(action: RecoveryProposal['actions'][number]) {
 
 export function RecoveryPanel({
   proposals,
+  queryStatus,
   receipts,
   identity,
   busy,
@@ -39,6 +40,7 @@ export function RecoveryPanel({
   onDisconnect,
 }: {
   proposals: RecoveryProposal[]
+  queryStatus: 'loading' | 'ready' | 'error'
   receipts: RecoveryReceipt[]
   identity: OperatorIdentity | null
   busy: boolean
@@ -91,7 +93,7 @@ export function RecoveryPanel({
         {identity ? (
           <div className="operator-connected">
             <span className={'role-badge ' + identity.role}>{identity.role}</span>
-            <button disabled={authBusy || busy} onClick={onDisconnect}>End session</button>
+            <button disabled={authBusy} onClick={onDisconnect}>End session</button>
           </div>
         ) : (
           <div className="operator-login">
@@ -128,7 +130,11 @@ export function RecoveryPanel({
         </div>
       )}
 
-      {proposals.length === 0 ? (
+      {queryStatus === 'error' ? (
+        <div className="authority-note" role="alert">Recovery proposals unavailable. Recalculate to retry; an unavailable result does not mean no mitigation is required.</div>
+      ) : queryStatus === 'loading' ? (
+        <p role="status">Loading current recovery proposals…</p>
+      ) : proposals.length === 0 ? (
         <div className="recovery-empty">
           <b>No mitigation proposal required.</b>
           <span>Inject a tug, berth, or scheduling incident to generate alternatives.</span>

@@ -10,7 +10,7 @@ test('browser test API cannot inherit a database or live-feed configuration', ()
     const env = {...process.env, ...config.webServer[0].env};
     const keys = ['DATABASE_URL', 'SHOREFRONT_DATA_DIR', 'SHOREFRONT_SCHEMA_MODE',
       'SHOREFRONT_PUBLIC_MODE', 'SHOREFRONT_STATIC_DIR', 'SHOREFRONT_WEATHER_URL',
-      'SHOREFRONT_BERTH_PLAN_URL', 'SHOREFRONT_AIS_URL'];
+      'SHOREFRONT_BERTH_PLAN_URL', 'SHOREFRONT_AIS_URL', 'SHOREFRONT_DEMO_CONTROLS'];
     console.log(JSON.stringify(Object.fromEntries(keys.map(k => [k, env[k]]))));`
   const settings = JSON.parse(execFileSync(process.execPath,
     ['--experimental-strip-types', '--input-type=module', '-e', source], {
@@ -26,6 +26,7 @@ test('browser test API cannot inherit a database or live-feed configuration', ()
   assert.ok(settings.SHOREFRONT_DATA_DIR.split('/').at(-1).startsWith('shorefront-e2e-'))
   assert.equal(settings.SHOREFRONT_SCHEMA_MODE, 'migrate')
   assert.equal(settings.SHOREFRONT_PUBLIC_MODE, '0')
+  assert.equal(settings.SHOREFRONT_DEMO_CONTROLS, '1')
   assert.equal(settings.SHOREFRONT_STATIC_DIR, '')
   assert.equal(settings.SHOREFRONT_WEATHER_URL, '')
   assert.equal(settings.SHOREFRONT_BERTH_PLAN_URL, '')

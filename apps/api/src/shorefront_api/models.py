@@ -521,6 +521,9 @@ class OperationsEvent(BaseModel):
 
 class HarborOverview(BaseModel):
     generated_at: datetime
+    # Additive UI invalidation key, not an authorization token or evidence hash.
+    # Omit when absent in old records so their byte-level evidence digests survive.
+    decision_revision: str = Field(default='', exclude_if=lambda value: not value)
     port_name: str
     center: Coordinate
     vessels: list[Vessel]

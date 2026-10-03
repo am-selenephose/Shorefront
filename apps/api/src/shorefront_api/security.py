@@ -10,7 +10,7 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, Field, ValidationError
 
 from .models import IntegrationIdentity, OperatorIdentity, OperatorRole
-from .config import setting
+from .config import demo_controls_enabled, setting
 
 
 class ApproverRecord(BaseModel):
@@ -28,6 +28,19 @@ class IntegrationRecord(BaseModel):
 
 
 bearer = HTTPBearer(auto_error=False)
+
+
+def require_demo_controls() -> None:
+    if not demo_controls_enabled():
+        raise HTTPException(status_code=403, detail='Shared demo controls are disabled in this runtime')
+
+
+def incident_operator(
+    credentials: HTTPAuthorizationCredentials | None = Depends(bearer),
+) -> OperatorIdentity | None:
+    if demo_controls_enabled():
+        return None
+    return recovery_approver(current_operator(credentials))
 
 
 def token_digest(token: str) -> str:

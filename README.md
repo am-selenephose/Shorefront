@@ -4,7 +4,7 @@ Port-call planning and shore operations coordination.
 
 **Shorefront is an active, standalone project.** Its official repository is
 [am-selenephos/shorefront](https://github.com/am-selenephos/shorefront).
-KRATIA is a separate project; this repository is not an archived KRATIA module.
+This repository owns its product, runtime and release lifecycle independently.
 
 Shorefront combines an inspectable harbor picture, berth/service scheduling,
 disruption scenarios, human-approved recovery proposals and durable evidence.
@@ -20,10 +20,26 @@ feed adapters—not a certified vessel-control system or a production-ready SaaS
 - SQLite/PostgreSQL persistence for snapshots, incidents, events, proposals and scenario evidence.
 - Authenticated, vessel-scoped normalized event intake and advisory coordination responses.
 - Degraded-connectivity queue/replay modeling and diagnostic metrics.
+- Single-process atomic command persistence, in-memory rollback and serialized
+  operational reads. Use one API worker/runtime per database; distributed writer
+  coordination and production failure recovery are not established.
 
 Coordination is **advisory-only**. No helm, propulsion, machinery or other vessel
 actuation is permitted. Integration credentials are not human approval credentials.
 Synthetic information is not evidence of a real port operation or commercial deployment.
+
+The default entry is **Pulse**, with Plan, Calls, Exceptions, Recovery and Evidence
+workspaces. **Guided demo** computes an isolated tug disruption and simulated
+approval without changing operational records. **Architecture** distinguishes
+implemented components from remaining gates. **Full control tower** retains the
+advanced all-panels view.
+
+Shared mutating demo controls are disabled by default. For a disposable synthetic
+database only, explicitly set `SHOREFRONT_DEMO_CONTROLS=1` before starting the API.
+Never enable this for operational data: it permits shared reset/scenario/link
+controls and simulated replay. The isolated guided story works without it.
+With demo controls disabled, incident creation/resolution require an authenticated
+operator or supervisor. This boundary is not a production-readiness certificate.
 
 ## Repository layout
 
@@ -116,13 +132,25 @@ for this change's exact results and unverified gates.
 
 ## Product and visual status
 
-The source identity is Shorefront. The high-end colour/UI redesign is a separate
-workstream: the prior copper/ivory/espresso palette is reserved for KRATIA;
-Shorefront's proposed mineral-white / tidal-green direction has not been applied.
-The current UI retains its existing layout and colours during this migration.
+The source identity is Shorefront. Its owner-selected coastal palette is applied
+to the workspace, controls, status surfaces and map markers: a pale-cream base,
+deep blue-green text, muted teal structure, warm yellow and peach accents.
+The header's **Dark mode** switch offers inverse contrast: deep blue-green
+surfaces, cream text, teal structure and the same warm accents. Cream stays the
+default; an explicit selection persists locally across refreshes. The previous
+dark-first default was replaced, not restored. See [brand.md](brand.md) for exact
+sampled colours, semantic roles and contrast rules. This replaces the earlier
+unapproved Tidal Jade proposal. Other projects' visual identities are not reused.
+Locally bundled Space Grotesk and Space Mono replace the old typography. The
+existing workflows have a lighter layout, larger operational type, readable
+timeline lanes and smaller-screen navigation. Wider commercial product work
+remains open. See [cream workspace verification](docs/CREAM_WORKSPACE_VERIFICATION.md)
+for the earlier checkpoint, and [theme-switch verification](docs/THEME_SWITCH_VERIFICATION.md)
+for current browser checks, screenshots and remaining limits.
 
-Before commercial use, resolve the known authorization/demo-reset,
-transaction/atomicity and replay concerns, then prove tenant boundaries,
+Shared demo mutations now default off and API commands have a single-runtime
+transaction/rollback boundary. Before commercial use, finish authorization,
+multi-process writer ownership, ambiguous-commit recovery and real replay acknowledgements, then prove tenant boundaries,
 operational recovery, real integrations and the complete browser experience.
 See [next work](docs/NEXT.md). Do not infer production readiness from a passing
 identity-migration test suite.
@@ -130,9 +158,11 @@ identity-migration test suite.
 ## Documentation and provenance
 
 - [Architecture](docs/ARCHITECTURE.md)
+- [Decision-workspace verification](docs/DECISION_WORKSPACE_VERIFICATION.md)
+- [Atomic-command verification](docs/ATOMIC_COMMAND_VERIFICATION.md)
 - [Vessel-runtime boundary and frozen v1 contracts](docs/VESSEL_RUNTIME_BOUNDARY.md)
 - [Safe rename/upgrade procedure](docs/RENAMING_AND_UPGRADING.md)
-- [Original pre-rename README](docs/HISTORY_PRE_SHOREFRONT.md) — retained verbatim as historical provenance. Its archived/moved-to-KRATIA statements and old deployment links are not current instructions.
+- [Historical source record](docs/HISTORY_PRE_SHOREFRONT.md) — retained as provenance, not current branding, architecture or deployment instructions.
 
 The Shorefront name is the owner's product decision. This repository change is
 not trademark, company-name or domain clearance.

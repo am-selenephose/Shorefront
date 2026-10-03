@@ -1,6 +1,6 @@
 # Shorefront identity migration
 
-Shorefront is the current standalone product. KRATIA is a separate project.
+Shorefront is the current standalone product, with its own identity and roadmap.
 This is a source and packaging migration, not a database migration or deployment.
 
 ## What changed
@@ -118,8 +118,11 @@ physical database. Repository URL changes alone do not roll back running service
 
 ## UI and release boundaries
 
-The colour redesign is separate. Copper Quay belongs to KRATIA. Shorefront's
-proposed Tidal Jade palette is not applied by this change. Existing authorization,
-demo-reset, transaction/atomicity and replay concerns from the commercial audit are
-outside this identity migration and must be resolved before a production-readiness
-claim. No source rename constitutes trademark or domain clearance.
+The original source rename was separate from the subsequent visual changes.
+The current workspace uses the approved cream-first coastal palette, local Space
+Grotesk/Space Mono fonts and an optional dark theme; see [brand.md](../brand.md).
+Shared demo mutations now require explicit `SHOREFRONT_DEMO_CONTROLS=1` opt-in.
+The isolated guided story does not require that opt-in and does not change the
+operational store. Full authorization, transaction/atomicity and real downstream
+replay acknowledgements remain production gates, not benefits implied by a rename.
+No source rename constitutes trademark or domain clearance.

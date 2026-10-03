@@ -2,12 +2,14 @@ import type { HarborState, ScenarioFixture } from './types'
 
 export function IncidentControls({
   state,
+  demoEnabled,
   scenarios,
   busy,
   onRunScenario,
   onReset,
 }: {
   state: HarborState
+  demoEnabled: boolean
   scenarios: ScenarioFixture[]
   busy: boolean
   onRunScenario: (scenarioId: string) => Promise<void>
@@ -22,10 +24,11 @@ export function IncidentControls({
           <span>SCENARIO LAB</span>
           <b>Deterministic operational fixtures</b>
         </div>
-        <button disabled={busy} onClick={onReset}>Reset demo</button>
+        {demoEnabled && <button disabled={busy} onClick={onReset}>Reset demo</button>}
       </div>
 
-      <div className="scenario-grid">
+      {!demoEnabled && <div className="workspace-empty"><strong>Shared demo controls disabled</strong><p>The isolated Guided demo is available without changing operational records.</p></div>}
+      {demoEnabled && <div className="scenario-grid">
         {scenarios.length === 0 && (
           <p className="scenario-empty">Loading canonical scenario fixtures...</p>
         )}
@@ -39,7 +42,7 @@ export function IncidentControls({
             <span>{item.description}</span>
           </button>
         ))}
-      </div>
+      </div>}
 
       <div className="active-incidents">
         <span className="section-kicker">ACTIVE INCIDENTS · {active.length}</span>
