@@ -103,6 +103,8 @@ export PYTHONPATH="$ROOT/apps/api/src"
 export SHOREFRONT_SCHEMA_MODE=verify
 export SHOREFRONT_STATIC_DIR="$ROOT/apps/web/dist"
 export SHOREFRONT_PUBLIC_MODE=1
+# This bundle is the public synthetic showcase, never a customer installation.
+export SHOREFRONT_RUNTIME_MODE=training
 export SHOREFRONT_APPROVERS_JSON="${SHOREFRONT_APPROVERS_JSON-${PORTFLOW_APPROVERS_JSON-[]}}"
 export SHOREFRONT_INTEGRATIONS_JSON="${SHOREFRONT_INTEGRATIONS_JSON-${PORTFLOW_INTEGRATIONS_JSON-[]}}"
 

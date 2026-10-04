@@ -17,6 +17,12 @@ if [[ "${SHOREFRONT_UPGRADE:-0}" == "1" ]]; then
   : "${PROJECT:?Set the existing Compose project for upgrade}"
   COMPOSE+=(-f "$ROOT/docker-compose.upgrade.yml")
 fi
+if [[ "${SHOREFRONT_OPERATIONAL:-0}" == "1" ]]; then
+  COMPOSE+=(-f "$ROOT/docker-compose.operational.yml")
+fi
+if [[ "${SHOREFRONT_TLS:-0}" == "1" ]]; then
+  COMPOSE+=(-f "$ROOT/docker-compose.tls.yml")
+fi
 
 STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
 OUT="${1:-$ROOT/backups/shorefront-$STAMP.dump}"

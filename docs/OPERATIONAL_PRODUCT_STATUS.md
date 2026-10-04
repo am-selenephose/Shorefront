@@ -5,7 +5,7 @@ Baseline: `943ee5c`, clean `feat/shorefront-identity`. API baseline: 173 passed 
 ## Rulings
 
 - User's continuous-execution instruction overrides routine spec/plan/worktree-choice pauses. Work in the existing approved clean feature checkout; no extra worktree, no unrelated changes.
-- No delegation this turn. Implementation and final review are local; this is weaker than independent review and must be stated at release.
+- Earlier implementation was local. On continuation, current collaboration instructions authorized bounded parallel backend/operations work and an independent read-only review. Service usage limits interrupted the agents. Their files and returned findings were checked locally; final review is self-review, not a completed independent review. No external deployment actions were delegated.
 - Preserve the simulator in explicit training mode. Build operational storage beside, never reinterpret synthetic history as real facts. Cost: two mode-specific surfaces until remaining planning features are integrated safely.
 - Existing palette/fonts are authoritative; do not run brand discovery or telemetry from frontend guidance.
 
@@ -13,14 +13,47 @@ Baseline: `943ee5c`, clean `feat/shorefront-identity`. API baseline: 173 passed 
 
 | Subsystem | Current verified state |
 | --- | --- |
-| Operational accounts/workspace | In progress |
-| Typed operational graph/history | In progress |
-| Commitment/recipient handoff workflow | Not yet delivered |
-| Trust envelopes/decision packets/historical comparison | Not yet delivered |
+| Operational accounts/workspace | Implemented: empty dedicated installation, accounts, invitations, revocation, password change/recovery, typed records, atomic JSON import; current verification below |
+| Typed operational graph/history | Implemented typed references, derived relationship graph and effective/knowledge-time reconstruction; not a general semantic reconciliation engine |
+| Commitment/recipient handoff workflow | Implemented installation-member transition rules, acknowledgement and proof; no external partner acknowledgement |
+| Trust envelopes/decision packets/historical comparison | Implemented immutable recorded-input packets, deterministic schedule options, supervisor approval, explicit uncalibrated warnings; no historical counterfactual twin |
 | Partner projection/federated identity | Not yet delivered |
 | Standards adapters/schema registry | Not yet delivered |
 | Distributed reconciliation/signed evidence | Not yet delivered |
-| Commercial obligations/outcome learning | Not yet delivered |
+| Commercial obligations/outcome learning | Implemented reviewed obligation states and observed outcome deviations; no legal interpretation, predictive learning or causal savings claim |
 | Production deployment/customer validation | Not verified |
 
 The training application's existing tests are not evidence that these new subsystems work.
+
+## Verification checkpoint, 2026-10-04
+
+- Operational browser suite: **8 passed** against the built frontend and real isolated SQLite API. Covers bootstrap/edit/history/logout, desktop light/mobile dark persistence, invitation/supervisor approval/observed outcome/reload, offline logout lock, JSON import/password rotation, malformed import/open-form offline protection, incident/assigned task/completion/history, and a delayed password response after sign-out.
+- `npm run build`: passed, with the existing training map chunk-size warning. `npm run typecheck`: passed. `npm run test:config`: 1 passed.
+- Browser regression evidence: missing import control failed before implementation; open editor Save remained enabled offline before the writable-state fix. Outcome inputs were absent before the observed-outcome UI was added.
+- Desktop light and 375px mobile dark screenshots inspected. This is not an exhaustive accessibility or cross-engine acceptance claim.
+- Full API suite with `SF_TEST_POSTGRES_URL`: **236 passed**, four existing dependency deprecation warnings. This includes real PostgreSQL concurrent writes, dump/restore into a separate generated schema, identical exported evidence after restore, and wrong-owner rejection. No test was skipped in this run.
+- Original built training browser suite: **31 passed** on the final build, with results saved in `.artifacts/operational-2026-10-04/training-browser.log`.
+- Bootstrap deadline persistence/reopening, schema compatibility, local password recovery and restore overlay/failure behavior passed in the full API run. Restore-script command tests substitute Docker; the real PostgreSQL test is a separate isolated schema-level rehearsal, not a customer deployment rehearsal.
+- Full independent review was interrupted by service usage limits. A separate local self-review completed; this is weaker than independent approval and does not satisfy the customer release review gate.
+- No live customer database was modified. No production deployment or main-branch merge is part of this checkpoint.
+
+## Review corrections and decisions
+
+- Open record editors now receive current write authority, disabling Save offline while retaining input. Browser test failed before the fix and passed afterward.
+- Late password-change responses cannot restore a session after logout or a different session generation. A held real HTTP response reproduced the failure before the guard; the final browser suite passes.
+- The migrator rejects an unknown runtime instead of selecting training. Regression failed before normalization/validation and passes in the full suite.
+- Outcome revisions use server knowledge time; actual event times remain in the payload. Outcome-to-decision association is immutable, preventing rescheduling or retargeting a single measurement to inflate/reassign results. Regressions failed before the restrictions and now pass.
+- Approval verifies stored evidence against the audit before applying a plan. A deliberately altered test packet previously passed approval; it now returns conflict without changing records. This remains an ordinary-corruption checksum check, not signed evidence or protection against an administrator rewriting the whole database.
+- Keep the training app and customer app explicitly separate. No legacy synthetic record is reinterpreted as a customer observation. Cost: two runtime surfaces remain to maintain.
+- Keep the approved brand and existing feature checkout. No new visual identity, provider credential, paid service or unrelated project is introduced.
+
+## Open release and programme gates
+
+- Dedicated customer host/origin/secrets, trusted TLS, target-specific backup/restore, monitoring and customer operational acceptance are not verified. `production_ready` remains false.
+- Independent complete security/code review, cross-engine browser testing, load/concurrency capacity and storage-retention limits remain release gates. All store transactions currently serialize; history/evidence growth is not performance-qualified.
+- The first decision-list view is bounded to 100 packets (API accepts a larger limit up to 500); a complete historical decision navigation/search surface remains to be delivered. Do not interpret the displayed set as exhaustive history. All packets remain in exported evidence.
+- Partner resource/field projections, federated identity, standards-conformant live connectors and SDK registry, semantic source reconciliation, counterproposal chains, historical counterfactual twin, external signatures/timestamps, offline reconciliation and calibrated outcome learning remain separate unfinished subsystems.
+- No live AIS/weather entitlement, external recipient acknowledgement, navigational clearance, contractual interpretation, cash receipt, causal savings or automated claims submission is implied.
+- Minor presentation follow-ups: mobile navigation wraps Team to a second row; the training map retains a large-chunk build warning. No all-viewport/accessibility-complete claim is made.
+
+Use [the operational runbook](OPERATIONAL_RUNBOOK.md) for installation and recovery. API run evidence is saved locally under `.artifacts/operational-2026-10-04/api-tests.log`; browser screenshots are regenerated under `apps/web/test-results/` and are disposable test artifacts, not customer data.

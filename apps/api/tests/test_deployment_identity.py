@@ -17,7 +17,7 @@ def environment(**settings):
     return env
 
 
-def render(tmp_path, settings, *, upgrade=False, tls=False):
+def render(tmp_path, settings, *, upgrade=False, tls=False, operational=False):
     if not shutil.which('docker'):
         pytest.skip('Docker Compose CLI required for configuration-only tests')
     command = ['docker', 'compose', '--env-file', '/dev/null', '-p', 'identity-test',
@@ -26,6 +26,8 @@ def render(tmp_path, settings, *, upgrade=False, tls=False):
         command += ['-f', str(ROOT / 'docker-compose.upgrade.yml')]
     if tls:
         command += ['-f', str(ROOT / 'docker-compose.tls.yml')]
+    if operational:
+        command += ['-f', str(ROOT / 'docker-compose.operational.yml')]
     return subprocess.run(command + ['config', '--format', 'json'], cwd=tmp_path,
                           env=environment(**settings), text=True, capture_output=True)
 
@@ -70,6 +72,23 @@ def test_empty_canonical_value_does_not_resurrect_legacy_credential(tmp_path):
                                'SHOREFRONT_APPROVERS_JSON': '', 'PORTFLOW_APPROVERS_JSON': '["legacy"]'})
     assert result.returncode == 0, result.stderr
     assert json.loads(result.stdout)['services']['api']['environment']['SHOREFRONT_APPROVERS_JSON'] == ''
+
+
+def test_customer_deployment_requires_owner_and_origin_and_verifies_schema(tmp_path):
+    values = {'SHOREFRONT_DB_PASSWORD':'test-only','SHOREFRONT_APPROVERS_JSON':'[]',
+              'SHOREFRONT_INSTALLATION_ID':'customer-one','SHOREFRONT_ORIGIN':'https://port.example.test'}
+    result = render(tmp_path, values, operational=True)
+    assert result.returncode == 0, result.stderr
+    config = json.loads(result.stdout)
+    for service in ('migrate', 'api'):
+        env = config['services'][service]['environment']
+        assert env['SHOREFRONT_RUNTIME_MODE'] == 'operational'
+        assert env['SHOREFRONT_INSTALLATION_ID'] == 'customer-one'
+        assert env['SHOREFRONT_ORIGIN'] == 'https://port.example.test'
+    assert config['services']['api']['environment']['SHOREFRONT_SCHEMA_MODE'] == 'verify'
+    assert config['services']['api']['environment']['SHOREFRONT_DEMO_CONTROLS'] == '0'
+    for required in ('SHOREFRONT_INSTALLATION_ID','SHOREFRONT_ORIGIN'):
+        assert render(tmp_path, {k:v for k,v in values.items() if k != required}, operational=True).returncode != 0
 
 
 @pytest.mark.parametrize('prefix', ['SHOREFRONT', 'PORTFLOW'])
@@ -136,7 +155,8 @@ def test_invalid_canonical_schema_never_falls_back(tmp_path, boot_guard, schema)
 
 
 @pytest.mark.parametrize('prefix', ['SHOREFRONT', 'PORTFLOW'])
-def test_backup_uses_selected_project_and_container_database_identity(tmp_path, prefix):
+@pytest.mark.parametrize('operational', ['0', '1'])
+def test_backup_uses_selected_project_and_container_database_identity(tmp_path, prefix, operational):
     # Substitute only external CLI/process boundaries. No Docker daemon is used.
     bin_dir = tmp_path / 'bin'
     bin_dir.mkdir()
@@ -161,7 +181,8 @@ sys.exit(result.returncode)
     result = subprocess.run(['bash', str(ROOT / 'ops/backup-postgres.sh'), str(dump)],
                             env=environment(**{'PATH': str(bin_dir) + os.pathsep + os.environ['PATH'],
                                 'TEST_COMMAND_LOG': str(log), f'{prefix}_ENV_FILE': str(envfile),
-                                f'{prefix}_COMPOSE_PROJECT': 'existing-project', 'SHOREFRONT_UPGRADE': '1'}),
+                                f'{prefix}_COMPOSE_PROJECT': 'existing-project', 'SHOREFRONT_UPGRADE': '1',
+                                'SHOREFRONT_OPERATIONAL': operational, 'SHOREFRONT_TLS': '1'}),
                             text=True, capture_output=True)
     assert result.returncode == 0, result.stderr
     assert json.loads(dump.read_text()) == ['-U', 'actual-user', '-d', 'actual-db', '-Fc']
@@ -169,3 +190,93 @@ sys.exit(result.returncode)
     assert args[args.index('-p') + 1] == 'existing-project'
     assert args[args.index('--env-file') + 1] == str(envfile)
     assert str(ROOT / 'docker-compose.upgrade.yml') in args
+    assert (str(ROOT / 'docker-compose.operational.yml') in args) is (operational == '1')
+    assert str(ROOT / 'docker-compose.tls.yml') in args
+
+
+@pytest.fixture
+def restore_sandbox(tmp_path):
+    # Only the external Docker boundary is substituted. The real restore script
+    # selects overlays, orders operations, redirects the dump and handles errors.
+    bin_dir = tmp_path / 'bin'
+    bin_dir.mkdir()
+    docker = bin_dir / 'docker'
+    docker.write_text('''#!/usr/bin/env python3
+import json, os, sys
+from pathlib import Path
+args = sys.argv[1:]
+with Path(os.environ['TEST_COMMAND_LOG']).open('a') as log:
+    log.write(json.dumps(args) + '\\n')
+if 'exec' in args:
+    Path(os.environ['TEST_RESTORED_DUMP']).write_bytes(sys.stdin.buffer.read())
+    sys.exit(int(os.environ.get('TEST_RESTORE_STATUS', '0')))
+if 'run' in args:
+    sys.exit(int(os.environ.get('TEST_MIGRATE_STATUS', '0')))
+if 'config' in args:
+    sys.exit(int(os.environ.get('TEST_CONFIG_STATUS', '0')))
+''')
+    docker.chmod(0o755)
+    dump = tmp_path / 'source.dump'
+    dump.write_bytes(b'test-only dump payload; never sent to PostgreSQL')
+    envfile = tmp_path / 'customer.env'
+    envfile.touch()
+    log = tmp_path / 'commands.jsonl'
+    restored = tmp_path / 'restored-by-fake-docker.dump'
+    settings = {'PATH': str(bin_dir) + os.pathsep + os.environ['PATH'],
+                'TEST_COMMAND_LOG': str(log), 'TEST_RESTORED_DUMP': str(restored),
+                'SHOREFRONT_ENV_FILE': str(envfile), 'SHOREFRONT_COMPOSE_PROJECT': 'customer-project',
+                'SHOREFRONT_RESTORE_CONFIRM': 'YES', 'SHOREFRONT_UPGRADE': '1'}
+    return dump, envfile, log, restored, settings
+
+
+def run_restore(sandbox, **settings):
+    dump, _, log, _, defaults = sandbox
+    result = subprocess.run(['bash', str(ROOT / 'ops/restore-postgres.sh'), str(dump)],
+                            env=environment(**(defaults | settings)), text=True, capture_output=True)
+    commands = [json.loads(line) for line in log.read_text().splitlines()] if log.exists() else []
+    return result, commands
+
+
+@pytest.mark.parametrize('operational', ['0', '1'])
+def test_restore_retains_selected_runtime_tls_and_database_target(restore_sandbox, operational):
+    result, commands = run_restore(restore_sandbox, SHOREFRONT_OPERATIONAL=operational, SHOREFRONT_TLS='1')
+    assert result.returncode == 0, result.stderr
+    assert 'restore=complete' in result.stdout
+    dump, envfile, _, restored, _ = restore_sandbox
+    assert restored.read_bytes() == dump.read_bytes()
+    assert len(commands) == 5
+    for args in commands:
+        assert args[args.index('-p') + 1] == 'customer-project'
+        assert args[args.index('--env-file') + 1] == str(envfile)
+        overlays = [args[i + 1] for i, value in enumerate(args) if value == '-f']
+        expected = [str(ROOT / 'docker-compose.prod.yml'), str(ROOT / 'docker-compose.upgrade.yml')]
+        if operational == '1':
+            expected.append(str(ROOT / 'docker-compose.operational.yml'))
+        expected.append(str(ROOT / 'docker-compose.tls.yml'))
+        assert overlays == expected
+    assert commands[0][-2:] == ['config', '-q']
+    assert commands[1][-3:] == ['stop', 'web', 'api']
+    assert commands[2][-6:] == ['exec', '-T', 'postgres', 'sh', '-c',
+                               'exec pg_restore -U "$POSTGRES_USER" -d "$POSTGRES_DB" --clean --if-exists --no-owner --exit-on-error --single-transaction']
+    assert commands[3][-3:] == ['run', '--rm', 'migrate']
+    assert commands[4][-4:] == ['up', '-d', 'api', 'web']
+
+
+@pytest.mark.parametrize('selection', [None, '', 'true', 'operational'])
+def test_restore_requires_explicit_runtime_selection_before_docker(restore_sandbox, selection):
+    settings = {} if selection is None else {'SHOREFRONT_OPERATIONAL': selection}
+    result, commands = run_restore(restore_sandbox, **settings)
+    assert result.returncode != 0
+    assert 'SHOREFRONT_OPERATIONAL' in result.stderr
+    assert commands == []
+
+
+@pytest.mark.parametrize(('setting', 'expected_count'), [('TEST_CONFIG_STATUS', 1),
+                                                        ('TEST_RESTORE_STATUS', 3),
+                                                        ('TEST_MIGRATE_STATUS', 4)])
+def test_restore_failure_stops_before_restarting_services(restore_sandbox, setting, expected_count):
+    result, commands = run_restore(restore_sandbox, SHOREFRONT_OPERATIONAL='1', **{setting: '72'})
+    assert result.returncode == 72
+    assert len(commands) == expected_count
+    assert not any('up' in command for command in commands)
+    assert 'restore=complete' not in result.stdout

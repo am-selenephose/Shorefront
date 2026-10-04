@@ -59,6 +59,7 @@ export default defineConfig({
       env: {
         DATABASE_URL: `sqlite:///${join(e2eDataDir, 'test.db')}`,
         SHOREFRONT_SCHEMA_MODE: 'migrate',
+        SHOREFRONT_RUNTIME_MODE: 'training',
         SHOREFRONT_PUBLIC_MODE: '0',
         SHOREFRONT_DEMO_CONTROLS: '1',
         SHOREFRONT_STATIC_DIR: '',

@@ -17,6 +17,7 @@ services:
   migrate:
     image: shorefront-api:${SHOREFRONT_IMAGE_TAG-${PORTFLOW_IMAGE_TAG:-local}}
     environment:
+      SHOREFRONT_RUNTIME_MODE: training
       DATABASE_URL: postgresql+psycopg://${SHOREFRONT_DB_USER:-shorefront}:${SHOREFRONT_DB_PASSWORD-${PORTFLOW_DB_PASSWORD:?PORTFLOW_DB_PASSWORD is required}}@postgres:5432/${SHOREFRONT_DB_NAME:-shorefront}
     depends_on:
       postgres:
@@ -37,6 +38,7 @@ services:
     build:
       context: ./apps/api
     environment:
+      SHOREFRONT_RUNTIME_MODE: training
       DATABASE_URL: postgresql+psycopg://${SHOREFRONT_DB_USER:-shorefront}:${SHOREFRONT_DB_PASSWORD-${PORTFLOW_DB_PASSWORD:?PORTFLOW_DB_PASSWORD is required}}@postgres:5432/${SHOREFRONT_DB_NAME:-shorefront}
       SHOREFRONT_SCHEMA_MODE: verify
       SHOREFRONT_APPROVERS_JSON: ${SHOREFRONT_APPROVERS_JSON-${PORTFLOW_APPROVERS_JSON:?PORTFLOW_APPROVERS_JSON is required}}

@@ -98,7 +98,7 @@ test('silent open transport expires and disables operational mutation controls',
 })
 
 test('protected runtime hides shared demo controls while retaining isolated guided demo', async ({ page }) => {
-  await page.route('**/api/v1/runtime/capabilities', route => route.fulfill({ json: { demo_controls_enabled: false } }))
+  await page.route('**/api/v1/runtime/capabilities', route => route.fulfill({ json: { runtime_mode: 'training', demo_controls_enabled: false } }))
   await page.goto('/#exceptions')
   await expect(page.getByText('Shared demo controls disabled')).toBeVisible()
   await expect(page.getByRole('button', { name: 'Reset demo', exact: true })).not.toBeVisible()

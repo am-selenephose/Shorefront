@@ -1,0 +1,88 @@
+import {useRef, useState, type FormEvent} from 'react'
+import {type Fact, type User, productRequest, recordName, dateLabel} from './productClient'
+import ProductImport from './ProductImport'
+
+type Field = {key: string; label: string; type?: 'time'|'number'|'text'|'boolean'; ref?: string; choices?: string[]; optional?: boolean}
+export const recordFields: Record<string, Field[]> = {
+  port: [{key:'name', label:'Name'}, {key:'timezone', label:'Timezone'}],
+  berth: [{key:'name', label:'Name'}, {key:'port_id', label:'Port', ref:'port'}, {key:'max_length_m', label:'Maximum length (m)', type:'number', optional:true}, {key:'max_draft_m', label:'Maximum draft (m)', type:'number', optional:true}],
+  vessel: [{key:'name', label:'Name'}, {key:'imo', label:'IMO number', optional:true}, {key:'length_m', label:'Length (m)', type:'number', optional:true}, {key:'draft_m', label:'Draft (m)', type:'number', optional:true}],
+  call: [{key:'vessel_id', label:'Vessel', ref:'vessel'}, {key:'berth_id', label:'Berth', ref:'berth', optional:true}, {key:'eta', label:'Arrival (your local time)', type:'time'}, {key:'etd', label:'Departure (your local time)', type:'time'}, {key:'status', label:'Status', choices:['planned','arrived','berthed','departed','cancelled']}],
+  resource: [{key:'name', label:'Name'}, {key:'port_id', label:'Port', ref:'port'}, {key:'resource_type', label:'Resource type', choices:['tug','pilot','crew','equipment']}, {key:'available', label:'Available', type:'boolean'}],
+  incident: [{key:'title', label:'Title'}, {key:'call_id', label:'Port call', ref:'call', optional:true}, {key:'severity', label:'Severity', choices:['medium','low','high','critical']}, {key:'status', label:'Status', choices:['open','acknowledged','resolved']}, {key:'detail', label:'Details', optional:true}],
+  task: [{key:'title', label:'Title'}, {key:'call_id', label:'Port call', ref:'call', optional:true}, {key:'incident_id', label:'Incident', ref:'incident', optional:true}, {key:'assignee_id', label:'Assigned to', ref:'team', optional:true}, {key:'due_at', label:'Due (your local time)', type:'time'}, {key:'status', label:'Status', choices:['open','in_progress','done']}, {key:'completion_note', label:'Completion note', optional:true}],
+  commitment: [{key:'title', label:'Title'}, {key:'call_id', label:'Port call', ref:'call'}, {key:'recipient_id', label:'Recipient', ref:'team'}, {key:'due_at', label:'Due (your local time)', type:'time'}, {key:'status', label:'Status', choices:['proposed','accepted','declined','fulfilled','cancelled']}, {key:'note', label:'Terms', optional:true}, {key:'proof', label:'Completion evidence', optional:true}],
+  handoff: [{key:'title', label:'Title'}, {key:'call_id', label:'Port call', ref:'call'}, {key:'recipient_id', label:'Recipient', ref:'team'}, {key:'due_at', label:'Due (your local time)', type:'time'}, {key:'status', label:'Status', choices:['prepared','sent','acknowledged']}, {key:'note', label:'Handoff details', optional:true}, {key:'proof', label:'Recipient confirmation', optional:true}],
+  obligation: [{key:'title', label:'Title'}, {key:'call_id', label:'Port call', ref:'call'}, {key:'assignee_id', label:'Assigned to', ref:'team'}, {key:'due_at', label:'Due (your local time)', type:'time'}, {key:'clause_reference', label:'Clause or SOP reference'}, {key:'status', label:'Status', choices:['draft','active','completed','cancelled']}, {key:'review_note', label:'Human review note', optional:true}, {key:'proof', label:'Completion evidence', optional:true}],
+}
+
+function localTime(value: unknown) {
+  if (typeof value !== 'string' || !value) return ''
+  const date = new Date(value)
+  return new Date(date.getTime() - date.getTimezoneOffset() * 60000).toISOString().slice(0,16)
+}
+
+export function RecordEditor({record, initialKind, facts, team, writable, onSave, onCancel}: {record: Fact|null; initialKind: string; facts: Fact[]; team: User[]; writable:boolean; onSave: () => Promise<void>; onCancel: () => void}) {
+  const [kind, setKind] = useState(record?.kind ?? initialKind)
+  const [error, setError] = useState('')
+  const [busy, setBusy] = useState(false)
+  const identity = useRef(record?.record_id ?? crypto.randomUUID())
+  const attempt = useRef<{intent: string; key: string}|null>(null)
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    if (!writable || busy) return
+    setError(''); setBusy(true)
+    const data = new FormData(event.currentTarget)
+    const payload: Fact['payload'] = {}
+    try {
+      for (const field of recordFields[kind]) {
+        const value = String(data.get(field.key) ?? '')
+        if (!value && field.optional) continue
+        payload[field.key] = field.type === 'number' ? Number(value) : field.type === 'boolean' ? value === 'true' : field.type === 'time' ? new Date(value).toISOString() : value
+      }
+      const command = {record_id: identity.current, expected_revision: record?.revision ?? 0, source: String(data.get('source')), payload}
+      const intent = JSON.stringify({kind, command})
+      if (attempt.current?.intent !== intent) attempt.current = {intent, key: crypto.randomUUID()}
+      await productRequest(`/records/${kind}`, command, attempt.current.key)
+      await onSave()
+    } catch (failure) {setError(failure instanceof Error ? failure.message : 'Could not save record')}
+    finally {setBusy(false)}
+  }
+  return <section className="product-editor" aria-label="Record editor">
+    <div className="product-section-heading"><div><p className="eyebrow">AUTHORITATIVE RECORD</p><h2>{record ? 'Record a correction' : 'Add an operational record'}</h2></div><button type="button" onClick={onCancel} disabled={busy}>Cancel</button></div>
+    <p>Changes create a new version. Original facts and their source stay in the history.</p>
+    <form onSubmit={submit} aria-busy={busy}>
+      <fieldset disabled={busy || !writable}>
+        <label>Record type<select value={kind} disabled={!!record} onChange={e => setKind(e.target.value)}>{Object.keys(recordFields).map(k => <option key={k} value={k}>{k}</option>)}</select></label>
+        <div className="product-form-grid" key={kind}>
+          {recordFields[kind].map(field => {
+            const options = field.ref === 'team' ? team.filter(u => u.active).map(u => ({id:u.id, name:u.name})) : field.ref ? facts.filter(f => f.kind === field.ref).map(f => ({id:f.record_id, name:recordName(f)})) : []
+            return <label key={field.key}>{field.label}{field.optional ? <small>Optional</small> : null}
+              {field.ref ? <select name={field.key} required={!field.optional} defaultValue={String(record?.payload[field.key] ?? '')}><option value="">{field.optional ? 'Not specified' : `Select ${field.label.toLowerCase()}`}</option>{options.map(o => <option key={o.id} value={o.id}>{o.name}</option>)}</select>
+                : field.choices || field.type === 'boolean' ? <select name={field.key} defaultValue={String(record?.payload[field.key] ?? field.choices?.[0] ?? 'false')}>{(field.choices ?? ['false','true']).map(c => <option key={c} value={c}>{c.replaceAll('_',' ')}</option>)}</select>
+                : <input name={field.key} required={!field.optional} type={field.type === 'time' ? 'datetime-local' : 'text'} inputMode={field.type === 'number' ? 'decimal' : undefined} maxLength={field.key === 'detail' ? 4000 : 2000} defaultValue={field.type === 'time' ? localTime(record?.payload[field.key]) : String(record?.payload[field.key] ?? (field.key === 'timezone' ? Intl.DateTimeFormat().resolvedOptions().timeZone : ''))}/>}</label>
+          })}
+          <label>Source<input name="source" required maxLength={500} defaultValue="Operator entry"/><small>Who or what supplied this information?</small></label>
+        </div>
+        {error && <p role="alert" className="product-error">{error}</p>}
+        <button className="product-primary" type="submit">{busy ? 'Saving…' : 'Save record'}</button>
+      </fieldset>
+    </form>
+  </section>
+}
+
+export default function ProductRecords({facts, team, writable, onSave}: {facts: Fact[]; team: User[]; writable: boolean; onSave: () => Promise<void>}) {
+  const [kind, setKind] = useState('port')
+  const [edit, setEdit] = useState<Fact|null|undefined>(undefined)
+  const [query, setQuery] = useState('')
+  const [importing, setImporting] = useState(false)
+  const filtered = facts.filter(f => f.kind === kind && recordName(f).toLowerCase().includes(query.toLowerCase()))
+  return <>
+    <div className="product-section-heading"><div><p className="eyebrow">RECORDS / SOURCED & VERSIONED</p><h1>Build the operational picture.</h1><p>Facts entered by your team. No generated harbor activity.</p></div><div className="product-actions"><button disabled={!writable} aria-expanded={importing} onClick={() => setImporting(!importing)}>{importing ? 'Close import' : 'Import records'}</button><button className="product-primary" disabled={!writable} onClick={() => setEdit(null)}>Add record</button></div></div>
+    {importing && <ProductImport writable={writable} onSave={onSave}/>}
+    <div className="product-filter"><label>Record category<select value={kind} onChange={e => {setKind(e.target.value); setEdit(undefined)}}>{Object.keys(recordFields).map(k => <option key={k} value={k}>{k}</option>)}</select></label><label>Search records<input type="search" value={query} onChange={e => setQuery(e.target.value)}/></label></div>
+    {edit !== undefined && <RecordEditor key={edit?.record_id ?? `new-${kind}`} record={edit} initialKind={kind} facts={facts} team={team} writable={writable} onCancel={() => setEdit(undefined)} onSave={async () => {await onSave(); setEdit(undefined)}}/>}
+    {!filtered.length && <div className="product-empty"><span className="product-index">01 / START WITH FACTS</span><h2>No {kind} records yet.</h2><p>Add your own record. References appear after their port, berth or vessel has been created.</p></div>}
+    <div className="product-record-grid">{filtered.map(record => <article key={record.record_id} className="product-card"><div className="product-card-heading"><span className="product-index">{record.kind.toUpperCase()} / V{record.revision}</span><button aria-label={`Edit ${recordName(record)}`} disabled={!writable} onClick={() => setEdit(record)}>Edit</button></div><h2>{recordName(record)}</h2><dl>{Object.entries(record.payload).filter(([key,value]) => !['name','title'].includes(key) && value !== null && value !== '').map(([key,value]) => <div key={key}><dt>{key.replaceAll('_',' ')}</dt><dd>{key.endsWith('_id') ? facts.find(f => f.record_id === value)?.payload.name ?? team.find(u => u.id === value)?.name ?? String(value) : String(value)}</dd></div>)}</dl><p className="product-provenance">{record.source}<br/>Recorded {dateLabel(record.known_at)}</p></article>)}</div>
+  </>
+}

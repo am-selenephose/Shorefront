@@ -8,7 +8,8 @@
     "build": "tsc -b && vite build --config vite.config.ts",
     "typecheck": "tsc -b",
     "test:config": "node --experimental-strip-types --test tests/runtime-config.test.mjs",
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test",
+    "test:product": "playwright test --config playwright.product.config.ts"
   },
   "dependencies": {
     "maplibre-gl": "^6.10.0",

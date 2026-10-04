@@ -17,6 +17,12 @@ if [[ "${SHOREFRONT_UPGRADE:-0}" == "1" ]]; then
   : "${PROJECT:?Set the existing Compose project for upgrade}"
   COMPOSE+=(-f "$ROOT/docker-compose.upgrade.yml")
 fi
+if [[ "${SHOREFRONT_OPERATIONAL:-0}" == "1" ]]; then
+  COMPOSE+=(-f "$ROOT/docker-compose.operational.yml")
+fi
+if [[ "${SHOREFRONT_TLS:-0}" == "1" ]]; then
+  COMPOSE+=(-f "$ROOT/docker-compose.tls.yml")
+fi
 
 DUMP="${1:-}"
 
@@ -30,9 +36,20 @@ if [[ "${SHOREFRONT_RESTORE_CONFIRM-${PORTFLOW_RESTORE_CONFIRM-}}" != "YES" ]]; 
   exit 3
 fi
 
+case "${SHOREFRONT_OPERATIONAL-}" in
+  0|1) ;;
+  *)
+    echo "restore refused: explicitly set SHOREFRONT_OPERATIONAL=1 for customer data or =0 for an isolated training database" >&2
+    exit 4
+    ;;
+esac
+
+# Validate required owner/origin, volume and TLS settings before stopping services
+# or loading any database bytes. -q avoids printing resolved credentials.
+"${COMPOSE[@]}" config -q
 "${COMPOSE[@]}" stop web api
 "${COMPOSE[@]}" exec -T postgres \
-  sh -c 'exec pg_restore -U "$POSTGRES_USER" -d "$POSTGRES_DB" --clean --if-exists --no-owner' < "$DUMP"
+  sh -c 'exec pg_restore -U "$POSTGRES_USER" -d "$POSTGRES_DB" --clean --if-exists --no-owner --exit-on-error --single-transaction' < "$DUMP"
 "${COMPOSE[@]}" run --rm migrate
 "${COMPOSE[@]}" up -d api web
 

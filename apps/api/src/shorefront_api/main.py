@@ -42,7 +42,10 @@ from .operations import CommittedOperationError, OperationBoundary
 
 
 store = OperationsStore()
-sim = HarborSimulator()
+_runtime_mode = setting('RUNTIME_MODE', 'operational').strip().lower()
+if _runtime_mode not in {'operational', 'training'}:
+    raise RuntimeError('SHOREFRONT_RUNTIME_MODE must be operational or training')
+sim = HarborSimulator() if _runtime_mode == 'training' else None
 _runtime_ready = False
 _schema_mode = "uninitialized"
 
@@ -247,6 +250,7 @@ def auth_me(identity: OperatorIdentity = Depends(current_operator)):
 @app.get('/api/v1/runtime/capabilities')
 def runtime_capabilities():
     return {
+        'runtime_mode': 'training',
         'demo_controls_enabled': demo_controls_enabled(),
         'isolated_guided_demo': True,
         'advisory_only': True,
@@ -1220,4 +1224,8 @@ def _mount_optional_static_frontend() -> None:
     )
 
 
-_mount_optional_static_frontend()
+if _runtime_mode == 'training':
+    _mount_optional_static_frontend()
+else:
+    from .product_api import create_product_app
+    app = create_product_app()

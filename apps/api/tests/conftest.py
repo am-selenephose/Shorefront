@@ -13,6 +13,7 @@ os.environ.update({
     'DATABASE_URL': f"sqlite:///{Path(_test_data.name) / 'test.db'}",
     'SHOREFRONT_DATA_DIR': _test_data.name,
     'SHOREFRONT_SCHEMA_MODE': 'migrate',
+    'SHOREFRONT_RUNTIME_MODE': 'training',
     'SHOREFRONT_PUBLIC_MODE': '0',
     'SHOREFRONT_DEMO_CONTROLS': '1',
     'SHOREFRONT_STATIC_DIR': '',

@@ -6,40 +6,38 @@ Port-call planning and shore operations coordination.
 [am-selenephos/shorefront](https://github.com/am-selenephos/shorefront).
 This repository owns its product, runtime and release lifecycle independently.
 
-Shorefront combines an inspectable harbor picture, berth/service scheduling,
-disruption scenarios, human-approved recovery proposals and durable evidence.
-It is an operational prototype with synthetic fixtures and optional configured
-feed adapters—not a certified vessel-control system or a production-ready SaaS.
+Shorefront provides a dedicated operational workspace for customer records,
+coordination, evidence-bound decisions and observed outcomes. New direct API
+startups default to `operational`: an empty installation with accounts and no
+synthetic harbor history. The existing harbor simulator remains available through
+explicit `training` mode on a separate database and browser origin.
+
+This is an actively developed operational product. Production deployment,
+customer acceptance and recovery gates remain open; the runtime reports
+`production_ready: false`. Shorefront does not control vessels or confer legal
+authority.
 
 ## Current capabilities
 
-- React workspace with harbor overview, map, berth timeline, resources and service dependencies.
-- Synthetic and recorded-fixture data with visible provenance and freshness; optional HTTP feed adapters.
-- Modeled berth, tug, pilot, bunker and connectivity disruptions.
-- Explainable recovery proposals with human operator authorization, stale-state checks and receipts.
-- SQLite/PostgreSQL persistence for snapshots, incidents, events, proposals and scenario evidence.
-- Authenticated, vessel-scoped normalized event intake and advisory coordination responses.
-- Degraded-connectivity queue/replay modeling and diagnostic metrics.
-- Single-process atomic command persistence, in-memory rollback and serialized
-  operational reads. Use one API worker/runtime per database; distributed writer
-  coordination and production failure recovery are not established.
+- Administrator onboarding, team invitations and administrator/operator/supervisor/viewer roles.
+- Server-side sessions, exact-origin and CSRF checks, revocation and installation ownership checks.
+- Typed ports, berths, vessels, calls, resources, incidents and tasks with revisions and source attribution.
+- Commitments, recipient-acknowledged handoffs and obligations with controlled transitions.
+- Evidence-bound decision packets, supervisor approval and recorded outcomes without invented savings.
+- SQLite/PostgreSQL persistence, transactional commands, idempotency and stale-revision rejection.
+- Effective-time and knowledge-time history with inspectable audit evidence.
+- A separately selected training simulator with harbor maps, schedules, modeled disruptions,
+  synthetic/recorded fixtures, recovery proposals and advisory integration experiments.
 
 Coordination is **advisory-only**. No helm, propulsion, machinery or other vessel
 actuation is permitted. Integration credentials are not human approval credentials.
 Synthetic information is not evidence of a real port operation or commercial deployment.
 
-The default entry is **Pulse**, with Plan, Calls, Exceptions, Recovery and Evidence
-workspaces. **Guided demo** computes an isolated tug disruption and simulated
-approval without changing operational records. **Architecture** distinguishes
-implemented components from remaining gates. **Full control tower** retains the
-advanced all-panels view.
-
-Shared mutating demo controls are disabled by default. For a disposable synthetic
-database only, explicitly set `SHOREFRONT_DEMO_CONTROLS=1` before starting the API.
-Never enable this for operational data: it permits shared reset/scenario/link
-controls and simulated replay. The isolated guided story works without it.
-With demo controls disabled, incident creation/resolution require an authenticated
-operator or supervisor. This boundary is not a production-readiness certificate.
+The browser selects the server-declared runtime. Operational mode begins with
+setup or sign-in, followed by Pulse, Records, Plan, Evidence and Team.
+A failed API connection shows an error and retry; it does not select a demo.
+The training runtime retains its guided story and advanced control tower. Shared
+training mutations require `SHOREFRONT_DEMO_CONTROLS=1` on disposable data only.
 
 ## Repository layout
 
@@ -53,15 +51,26 @@ docs/           Architecture, wire boundary and migration notes
 
 ## Run locally
 
-Prerequisites: Python 3.11+, uv, Node.js 24 and npm. PostgreSQL is optional for
-local development; SQLite is the default. Use isolated demo data and loopback
-listeners. No live credentials or port services are necessary.
+Prerequisites: Python 3.11+, uv, Node.js 24 and npm. The following creates a local
+operational database. Keep its installation ID stable on subsequent starts.
+Generate and retain a private random bootstrap token of at least 32 characters
+in your password manager before the first launch; enter it at the hidden prompt.
 
 API, in one terminal:
 
 ```sh
 cd apps/api
 uv sync --frozen --extra dev
+mkdir -p .data/operational
+export DATABASE_URL="sqlite:///$PWD/.data/operational/shorefront.db"
+export SHOREFRONT_RUNTIME_MODE=operational
+export SHOREFRONT_INSTALLATION_ID=shorefront-local-01
+export SHOREFRONT_ORIGIN=http://127.0.0.1:5173
+read -r -s -p 'Private bootstrap token: ' SHOREFRONT_BOOTSTRAP_TOKEN
+printf '\n'
+export SHOREFRONT_BOOTSTRAP_TOKEN
+uv run python -m shorefront_api.migrate
+export SHOREFRONT_SCHEMA_MODE=verify
 uv run uvicorn shorefront_api.main:app --host 127.0.0.1 --port 8100
 ```
 
@@ -70,30 +79,44 @@ Frontend, in another:
 ```sh
 cd apps/web
 npm ci
-npm run dev -- --host 127.0.0.1
+npm run dev -- --host 127.0.0.1 --port 5173 --strictPort
 ```
 
-Open the local address printed by Vite. The frontend proxies the API to
+Open `http://127.0.0.1:5173`, use the private bootstrap token to create the first
+administrator, then remove the token from the API environment and restart it.
+Subsequent access uses account sign-in. See the
+[operational runbook](docs/OPERATIONAL_RUNBOOK.md) for bootstrap expiry, account
+recovery, customer deployment and backup/restore procedures.
+
+The frontend proxies the API to
 `http://127.0.0.1:8100`; override with `SHOREFRONT_API_TARGET` if needed.
-Starting the API from `apps/api` uses `apps/api/.data/shorefront.db` on a fresh
-install. `DATABASE_URL` always takes precedence.
+The explicit URL above avoids selecting a legacy simulator database. Without an
+explicit URL, database discovery still supports `.data/shorefront.db` and the
+legacy filename documented in [Renaming and upgrading](docs/RENAMING_AND_UPGRADING.md).
+Changing runtime mode does not convert their data.
 
 The app does not automatically read the root `.env` for direct API startup.
 Supply runtime settings through the process environment or uvicorn's explicit
 `--env-file` option. `.env.example` documents configuration shapes, not usable
 production credentials. Do not commit real credentials.
 
-To approve a recovery proposal, configure `SHOREFRONT_APPROVERS_JSON` with a
-SHA-256 token digest and the operator's identity/role, then use the matching
-token in the operator session. Machine integrations have a separate
-`SHOREFRONT_INTEGRATIONS_JSON` credential and vessel allowlist. Example digests
-are placeholders, not shared login credentials.
+For training, explicitly set `SHOREFRONT_RUNTIME_MODE=training` with a dedicated
+SQLite path or PostgreSQL database/user and a separate browser origin. The legacy
+`SHOREFRONT_APPROVERS_JSON` and `SHOREFRONT_INTEGRATIONS_JSON` settings belong to
+training recovery/integration experiments; operational accounts use invitations
+and session cookies. Follow the isolated training example in the runbook.
 
 ## Upgrading an existing installation
 
 **Read [Renaming and upgrading](docs/RENAMING_AND_UPGRADING.md) before restarting
 an existing stack.** The repository/folder rename must not select an empty
 database or new Compose volume.
+
+For current operational startup and restore commands, use the
+[operational runbook](docs/OPERATIONAL_RUNBOOK.md). The base production Compose
+file deliberately selects `training`; customer deployments must also use
+`docker-compose.operational.yml`. Retain the existing installation ID and exact
+physical database identity across operational upgrades.
 
 - Existing SQLite files are reused in place; ambiguous old/new files require an explicit URL.
 - Existing PostgreSQL upgrades use `docker-compose.upgrade.yml`, the exact existing external volume, existing DB/user, and the original Compose project name.
@@ -123,6 +146,7 @@ npm run typecheck
 npm run test:config
 npm run build
 npm run test:e2e
+npm run test:product
 ```
 
 Browser tests use local API/web servers, test-only credentials and `/usr/bin/chromium`.
@@ -148,16 +172,18 @@ remains open. See [cream workspace verification](docs/CREAM_WORKSPACE_VERIFICATI
 for the earlier checkpoint, and [theme-switch verification](docs/THEME_SWITCH_VERIFICATION.md)
 for current browser checks, screenshots and remaining limits.
 
-Shared demo mutations now default off and API commands have a single-runtime
-transaction/rollback boundary. Before commercial use, finish authorization,
-multi-process writer ownership, ambiguous-commit recovery and real replay acknowledgements, then prove tenant boundaries,
-operational recovery, real integrations and the complete browser experience.
-See [next work](docs/NEXT.md). Do not infer production readiness from a passing
-identity-migration test suite.
+The operational workspace serializes writes through database transactions and
+checks installation ownership. This does not establish high availability,
+customer deployment readiness or real integration acceptance. Before commercial
+use, complete the customer-specific TLS, PostgreSQL, backup/restore, monitoring,
+storage growth, browser and operational acceptance gates in the runbook.
+The training runtime retains its narrower single-process coordination boundary.
 
 ## Documentation and provenance
 
 - [Architecture](docs/ARCHITECTURE.md)
+- [Operational installation, accounts and recovery](docs/OPERATIONAL_RUNBOOK.md)
+- [Operational product design](docs/superpowers/specs/2026-10-04-operational-product-design.md)
 - [Decision-workspace verification](docs/DECISION_WORKSPACE_VERIFICATION.md)
 - [Atomic-command verification](docs/ATOMIC_COMMAND_VERIFICATION.md)
 - [Vessel-runtime boundary and frozen v1 contracts](docs/VESSEL_RUNTIME_BOUNDARY.md)

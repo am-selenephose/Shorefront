@@ -33,8 +33,11 @@ Do not replace strings in stored evidence, event envelopes, receipts or scenario
 
 ## Local development
 
-Use `uv sync --frozen --extra dev` in `apps/api` and launch
-`uv run uvicorn shorefront_api.main:app --port 8100` from that directory.
+For the existing training runtime, use `uv sync --frozen --extra dev` in `apps/api`
+and launch `SHOREFRONT_RUNTIME_MODE=training uv run uvicorn shorefront_api.main:app --port 8100`
+from that directory. Direct startup now defaults to the separate operational
+runtime; its owner/origin and dedicated database instructions are in the
+[operational runbook](OPERATIONAL_RUNBOOK.md).
 Relative `.data` is relative to the startup working directory, not the checkout root.
 When moving an existing installation to a new directory, set `DATABASE_URL` to the
 absolute existing database path or set `SHOREFRONT_DATA_DIR` explicitly. The resolver
@@ -79,9 +82,12 @@ variables, not values automatically read from a Compose .env file. Database/user
 selection comes from the running postgres container's environment.
 
 Restore remains destructive and requires `SHOREFRONT_RESTORE_CONFIRM=YES` (or its
-legacy counterpart). No restore is part of this rename. The scripts do not detect or
-preserve optional TLS overlay orchestration; operators must keep the complete
-deployment configuration consistent when restarting services.
+legacy counterpart). It also requires explicit `SHOREFRONT_OPERATIONAL=0` for the
+existing training stack or `=1` for an operational customer stack. Backup/restore
+add the operational overlay when this switch is `1`, and preserve the supplied
+TLS overlay when `SHOREFRONT_TLS=1` is set in the invoking shell. No restore is
+part of this rename. Follow the [operational runbook](OPERATIONAL_RUNBOOK.md) for
+current preflight, restore transaction, failure handling and recovery verification.
 
 Use a URI-safe database password for the existing interpolated Compose URL format,
 or adapt the deployment connection settings with proper URL encoding before use.
