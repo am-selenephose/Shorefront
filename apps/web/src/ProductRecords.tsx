@@ -22,15 +22,17 @@ function localTime(value: unknown) {
   return new Date(date.getTime() - date.getTimezoneOffset() * 60000).toISOString().slice(0,16)
 }
 
-export function RecordEditor({record, initialKind, facts, team, writable, onSave, onCancel}: {record: Fact|null; initialKind: string; facts: Fact[]; team: User[]; writable:boolean; onSave: () => Promise<void>; onCancel: () => void}) {
+export function RecordEditor({record, initialKind, initialPayload={}, fixedKind=false, facts, team, writable, onSave, onCancel}: {record: Fact|null; initialKind: string; initialPayload?:Fact['payload']; fixedKind?:boolean; facts: Fact[]; team: User[]; writable:boolean; onSave: () => Promise<void>; onCancel: () => void}) {
   const [kind, setKind] = useState(record?.kind ?? initialKind)
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
+  const [committed, setCommitted] = useState(false)
+  const values = record?.payload ?? initialPayload
   const identity = useRef(record?.record_id ?? crypto.randomUUID())
   const attempt = useRef<{intent: string; key: string}|null>(null)
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    if (!writable || busy) return
+    if (!writable || busy || committed) return
     setError(''); setBusy(true)
     const data = new FormData(event.currentTarget)
     const payload: Fact['payload'] = {}
@@ -38,12 +40,13 @@ export function RecordEditor({record, initialKind, facts, team, writable, onSave
       for (const field of recordFields[kind]) {
         const value = String(data.get(field.key) ?? '')
         if (!value && field.optional) continue
-        payload[field.key] = field.type === 'number' ? Number(value) : field.type === 'boolean' ? value === 'true' : field.type === 'time' ? new Date(value).toISOString() : value
+        payload[field.key] = field.type === 'number' ? Number(value) : field.type === 'boolean' ? value === 'true' : field.type === 'time' ? (values[field.key] && value===localTime(values[field.key]) ? values[field.key] : new Date(value).toISOString()) : value
       }
       const command = {record_id: identity.current, expected_revision: record?.revision ?? 0, source: String(data.get('source')), payload}
       const intent = JSON.stringify({kind, command})
       if (attempt.current?.intent !== intent) attempt.current = {intent, key: crypto.randomUUID()}
       await productRequest(`/records/${kind}`, command, attempt.current.key)
+      setCommitted(true)
       await onSave()
     } catch (failure) {setError(failure instanceof Error ? failure.message : 'Could not save record')}
     finally {setBusy(false)}
@@ -52,21 +55,22 @@ export function RecordEditor({record, initialKind, facts, team, writable, onSave
     <div className="product-section-heading"><div><p className="eyebrow">AUTHORITATIVE RECORD</p><h2>{record ? 'Record a correction' : 'Add an operational record'}</h2></div><button type="button" onClick={onCancel} disabled={busy}>Cancel</button></div>
     <p>Changes create a new version. Original facts and their source stay in the history.</p>
     <form onSubmit={submit} aria-busy={busy}>
-      <fieldset disabled={busy || !writable}>
-        <label>Record type<select value={kind} disabled={!!record} onChange={e => setKind(e.target.value)}>{Object.keys(recordFields).map(k => <option key={k} value={k}>{k}</option>)}</select></label>
+      <fieldset disabled={busy || !writable || committed}>
+        <label>Record type<select value={kind} disabled={!!record || fixedKind} onChange={e => setKind(e.target.value)}>{Object.keys(recordFields).map(k => <option key={k} value={k}>{k}</option>)}</select></label>
         <div className="product-form-grid" key={kind}>
           {recordFields[kind].map(field => {
-            const options = field.ref === 'team' ? team.filter(u => u.active).map(u => ({id:u.id, name:u.name})) : field.ref ? facts.filter(f => f.kind === field.ref).map(f => ({id:f.record_id, name:recordName(f)})) : []
+            const options = field.ref === 'team' ? team.filter(u => u.active && (!['handoff','commitment','obligation'].includes(kind) || u.role!=='viewer')).map(u => ({id:u.id, name:u.name})) : field.ref ? facts.filter(f => f.kind === field.ref).map(f => ({id:f.record_id, name:recordName(f)})) : []
             return <label key={field.key}>{field.label}{field.optional ? <small>Optional</small> : null}
-              {field.ref ? <select name={field.key} required={!field.optional} defaultValue={String(record?.payload[field.key] ?? '')}><option value="">{field.optional ? 'Not specified' : `Select ${field.label.toLowerCase()}`}</option>{options.map(o => <option key={o.id} value={o.id}>{o.name}</option>)}</select>
-                : field.choices || field.type === 'boolean' ? <select name={field.key} defaultValue={String(record?.payload[field.key] ?? field.choices?.[0] ?? 'false')}>{(field.choices ?? ['false','true']).map(c => <option key={c} value={c}>{c.replaceAll('_',' ')}</option>)}</select>
-                : <input name={field.key} required={!field.optional} type={field.type === 'time' ? 'datetime-local' : 'text'} inputMode={field.type === 'number' ? 'decimal' : undefined} maxLength={field.key === 'detail' ? 4000 : 2000} defaultValue={field.type === 'time' ? localTime(record?.payload[field.key]) : String(record?.payload[field.key] ?? (field.key === 'timezone' ? Intl.DateTimeFormat().resolvedOptions().timeZone : ''))}/>}</label>
+              {field.ref ? <select name={field.key} required={!field.optional} defaultValue={String(values[field.key] ?? '')}><option value="">{field.optional ? 'Not specified' : `Select ${field.label.toLowerCase()}`}</option>{options.map(o => <option key={o.id} value={o.id}>{o.name}</option>)}</select>
+                : field.choices || field.type === 'boolean' ? <select name={field.key} defaultValue={String(values[field.key] ?? field.choices?.[0] ?? 'false')}>{(field.choices ?? ['false','true']).map(c => <option key={c} value={c}>{c.replaceAll('_',' ')}</option>)}</select>
+                : <input name={field.key} required={!field.optional} type={field.type === 'time' ? 'datetime-local' : 'text'} inputMode={field.type === 'number' ? 'decimal' : undefined} maxLength={field.key === 'detail' ? 4000 : 2000} defaultValue={field.type === 'time' ? localTime(values[field.key]) : String(values[field.key] ?? (field.key === 'timezone' ? Intl.DateTimeFormat().resolvedOptions().timeZone : ''))}/>}</label>
           })}
           <label>Source<input name="source" required maxLength={500} defaultValue="Operator entry"/><small>Who or what supplied this information?</small></label>
         </div>
         {error && <p role="alert" className="product-error">{error}</p>}
         <button className="product-primary" type="submit">{busy ? 'Saving…' : 'Save record'}</button>
       </fieldset>
+      {committed && <div role="status"><p>Record saved. Refresh to show the committed version; do not submit it again.</p><button type="button" disabled={busy || !writable} onClick={()=>void onSave().catch(e=>setError(String(e)))}>Refresh saved record</button></div>}
     </form>
   </section>
 }

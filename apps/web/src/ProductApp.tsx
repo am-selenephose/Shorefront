@@ -1,12 +1,14 @@
 import {useCallback, useEffect, useRef, useState, type FormEvent} from 'react'
-import ProductRecords from './ProductRecords'
+import ProductRecords, {RecordEditor} from './ProductRecords'
+import ProductCoordination from './ProductCoordination'
+import ProductEvidence from './ProductEvidence'
 import ProductDecisions from './ProductDecisions'
 import ProductAccount from './ProductAccount'
-import {OperationalCalls, OperationalExceptions, OperationalPlan, OperationalPulse} from './ProductOperations'
+import {OperationalCalls, OperationalExceptions, OperationalPlan, OperationalPulse} from './ProductWorkspaces'
 import {ProductError, dateLabel, productRequest, recordName, setSession, validateWorkspace, type Fact, type Session, type User, type Workspace} from './productClient'
 import './product.css'
 
-const views = ['Pulse', 'Plan', 'Calls', 'Exceptions', 'Recovery', 'Records', 'Evidence', 'Team'] as const
+const views = ['Pulse', 'Plan', 'Calls', 'Exceptions', 'Coordination', 'Recovery', 'Records', 'Evidence', 'Team'] as const
 type View = typeof views[number]
 function readView(): View {return views.find(v => `#${v.toLowerCase()}` === location.hash) ?? 'Pulse'}
 function ThemeButton() {
@@ -129,6 +131,14 @@ function Team({members, session, writable, onRefresh, onSession}: {members: User
   </>
 }
 
+function ContextEditor({record,kind,payload,facts,team,writable,onSave,onCancel}: {record:Fact|null;kind:string;payload?:Fact['payload'];facts:Fact[];team:User[];writable:boolean;onSave:()=>Promise<void>;onCancel:()=>void}) {
+  const dialog = useRef<HTMLDialogElement>(null)
+  useEffect(()=>{const node=dialog.current; node?.showModal(); return ()=>node?.close()},[])
+  return <dialog ref={dialog} className="product-context-dialog" aria-label="Operational record" onCancel={onCancel}>
+    <RecordEditor record={record} initialKind={kind} initialPayload={payload} fixedKind facts={facts} team={team} writable={writable} onSave={onSave} onCancel={onCancel}/>
+  </dialog>
+}
+
 export default function ProductApp({needsSetup}: {needsSetup: boolean}) {
   const [setup, setSetup] = useState(needsSetup)
   const [session, updateSession] = useState<Session|null>(null)
@@ -138,6 +148,7 @@ export default function ProductApp({needsSetup}: {needsSetup: boolean}) {
   const [initial, setInitial] = useState(true)
   const [fresh, setFresh] = useState(false)
   const [view, setView] = useState(readView)
+  const [editor,setEditor] = useState<{record:Fact|null;kind:string;payload?:Fact['payload'];id:string}|null>(null)
   const epoch = useRef(0)
   const refreshing = useRef(false)
   const locked = useRef((() => {try {return sessionStorage.getItem('shorefront.view_locked') === '1'} catch {return false}})())
@@ -145,7 +156,7 @@ export default function ProductApp({needsSetup}: {needsSetup: boolean}) {
     locked.current = value
     try {if (value) sessionStorage.setItem('shorefront.view_locked', '1'); else sessionStorage.removeItem('shorefront.view_locked')} catch { /* in-memory lock still applies */ }
   }
-  const clearSession = useCallback(() => {epoch.current++; setSession(null); updateSession(null); setWorkspace(null); setTeam([]); setFresh(false)}, [])
+  const clearSession = useCallback(() => {epoch.current++; setSession(null); updateSession(null); setWorkspace(null); setTeam([]); setFresh(false); setEditor(null)}, [])
   const adopt = useCallback((value: Session) => {setSession(value); updateSession(value); setSetup(false); setError('')}, [])
   const refresh = useCallback(async () => {
     if (locked.current) {setInitial(false); return}
@@ -177,19 +188,22 @@ export default function ProductApp({needsSetup}: {needsSetup: boolean}) {
   if (initial) return <div className="boot" role="status">SHOREFRONT<span>Checking workspace access…</span></div>
   if (!session) return <>{error && <p className="product-error" role="alert">{error}</p>}<SignIn setup={setup} onSession={value => {epoch.current++; lockView(false); adopt(value); void refresh().catch(() => {})}}/></>
   const writable = fresh && session.user.role !== 'viewer'
+  const actions = {writable,onCreate:(kind:string,payload?:Fact['payload'])=>setEditor({record:null,kind,payload,id:crypto.randomUUID()}),onEdit:(record:Fact)=>setEditor({record,kind:record.kind,id:crypto.randomUUID()})}
   const sessionEpoch = epoch.current
   return <div className="product-shell" key={session.user.id}><aside className="product-sidebar"><a href="#pulse" className="product-wordmark">SHOREFRONT<span>OPERATIONAL WORKSPACE</span></a><nav aria-label="Workspace">{views.map((item, index) => <a key={item} href={`#${item.toLowerCase()}`} aria-current={view === item ? 'page' : undefined}><span aria-hidden="true">0{index+1}</span>{item}</a>)}</nav><div className="product-sidebar-foot"><span className="product-index">PRIVATE INSTALLATION</span><strong>{session.user.name}</strong><small>{session.user.role}</small><button onClick={() => void signOut()}>Sign out</button></div></aside>
     <main><header className="product-topbar"><span className="product-index">{workspace?.installation_id ?? 'Loading workspace'} / {fresh ? 'CONNECTED' : 'NOT CURRENT'}</span><ThemeButton/></header>
       {error && <div className="product-error" role="alert">{error} <button onClick={() => void refresh().catch(() => {})}>Retry connection</button></div>}
       {!workspace ? <section className="product-empty" role="status"><h1>Loading your operational records…</h1><button onClick={() => void refresh().catch(() => {})}>Retry</button></section> : <>
-        {view === 'Pulse' && <OperationalPulse workspace={workspace} team={team}/>}
-        {view === 'Plan' && <><OperationalPlan workspace={workspace}/><div className="ops-decision-review"><ProductDecisions facts={workspace.records} user={session.user} writable={writable} onRefresh={refresh}/></div></>}
-        {view === 'Calls' && <OperationalCalls workspace={workspace}/>}
-        {view === 'Exceptions' && <OperationalExceptions workspace={workspace} team={team}/>}
+        {view === 'Pulse' && <OperationalPulse workspace={workspace} team={team} {...actions}/>}
+        {view === 'Plan' && <><OperationalPlan workspace={workspace} {...actions}/><div className="ops-decision-review"><ProductDecisions facts={workspace.records} user={session.user} writable={writable} onRefresh={refresh}/></div></>}
+        {view === 'Calls' && <OperationalCalls workspace={workspace} {...actions}/>}
+        {view === 'Exceptions' && <OperationalExceptions workspace={workspace} team={team} {...actions}/>}
+        {view === 'Coordination' && <ProductCoordination facts={workspace.records} team={team} writable={writable} onRefresh={refresh} onCreate={actions.onCreate}/>}
         {view === 'Recovery' && <ProductDecisions facts={workspace.records} user={session.user} writable={writable} onRefresh={refresh}/>}
         {view === 'Records' && <ProductRecords facts={workspace.records} team={team} writable={writable} onSave={refresh}/>}
-        {view === 'Evidence' && <Evidence/>}
+        {view === 'Evidence' && <ProductEvidence facts={workspace.records} team={team}/>}
         {view === 'Team' && <Team members={team} session={session} writable={fresh} onRefresh={refresh} onSession={value => {if (locked.current || sessionEpoch !== epoch.current) return; epoch.current++; adopt(value)}}/>}
+        {editor && <ContextEditor key={editor.id} record={editor.record} kind={editor.kind} payload={editor.payload} facts={workspace.records} team={team} writable={writable} onCancel={()=>setEditor(null)} onSave={async()=>{await refresh();setEditor(null)}}/>}
       </>}
       <footer>SHOREFRONT · Advisory operations. Human authority. Preserved evidence.</footer>
     </main></div>

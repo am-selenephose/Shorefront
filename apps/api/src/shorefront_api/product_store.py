@@ -10,7 +10,7 @@ from sqlalchemy import (Column, Integer, MetaData, String, Table, Text, UniqueCo
                         create_engine, insert, inspect, select, text)
 
 from .product_models import RECORD_MODELS, REFERENCES, RecordCommand, now, stamp
-from .product_coordination import authorize_transition
+from .product_coordination import authorize_transition, cancellation_preserves_party, participant_eligible
 from .storage import normalize_database_url
 
 metadata = MetaData()
@@ -163,7 +163,14 @@ class ProductStore:
                 raise HTTPException(422, f'{field} must reference an existing effective {target_kind} record')
         for field in ('assignee_id', 'recipient_id'):
             assigned = payload.get(field)
-            if assigned and not connection.execute(select(users.c.id).where(users.c.id == assigned, users.c.active == 1)).first():
+            if not assigned:
+                continue
+            member = connection.execute(select(users).where(users.c.id == assigned)).mappings().first()
+            if kind in {'handoff', 'commitment', 'obligation'}:
+                cancelling = cancellation_preserves_party(kind, payload, public_record(latest) if latest else None, field)
+                if not participant_eligible(member) and not cancelling:
+                    raise HTTPException(422, f'{field} must be an active team member with operational write authority')
+            elif not member or not member['active']:
                 raise HTTPException(422, f'{field} must be an active team member')
         if kind in {'handoff', 'commitment', 'obligation'}:
             if command.valid_at is not None:

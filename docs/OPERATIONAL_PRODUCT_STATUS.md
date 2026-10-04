@@ -67,3 +67,42 @@ Use [the operational runbook](OPERATIONAL_RUNBOOK.md) for installation and recov
 - Initial administrator setup supports a one-time URL-fragment setup link; the browser consumes the token client-side and removes it from the address bar. Manual setup-token entry remains as recovery fallback.
 - Verification on this checkpoint: API `235 passed, 1 skipped`; runtime config PASS; TypeScript and production build PASS; operational browser `8/8`; training browser `31/31`.
 - This does not change the documented unfinished infrastructure gates or set `production_ready=true`.
+
+## Actionable workspaces source checkpoint — 2026-10-04
+
+The owner explicitly requested committing all pending Shorefront work before resolving
+the generated-directory ownership blocker. This is a source checkpoint, not a verified
+release, main-branch merge or deployment.
+
+- Added a server-derived coordination action projection and a dedicated desk for
+  handoffs, commitments and reviewed obligations. Writes still use the existing
+  authenticated, revision-checked and audited record command.
+- Added contextual record editors, call-linked incident/task creation, actionable
+  attention queues, a first-call setup guide and recorded schedule-conflict display.
+- Added inspectable historical payloads, provenance, current-view comparisons and
+  request-generation guards in the Evidence workspace.
+- Corrected coordination assignment to read-only members, cancellation after recipient
+  revocation, full-precision due-time equivalence and preservation of reviewed obligation
+  terms. The active obligation review note may be corrected; its underlying terms remain
+  sealed. Unchanged timestamps are preserved by record and transition forms.
+- Fresh commit-time checks: `npm run typecheck` passed; `uv run --frozen pytest
+  tests/test_product_workflows.py -q` passed **14 tests**, with two existing dependency
+  warnings; `git diff --check` passed. The preceding combined product API run passed
+  **60 tests**. The full baseline before this batch was **235 passed, 1 skipped**
+  (PostgreSQL test URL absent), not a full-suite verification of this new batch.
+- New browser regressions were observed failing against the earlier UI. Their final
+  passing run, visual inspection and full training regression run are **still pending**.
+- The frontend build failed with `EACCES` while replacing the root-owned
+  `apps/web/dist/assets` directory. `apps/web/test-results` is also root-owned.
+  No ownership changes were made. Separate temporary output paths were used for
+  diagnostic browser runs without altering the protected artifacts.
+- Parallel assistance was interrupted by service usage limits; no completed independent
+  review is claimed. The current source still retains the superseded read-only
+  `ProductOperations.tsx` and inline Evidence/Pulse definitions for later cleanup.
+- A separately identified unresolved case remains: a scheduled/backdated highest
+  revision can differ from the current effective snapshot revision, leaving the generic
+  editor unable to resolve a revision conflict through refresh alone. Do not silently
+  alter the two-clock semantics to hide this case.
+
+Plan and acceptance details: [actionable workspaces plan](superpowers/plans/2026-10-04-actionable-workspaces.md).
+All broader programme and production gates above remain open where stated.

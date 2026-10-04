@@ -13,7 +13,7 @@ from pydantic import AwareDatetime
 from sqlalchemy import delete, insert, select, update
 
 from .config import setting
-from .product_coordination import schedule_conflicts
+from .product_coordination import schedule_conflicts, coordination_actions
 from .product_auth import (COOKIE, create_user, identify, login_attempt, public_user,
                            password_hash, password_valid, require_admin, require_origin, start_session)
 from .product_models import (AcceptInvite, ApprovalRequest, Bootstrap, DecisionRequest, ImportBatch,
@@ -203,6 +203,20 @@ def create_product_app(database_url=None, installation_id=None, origin=None, boo
         return {'runtime_mode': 'operational', 'installation_id': owner, 'records': records,
                 'attention': sorted(attention, key=lambda r: r['payload']['due_at']),
                 'read_at': stamp(now()), 'user': public_user(user)}
+
+    @app.get('/api/v1/coordination')
+    def coordination(request: Request):
+        with store.transaction() as connection:
+            actor, _ = identify(connection, request)
+            records = [r for r in store.snapshot(connection) if r['kind'] in {'handoff', 'commitment', 'obligation'}]
+            creators = {(row.kind, row.record_id): row.actor_id for row in connection.execute(
+                select(versions.c.kind, versions.c.record_id, versions.c.actor_id).where(
+                    versions.c.revision == 1, versions.c.kind.in_(['handoff', 'commitment', 'obligation'])))}
+            members = {row['id']: row for row in connection.execute(select(users)).mappings()}
+            items = [{'record': r, 'creator_id': creators[(r['kind'], r['record_id'])],
+                      'actions': coordination_actions(r, actor, creators[(r['kind'], r['record_id'])], members)} for r in records]
+            items.sort(key=lambda item: (datetime.fromisoformat(item['record']['payload']['due_at']), item['record']['record_id']))
+        return {'items': items, 'read_at': stamp(now())}
 
     @app.post('/api/v1/records/{kind}', status_code=201)
     def write(kind: str, body: RecordCommand, request: Request):
