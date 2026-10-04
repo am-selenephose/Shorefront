@@ -25,10 +25,16 @@ async function historicalFixture(page: Page) {
     return response.json()
   }
   const original = await save(0, `Original harbor ${id}`, 'Harbor agent email 06:00Z')
-  const earlier = new Date(Date.now() + 20).toISOString().slice(0, -1)
-  await expect.poll(() => Date.now()).toBeGreaterThan(new Date(`${earlier}Z`).getTime() + 5)
+  // Chromium's datetime-local fill accepts second precision reliably. Keep a real
+  // one-second knowledge-time gap so the selected clock remains between revisions.
+  await page.waitForTimeout(1200)
   const corrected = await save(1, `Corrected harbor ${id}`, 'Signed operator correction 06:20Z')
-  const later = new Date(Date.now() + 1000).toISOString().slice(0, -1)
+  const originalMs = new Date(original.known_at).getTime()
+  const correctedMs = new Date(corrected.known_at).getTime()
+  const betweenMs = Math.ceil(originalMs / 1000) * 1000
+  expect(betweenMs).toBeLessThan(correctedMs)
+  const earlier = new Date(betweenMs).toISOString().slice(0, 19)
+  const later = new Date(Math.ceil(correctedMs / 1000) * 1000 + 1000).toISOString().slice(0, 19)
   await page.goto('/#evidence')
   await expect(page.getByRole('heading', {name: 'Every correction keeps its past.'})).toBeVisible()
   return {original, corrected, earlier, later, user: session.user}

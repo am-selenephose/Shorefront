@@ -31,8 +31,8 @@ test('customer onboarding, durable record editing, evidence and logout', async (
   await page.getByRole('button', {name: 'Save record'}).click()
   await page.getByRole('link', {name: 'Evidence', exact: true}).click()
   await expect(page.getByText('Record history', {exact: true})).toBeVisible()
-  await expect(page.getByText('Karachi Customer Port', {exact: true})).toBeVisible()
-  await expect(page.getByText('Karachi North Port', {exact: true})).toBeVisible()
+  await expect(page.locator('.product-history strong').filter({hasText:/^Karachi Customer Port$/})).toHaveCount(1)
+  await expect(page.locator('.product-history strong').filter({hasText:/^Karachi North Port$/})).toHaveCount(1)
   await page.getByRole('button', {name: 'Sign out'}).click()
   await expect(page.getByRole('heading', {name: 'Sign in to Shorefront'})).toBeVisible()
   await page.reload()
@@ -210,7 +210,7 @@ test('incident to assigned task to completion persists with its evidence', async
   await expect(page.getByText('Inspect the north gangway',{exact:true})).toHaveCount(0)
   await expect(page.getByText('Gangway inspection required',{exact:true})).toBeVisible()
   await page.getByRole('link',{name:'Evidence',exact:true}).click()
-  await expect(page.getByText('Inspect the north gangway',{exact:true})).toHaveCount(2)
+  await expect(page.locator('.product-history strong').filter({hasText:/^Inspect the north gangway$/})).toHaveCount(2)
 })
 
 test('late password rotation response cannot reopen a signed-out workspace', async ({page}) => {

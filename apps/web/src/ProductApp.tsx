@@ -51,7 +51,7 @@ function SignIn({setup, onSession}: {setup: boolean; onSession: (value: Session)
         <button className="product-quiet" type="button" onClick={() => setShowPassword(!showPassword)}>{showPassword ? 'Hide password' : 'Show password'}</button>
         {error && <p className="product-error" role="alert">{error}</p>}
         <button className="product-primary" type="submit">{busy ? 'Please wait…' : setup ? 'Create workspace' : invite ? 'Accept invitation' : 'Sign in'}</button>
-      </fieldset></form>{!setup && <button className="product-quiet" onClick={() => {setInvite(!invite); setError('')}}>{invite ? 'Back to sign in' : 'I have an invitation'}</button>}<p className="product-small">Access is granted by your organisation. Contact your installation operator if you need account recovery.</p></section></main>
+      </fieldset></form>{!setup && <button className="product-quiet" onClick={() => {setInvite(!invite); setError('')}}>{invite ? 'Back to sign in' : 'I have an invitation'}</button>}<a className="product-showcase-link" href="/?showcase=1">Explore Shorefront demo</a><p className="product-small">Access is granted by your organisation. Contact your installation operator if you need account recovery.</p></section></main>
     </div>
 }
 

@@ -106,3 +106,15 @@ release, main-branch merge or deployment.
 
 Plan and acceptance details: [actionable workspaces plan](superpowers/plans/2026-10-04-actionable-workspaces.md).
 All broader programme and production gates above remain open where stated.
+
+## Public showcase checkpoint — 2026-10-04
+
+- Added an isolated public product showcase at `/?showcase=1` for recruiters, buyers and reviewers who should not receive an operational account.
+- Showcase data is static, fictional and visibly marked `SIMULATED DEMO · READ ONLY` in both the sidebar and content header.
+- Showcase mode bypasses operational authentication/runtime loading and does not call private workspace, records, decision, history or coordination APIs. The browser regression test asserts zero private API traffic across Pulse, Plan, Calls, Exceptions, Recovery and Evidence.
+- The showcase demonstrates berth overlap, resource loss, accountable action, coordination, recovery comparison and evidence context without inserting sample records into the operational PostgreSQL database.
+- The private sign-in/setup surface now exposes `Explore Shorefront demo` while operational accounts and invitation flows remain unchanged.
+- Mobile showcase and operational views are constrained to viewport width; only the workspace navigation strip scrolls horizontally.
+- Regression hardening completed alongside the showcase: evidence tests scope version rows, historical replay uses valid second-precision local clock values, stale delayed replay responses remain ignored, and workflow selectors target the record editor rather than similarly named workspace filters.
+- Fresh release gate: API `249 passed, 1 skipped`; runtime config PASS; TypeScript/build PASS; operational browser `13/13`; training browser `31/31`; release-gate job exit `0`.
+- The existing infrastructure gaps remain unchanged and `production_ready` remains false.

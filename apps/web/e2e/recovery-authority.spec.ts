@@ -271,6 +271,32 @@ test('stale selected recovery resource loads ranked contingency and requires re-
   await page.getByRole('button', { name: 'Verify' }).click()
   await expect(page.getByText('E2E Operator').first()).toBeVisible()
 
+  // Preserve the proposal the operator actually reviewed while the backend state
+  // changes underneath it. The stale approval POST must still reach the real API
+  // and return 409; only background proposal refresh GETs are frozen until then.
+  const reviewedSnapshotResponse = await request.get('/api/v1/recovery/proposals')
+  expect(reviewedSnapshotResponse.ok()).toBeTruthy()
+  const reviewedSnapshot = await reviewedSnapshotResponse.json()
+  let freezeProposalRefresh = true
+  const proposalRefreshHandler = async (route: import('@playwright/test').Route) => {
+    const request = route.request()
+    if (request.method() === 'POST' && request.url().endsWith('/apply')) {
+      freezeProposalRefresh = false
+      await route.continue()
+      return
+    }
+    if (request.method() === 'GET' && freezeProposalRefresh) {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(reviewedSnapshot),
+      })
+      return
+    }
+    await route.continue()
+  }
+  await page.route('**/api/v1/recovery/proposals**', proposalRefreshHandler)
+
   const failedBackup = await request.post('/api/v1/incidents', {
     data: {
       incident_type: 'bunker_unavailable',
@@ -292,6 +318,8 @@ test('stale selected recovery resource loads ranked contingency and requires re-
   await staleApprove.click()
   const staleApplyResponse = await staleApplyPromise
   expect(staleApplyResponse.status()).toBe(409)
+  freezeProposalRefresh = false
+  await page.unroute('**/api/v1/recovery/proposals**', proposalRefreshHandler)
 
   const contingencyNotice = page.getByText(
     /CONTINGENCY · Previous recovery plan is stale\./,

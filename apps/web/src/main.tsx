@@ -4,7 +4,9 @@ import './styles.css'
 import {productRequest} from './productClient'
 const TrainingApp = lazy(() => import('./App'))
 const ProductApp = lazy(() => import('./ProductApp'))
+const ShowcaseApp = lazy(() => import('./ShowcaseApp'))
 function Runtime() {
+  if (new URLSearchParams(location.search).get('showcase') === '1') return <Suspense fallback={<div className="boot">SHOREFRONT<span>Opening showcase…</span></div>}><ShowcaseApp/></Suspense>
   const [runtime, setRuntime] = useState<{runtime_mode: string; needs_setup: boolean}|null>(null)
   const [error, setError] = useState('')
   async function load() {

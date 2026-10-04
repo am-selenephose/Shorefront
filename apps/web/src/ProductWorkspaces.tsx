@@ -61,11 +61,11 @@ export function OperationalPulse({workspace,team,...actions}:{workspace:Workspac
   </div>
 }
 
-type Conflict = {kind:string;record_ids:string[];explanation:string}
-export function OperationalPlan({workspace,...actions}:{workspace:Workspace} & OperationalActions) {
+export type Conflict = {kind:string;record_ids:string[];explanation:string}
+export function OperationalPlan({workspace,conflictsOverride,...actions}:{workspace:Workspace;conflictsOverride?:Conflict[]} & OperationalActions) {
   const records=workspace.records, calls=records.filter(activeCall), berths=byKind(records,'berth'), resources=byKind(records,'resource')
-  const [conflicts,setConflicts]=useState<Conflict[]>([]), [error,setError]=useState(''), [loaded,setLoaded]=useState(false), [retry,setRetry]=useState(0)
-  useEffect(()=>{let active=true; setLoaded(false); void productRequest<Conflict[]>('/conflicts').then(value=>{if(active){setConflicts(value);setError('');setLoaded(true)}}).catch(e=>{if(active){setError(String(e));setLoaded(true)}}); return ()=>{active=false}},[records,retry])
+  const [conflicts,setConflicts]=useState<Conflict[]>(conflictsOverride ?? []), [error,setError]=useState(''), [loaded,setLoaded]=useState(!!conflictsOverride), [retry,setRetry]=useState(0)
+  useEffect(()=>{if(conflictsOverride){setConflicts(conflictsOverride);setError('');setLoaded(true);return} let active=true; setLoaded(false); void productRequest<Conflict[]>('/conflicts').then(value=>{if(active){setConflicts(value);setError('');setLoaded(true)}}).catch(e=>{if(active){setError(String(e));setLoaded(true)}}); return ()=>{active=false}},[records,retry,conflictsOverride])
   const start=calls.length?Math.min(...calls.map(r=>new Date(text(r.payload.eta)).getTime())):0
   const end=calls.length?Math.max(...calls.map(r=>new Date(text(r.payload.etd)).getTime())):1
   return <div className="ops-workspace" data-product-workspace="plan"><section className="ops-heading"><span className="product-index">PLAN / BERTH & RESOURCE PICTURE</span><h1>See the recorded plan before you change it.</h1><p>Recorded occupancy, resource availability and conflicts. Movement clearance stays with your operational authority.</p></section>
