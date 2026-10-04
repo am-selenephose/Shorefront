@@ -2,10 +2,11 @@ import {useCallback, useEffect, useRef, useState, type FormEvent} from 'react'
 import ProductRecords from './ProductRecords'
 import ProductDecisions from './ProductDecisions'
 import ProductAccount from './ProductAccount'
+import {OperationalCalls, OperationalExceptions, OperationalPlan, OperationalPulse} from './ProductOperations'
 import {ProductError, dateLabel, productRequest, recordName, setSession, validateWorkspace, type Fact, type Session, type User, type Workspace} from './productClient'
 import './product.css'
 
-const views = ['Pulse', 'Records', 'Plan', 'Evidence', 'Team'] as const
+const views = ['Pulse', 'Plan', 'Calls', 'Exceptions', 'Recovery', 'Records', 'Evidence', 'Team'] as const
 type View = typeof views[number]
 function readView(): View {return views.find(v => `#${v.toLowerCase()}` === location.hash) ?? 'Pulse'}
 function ThemeButton() {
@@ -13,14 +14,25 @@ function ThemeButton() {
   return <button onClick={() => {const theme = dark ? 'light' : 'dark'; document.documentElement.dataset.theme = theme; setDark(!dark); try {localStorage.setItem('shorefront.theme', theme)} catch { /* theme still works for this visit */ }}} aria-label={`Switch to ${dark ? 'light' : 'dark'} mode`}>{dark ? 'Light mode' : 'Dark mode'}</button>
 }
 
+function readSetupToken() {
+  if (!location.hash.startsWith('#setup=')) return ''
+  return decodeURIComponent(location.hash.slice('#setup='.length))
+}
+
+
 function SignIn({setup, onSession}: {setup: boolean; onSession: (value: Session) => void}) {
   const [invite, setInvite] = useState(false)
+  const [setupToken] = useState(() => setup ? readSetupToken() : '')
+  useEffect(() => {
+    if (setupToken && location.hash.startsWith('#setup=')) history.replaceState(null, '', location.pathname + location.search)
+  }, [setupToken])
   const [showPassword, setShowPassword] = useState(false)
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault(); setBusy(true); setError('')
     const data = Object.fromEntries(new FormData(event.currentTarget))
+    if (setup && setupToken) data.bootstrap_token = setupToken
     try {onSession(await productRequest<Session>(setup ? '/auth/bootstrap' : invite ? '/auth/accept' : '/auth/login', data))}
     catch (failure) {setError(failure instanceof Error ? failure.message : 'Sign-in failed')}
     finally {setBusy(false)}
@@ -28,7 +40,8 @@ function SignIn({setup, onSession}: {setup: boolean; onSession: (value: Session)
   return <div className="product-login"><header><a className="product-wordmark" href="/">SHOREFRONT<span>OPERATIONS, WITH A RECORD.</span></a><ThemeButton/></header>
     <main><section className="product-login-intro"><span className="product-index">YOUR PRIVATE OPERATIONAL WORKSPACE</span><h1>{setup ? 'Open your operational workspace' : invite ? 'Join your team' : 'Sign in to Shorefront'}</h1><p>One shared picture. Accountable decisions. A history that stays intact.</p><div className="product-rule"/><p className="product-small">This installation starts with your data. Nothing here is filled with demo vessels, synthetic weather, or invented outcomes.</p></section>
       <section className="product-login-form"><p className="eyebrow">{setup ? 'INSTALLATION SETUP' : invite ? 'INVITATION' : 'SECURE ACCESS'}</p><form onSubmit={submit} aria-busy={busy}><fieldset disabled={busy}>
-        {setup && <label>Setup token<input name="bootstrap_token" type="password" required autoComplete="off"/><small>Provided privately by your installation operator.</small></label>}
+        {setup && !setupToken && <label>Setup token<input name="bootstrap_token" type="password" required autoComplete="off"/><small>Use the one-time setup link from your installation operator, or enter its recovery token here.</small></label>}
+        {setup && setupToken && <div className="product-setup-verified"><b>Installation access verified</b><span>Create the first administrator. The setup secret has been removed from the address bar.</span></div>}
         {invite && !setup && <label>Invitation token<input name="invitation_token" type="password" required autoComplete="off"/></label>}
         {(setup || invite) && <label>Full name<input name="display_name" required maxLength={200} autoComplete="name"/></label>}
         <label>Email<input name="email" type="email" required autoComplete="email" maxLength={254} spellCheck={false}/></label>
@@ -169,9 +182,12 @@ export default function ProductApp({needsSetup}: {needsSetup: boolean}) {
     <main><header className="product-topbar"><span className="product-index">{workspace?.installation_id ?? 'Loading workspace'} / {fresh ? 'CONNECTED' : 'NOT CURRENT'}</span><ThemeButton/></header>
       {error && <div className="product-error" role="alert">{error} <button onClick={() => void refresh().catch(() => {})}>Retry connection</button></div>}
       {!workspace ? <section className="product-empty" role="status"><h1>Loading your operational records…</h1><button onClick={() => void refresh().catch(() => {})}>Retry</button></section> : <>
-        {view === 'Pulse' && <Pulse workspace={workspace} team={team}/>}
+        {view === 'Pulse' && <OperationalPulse workspace={workspace} team={team}/>}
+        {view === 'Plan' && <><OperationalPlan workspace={workspace}/><div className="ops-decision-review"><ProductDecisions facts={workspace.records} user={session.user} writable={writable} onRefresh={refresh}/></div></>}
+        {view === 'Calls' && <OperationalCalls workspace={workspace}/>}
+        {view === 'Exceptions' && <OperationalExceptions workspace={workspace} team={team}/>}
+        {view === 'Recovery' && <ProductDecisions facts={workspace.records} user={session.user} writable={writable} onRefresh={refresh}/>}
         {view === 'Records' && <ProductRecords facts={workspace.records} team={team} writable={writable} onSave={refresh}/>}
-        {view === 'Plan' && <ProductDecisions facts={workspace.records} user={session.user} writable={writable} onRefresh={refresh}/>}
         {view === 'Evidence' && <Evidence/>}
         {view === 'Team' && <Team members={team} session={session} writable={fresh} onRefresh={refresh} onSession={value => {if (locked.current || sessionEpoch !== epoch.current) return; epoch.current++; adopt(value)}}/>}
       </>}

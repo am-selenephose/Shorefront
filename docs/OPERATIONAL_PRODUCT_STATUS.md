@@ -57,3 +57,13 @@ The training application's existing tests are not evidence that these new subsys
 - Minor presentation follow-ups: mobile navigation wraps Team to a second row; the training map retains a large-chunk build warning. No all-viewport/accessibility-complete claim is made.
 
 Use [the operational runbook](OPERATIONAL_RUNBOOK.md) for installation and recovery. API run evidence is saved locally under `.artifacts/operational-2026-10-04/api-tests.log`; browser screenshots are regenerated under `apps/web/test-results/` and are disposable test artifacts, not customer data.
+
+## Converged operational dashboard checkpoint — 2026-10-04
+
+- Branch `feat/shorefront-v2-convergence` combines the authenticated operational core with the dense Shorefront control interface instead of maintaining a separate visually rich demo-only product.
+- Operational Pulse now derives active calls, incidents, tasks, incomplete handoffs, obligations and resource pressure only from durable customer records. Unknown facts remain unknown.
+- Plan renders real berth/call windows and resource availability from operational records; it does not invent quay geometry, weather or schedule mutations.
+- Calls ties each recorded call to its incidents, tasks, commitments, handoffs and obligations. Exceptions provides a record-derived action inbox. Existing evidence-bound decision packets remain available from Plan and Recovery.
+- Initial administrator setup supports a one-time URL-fragment setup link; the browser consumes the token client-side and removes it from the address bar. Manual setup-token entry remains as recovery fallback.
+- Verification on this checkpoint: API `235 passed, 1 skipped`; runtime config PASS; TypeScript and production build PASS; operational browser `8/8`; training browser `31/31`.
+- This does not change the documented unfinished infrastructure gates or set `production_ready=true`.
