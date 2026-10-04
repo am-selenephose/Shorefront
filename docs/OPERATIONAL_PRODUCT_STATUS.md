@@ -145,6 +145,12 @@ it does not close the unfinished commercial infrastructure programme.
 - A read-only independent reviewer reported the relationship-loss finding, then
   hit a service usage limit. The fix was locally reproduced and verified; no
   completed independent release/security approval is claimed.
+- Final built training regression: **31 passed**. Application commit `337cbaa`
+  was pushed and deployed as API/web images `operational-337cbaa`. Both services
+  are healthy; the public frontend hash matches the build; the original database
+  volume and evidence digest are unchanged. Read-only live workspace navigation
+  passed. This is a verified update to the existing quick-tunnel installation,
+  not durable commercial hosting or completion of the production gates.
 
 Full regression evidence, rollback boundary and remaining gates:
 [2026-10-05 release record](RELEASE_2026_10_05.md).
