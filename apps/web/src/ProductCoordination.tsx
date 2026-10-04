@@ -1,9 +1,41 @@
-import {useCallback, useEffect, useRef, useState, type FormEvent} from 'react'
+import {useCallback, useEffect, useRef, useState, type CSSProperties, type FormEvent} from 'react'
 import {dateLabel, productRequest, recordName, type Fact, type User} from './productClient'
 
 type Action = {status:string; label:string; requires_proof:boolean; requires_review:boolean}
 type Item = {record:Fact; creator_id:string; actions:Action[]}
 const closed = new Set(['acknowledged','fulfilled','declined','cancelled','completed'])
+
+function CoordinationVisualContext({facts,items}:{facts:Fact[];items:Item[]}) {
+  const berths=facts.filter(f=>f.kind==='berth')
+  const calls=facts.filter(f=>f.kind==='call' && !['departed','cancelled'].includes(String(f.payload.status)))
+  const resources=facts.filter(f=>f.kind==='resource')
+  const vesselFor=(call:Fact)=>facts.find(f=>f.kind==='vessel' && f.record_id===call.payload.vessel_id)
+  const callFor=(id:unknown)=>facts.find(f=>f.kind==='call' && f.record_id===id)
+  const openItems=items.filter(item=>!closed.has(String(item.record.payload.status)))
+  const dueItems=[...openItems].filter(item=>item.record.payload.due_at).sort((a,b)=>new Date(String(a.record.payload.due_at)).getTime()-new Date(String(b.record.payload.due_at)).getTime())
+  const dueTimes=dueItems.map(item=>new Date(String(item.record.payload.due_at)).getTime()).filter(Number.isFinite)
+  const min=dueTimes.length?Math.min(...dueTimes):Date.now(), max=dueTimes.length?Math.max(...dueTimes):min+3600000, span=Math.max(3600000,max-min)
+  const threadCount=(callId:string)=>openItems.filter(item=>item.record.payload.call_id===callId).length
+  return <section className="coord-visual-context" role="region" aria-label="Coordination visual context">
+    <div className="coord-visual-grid">
+      <article className="coord-harbor-visual">
+        <header><div><span className="product-index">SCHEMATIC HARBOR · NOT GEOGRAPHIC</span><h2>Calls, berths and service pressure</h2></div><b>{calls.length} active calls</b></header>
+        <div className="coord-harbor-water">
+          {berths.length?berths.map((berth,index)=>{const berthCalls=calls.filter(call=>call.payload.berth_id===berth.record_id);return <div className="coord-berth-lane" key={berth.record_id} style={{'--lane':index} as CSSProperties}><div className="coord-berth-name"><b>{recordName(berth)}</b><span>{berth.payload.max_length_m ? `${berth.payload.max_length_m}m max` : 'capacity not recorded'}</span></div><div className="coord-berth-track">{berthCalls.length?berthCalls.map((call,callIndex)=>{const vessel=vesselFor(call);return <div className="coord-vessel-chip" key={call.record_id} style={{'--call':callIndex} as CSSProperties}><b>{vessel?recordName(vessel):call.record_id}</b><span>{dateLabel(String(call.payload.eta))} → {dateLabel(String(call.payload.etd))}</span><em>{threadCount(call.record_id)} open coordination</em></div>}):<span className="coord-berth-empty">No active call</span>}</div></div>}):<div className="coord-visual-empty">No berth records yet.</div>}
+        </div>
+        <div className="coord-resource-strip">{resources.length?resources.map(resource=><div key={resource.record_id} className={resource.payload.available===false?'unavailable':'available'}><span>{String(resource.payload.resource_type||'resource').toUpperCase()}</span><b>{recordName(resource)}</b><em>{resource.payload.available===false?'UNAVAILABLE':'AVAILABLE'}</em></div>):<div className="coord-visual-empty">No service resources recorded.</div>}</div>
+      </article>
+      <article className="coord-network-visual">
+        <header><div><span className="product-index">COORDINATION NETWORK</span><h2>Call → accountable threads</h2></div><b>{openItems.length} open</b></header>
+        <div className="coord-network">{calls.length?calls.map(call=>{const vessel=vesselFor(call);const linked=openItems.filter(item=>item.record.payload.call_id===call.record_id);return <div className="coord-network-row" key={call.record_id}><div className="coord-network-call"><span>CALL</span><b>{vessel?recordName(vessel):call.record_id}</b><small>{String(call.payload.status)}</small></div><div className="coord-network-line" aria-hidden="true"/><div className="coord-thread-nodes">{linked.length?linked.map(item=><div className={`coord-thread-node ${item.record.kind}`} key={`${item.record.kind}:${item.record.record_id}`}><span>{item.record.kind}</span><b>{recordName(item.record)}</b><em>{String(item.record.payload.status)}</em></div>):<span className="coord-thread-none">No open thread</span>}</div></div>}):<div className="coord-visual-empty">No active calls recorded.</div>}</div>
+      </article>
+    </div>
+    <article className="coord-due-visual">
+      <header><div><span className="product-index">DUE-TIME TIMELINE</span><h2>Open coordination deadlines</h2></div><b>{dueItems.length}</b></header>
+      {dueItems.length?<div className="coord-due-track"><div className="coord-due-axis"><span>{dateLabel(new Date(min).toISOString())}</span><span>{dateLabel(new Date(max).toISOString())}</span></div>{dueItems.map(item=>{const value=new Date(String(item.record.payload.due_at)).getTime();const left=Math.max(2,Math.min(98,((value-min)/span)*100));return <div className={`coord-due-marker ${item.record.kind}`} key={`${item.record.kind}:${item.record.record_id}`} style={{left:`${left}%`}} title={`${recordName(item.record)} · ${dateLabel(String(item.record.payload.due_at))}`}><i/><span>{item.record.kind}</span><b>{recordName(item.record)}</b></div>})}</div>:<div className="coord-visual-empty padded">No open coordination deadlines.</div>}
+    </article>
+  </section>
+}
 
 function Transition({item, action, writable, onDone, onCancel}: {
   item:Item; action:Action; writable:boolean; onDone:()=>Promise<void>; onCancel:()=>void
@@ -86,6 +118,7 @@ export default function ProductCoordination({facts,team,writable,onRefresh,onCre
   return <div className="ops-workspace" data-product-workspace="coordination">
     <section className="ops-heading"><span className="product-index">COORDINATION / NAMED PARTIES · CLEAR RESPONSIBILITY</span><h1>Promises become accountable work.</h1><p>Send a handoff, confirm receipt, fulfill a commitment or close a reviewed obligation—with the named party and its evidence preserved.</p></section>
     <div className="product-actions">{['handoff','commitment','obligation'].map(k=><button className={k==='handoff'?'product-primary':''} key={k} disabled={!writable} onClick={()=>onCreate(k)}>New {k}</button>)}</div>
+    <CoordinationVisualContext facts={facts} items={items}/>
     <div className="ops-kpis compact"><article><span>WAITING ON MY ACTION</span><strong>{items.filter(i=>i.actions.length>0).length}</strong></article><article><span>OPEN THREADS</span><strong>{items.filter(i=>!closed.has(String(i.record.payload.status))).length}</strong></article><article><span>OVERDUE OPEN THREADS</span><strong>{items.filter(i=>!closed.has(String(i.record.payload.status)) && new Date(String(i.record.payload.due_at))<new Date()).length}</strong></article><article><span>PRESERVED THREADS</span><strong>{items.length}</strong></article></div>
     <div className="coord-filters"><label>Coordination scope<select value={scope} onChange={e=>setScope(e.target.value)}><option value="open">Open threads</option><option value="mine">My available actions</option><option value="all">All, including closed</option></select></label><label>Thread type<select value={kind} onChange={e=>setKind(e.target.value)}><option value="all">All types</option>{['handoff','commitment','obligation'].map(k=><option key={k}>{k}</option>)}</select></label><label>Search coordination<input type="search" value={query} onChange={e=>setQuery(e.target.value)}/></label></div>
     {loading && <div className="ops-empty" role="status">Loading accountable threads…</div>}
