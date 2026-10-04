@@ -218,6 +218,19 @@ def create_product_app(database_url=None, installation_id=None, origin=None, boo
             items.sort(key=lambda item: (datetime.fromisoformat(item['record']['payload']['due_at']), item['record']['record_id']))
         return {'items': items, 'read_at': stamp(now())}
 
+    @app.get('/api/v1/records/{kind}/{record_id}/head')
+    def record_head(kind: str, record_id: str, request: Request):
+        # The latest recorded revision is the write precondition, not necessarily
+        # the effective workspace fact. Never change the two-clock snapshot here.
+        with store.transaction() as connection:
+            identify(connection, request)
+            row = connection.execute(select(versions).where(
+                versions.c.kind == kind, versions.c.record_id == record_id
+            ).order_by(versions.c.revision.desc()).limit(1)).mappings().first()
+            if row is None:
+                raise HTTPException(404, 'Record not found')
+            return public_record(row)
+
     @app.post('/api/v1/records/{kind}', status_code=201)
     def write(kind: str, body: RecordCommand, request: Request):
         require_origin(request, site)

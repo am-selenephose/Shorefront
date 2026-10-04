@@ -47,6 +47,26 @@ packets; viewers cannot write. Administrator membership authority does not grant
 supervisor decision approval. Keep at least one verified administrator able to
 sign in.
 
+## Correcting a record after a version conflict
+
+Records have an effective time and a recorded time. A scheduled or backdated
+revision can be the latest recorded revision without being today's displayed
+fact. Refreshing the workspace alone does not necessarily resolve that conflict.
+
+When Save reports that a record changed, the editor keeps your draft. Select
+**Review latest version** to inspect the latest payload, source and timestamps.
+Review is read-only. **Replace draft with latest version** explicitly discards
+your unsaved form values and loads that version; it does not save anything.
+Reapply the intended correction, identify its source, and select **Save record**.
+A newer concurrent correction can still produce another conflict.
+
+The correction becomes effective now. It does not cancel future scheduled
+versions; they remain recorded and can take effect later. References absent from
+the current choices remain visible instead of being silently cleared. A link to
+a record that is not yet effective will fail server validation when saved now;
+deliberately select an effective replacement or clear an optional link only if
+that is the intended correction. The editor is not a scheduled-version manager.
+
 ## Bootstrap expiry and password recovery
 
 A fresh database gets a 24-hour setup window stored in the database. Restarting

@@ -118,3 +118,33 @@ All broader programme and production gates above remain open where stated.
 - Regression hardening completed alongside the showcase: evidence tests scope version rows, historical replay uses valid second-precision local clock values, stale delayed replay responses remain ignored, and workflow selectors target the record editor rather than similarly named workspace filters.
 - Fresh release gate: API `249 passed, 1 skipped`; runtime config PASS; TypeScript/build PASS; operational browser `13/13`; training browser `31/31`; release-gate job exit `0`.
 - The existing infrastructure gaps remain unchanged and `production_ready` remains false.
+
+## Revision-conflict and release checkpoint — 2026-10-05
+
+This supersedes the earlier pending-browser and generic-editor conflict notes;
+it does not close the unfinished commercial infrastructure programme.
+
+- Closed the scheduled/backdated revision conflict loop with an authenticated
+  latest-recorded-version read and explicit review/replace/save actions. The
+  current effective snapshot and immutable history retain their original meaning.
+- Closed a reviewer-found relationship-loss case: an unavailable recorded
+  reference remains selected instead of becoming blank during replacement.
+  The server still rejects a not-yet-effective relationship. Clearing one is an
+  explicit operator action, not an automatic correction.
+- Fresh full API verification with isolated PostgreSQL: **257 passed, no skips**,
+  four existing dependency warnings. Built operational browser suite: **16 passed**,
+  including real persistence, temporal review, offline input protection and the
+  future-only relationship regression. TypeScript/production build passed;
+  runtime config test passed; npm production-dependency audit found zero findings.
+- The previously approved ownership repair was limited to generated frontend
+  `dist` and `test-results` directories. Source and database ownership were not
+  changed. No user credentials or operational records were created for testing.
+- A private deployed-database backup restored successfully to isolated storage,
+  with valid audit and matching exported evidence. The live installation has zero
+  factual versions/decisions; this is not a populated customer acceptance rehearsal.
+- A read-only independent reviewer reported the relationship-loss finding, then
+  hit a service usage limit. The fix was locally reproduced and verified; no
+  completed independent release/security approval is claimed.
+
+Full regression evidence, rollback boundary and remaining gates:
+[2026-10-05 release record](RELEASE_2026_10_05.md).
