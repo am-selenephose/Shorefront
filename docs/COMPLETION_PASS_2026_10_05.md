@@ -125,4 +125,64 @@ successful browser acceptance result.
 - A page cached before this fix may require one hard refresh. The new header
   cannot retroactively invalidate a response already considered fresh by a client.
 
-Final delivery hashes and post-update checks are recorded below after deployment.
+## Final delivery receipt
+
+- Feature commit: `c25bb273bab6b3541e050c47a1b5a1c318a52604`.
+- Deployed application/configuration source:
+  `fd3f2fae84217f7536b6ecc29be4c636c9fddb2f`. Both were pushed to
+  `origin/feat/shorefront-v2-convergence`, also publishing the preceding retained
+  coordination commit. No main-branch merge, history rewrite or force-push.
+- Images were built from an archive of that exact commit, excluding unrelated
+  untracked work. API image `shorefront-api:operational-fd3f2fa`:
+  `sha256:5a262ac3dfead045f994768f365fa06a672aec3703e224f3708e509f5be03e38`.
+  Web image `shorefront-web:operational-fd3f2fa`:
+  `sha256:ee9744583a4b88774bd96c787db91ccd44b4fd738d6b488ac5bf86f33d6e0955`.
+- The web rebuild encountered Docker bridge DNS/egress failures. A build-only
+  host-network retry succeeded with ordinary HTTPS verification and the unchanged
+  lockfile. No system DNS, firewall, application networking or dependency version
+  was changed. Failed temporary build jobs were stopped; previous images remain.
+- The real-Nginx HTTP/TLS delivery tests passed against the final image. API/web
+  replacement completed with `--no-deps --wait`; both are healthy. Schema mode
+  remains verify-only. PostgreSQL was not replaced or migrated; its physical
+  volume remains `shorefront-operational_shorefront_prod_pg`.
+- Built, container and public HTML SHA-256 matched:
+  `b873f10a785526471860c00df70506ff7ee487984663ae55cf71b50cf02b48c3`.
+  The deployed Nginx configuration hash also matched the source. Public HTML
+  returns `Cache-Control: no-cache` with the existing security headers.
+- The separately restored private backup and pre/post-deployment evidence matched:
+  `8d95d27086a202fa61b64861bcdff0b1630be1dcad44bb37734e367c7826f5e0`.
+  Offline verification with the separately retained audit root passed. Backup
+  SHA-256: `363634f443672ac8b701e0b2c53a82fd74af76d3ac4bcd31428edd226b08c923`.
+  The backup and private environment remain uncommitted; configuration is mode 0600.
+- Subsequent documentation-only commits record this receipt; the application
+  images remain bound to `fd3f2fa`.
+
+### Current public preview — refreshed 2026-10-05 17:56 UTC
+
+**Workspace:** <https://compression-ethnic-judge-determine.trycloudflare.com/>.
+**Read-only simulated showcase:**
+<https://compression-ethnic-judge-determine.trycloudflare.com/?showcase=1>.
+
+The previous `minds-fridge-expires-circles.trycloudflare.com` address stopped
+resolving even though its root-managed tunnel process remained alive. That job
+was left untouched. A separate user-owned transient service,
+`shorefront-preview-tunnel.service`, now forwards to the same local port 18088.
+The configured `SHOREFRONT_ORIGIN` was updated to the new exact HTTPS origin, then
+only API/web were recreated. The installation owner, database, accounts and
+evidence were retained. Existing users sign in again at the new origin; no new
+account or password was created for verification.
+
+Fresh public checks passed: operational readiness, runtime capabilities, 401 for
+unauthenticated decision history, correct simulated showcase label, light/dark
+rendering without horizontal overflow and no showcase JavaScript errors. The
+sign-in surface was checked separately; authenticated mutation workflows remain
+covered by isolated browser tests rather than live customer-data writes. Browser
+screenshots are retained in the browser tool's permitted local output directory.
+
+This is still a temporary quick-tunnel preview, not durable customer hosting.
+The user-owned tunnel is transient and has no automatic restart policy that could
+silently change its advertised hostname. Check its state with
+`systemctl --user status shorefront-preview-tunnel.service`; a new tunnel address
+requires an explicit origin update and verification. Do not stop it while the
+preview is needed. Stable hosting/origin and the remaining commercial gates above
+are not completed. `production_ready` remains false.

@@ -47,7 +47,12 @@ The training application's existing tests are not evidence that these new subsys
 - Keep the training app and customer app explicitly separate. No legacy synthetic record is reinterpreted as a customer observation. Cost: two runtime surfaces remain to maintain.
 - Keep the approved brand and existing feature checkout. No new visual identity, provider credential, paid service or unrelated project is introduced.
 
-## Open release and programme gates
+## Historical release and programme gates — 2026-10-04 baseline
+
+This checkpoint is retained for provenance, not as the current backlog. The
+2026-10-05 checkpoints below supersede the decision-history limitation and record
+the deployed-installation backup/restore rehearsal. Current unfinished gates are
+listed in [the completion pass](COMPLETION_PASS_2026_10_05.md#programme-remains-open).
 
 - Dedicated customer host/origin/secrets, trusted TLS, target-specific backup/restore, monitoring and customer operational acceptance are not verified. `production_ready` remains false.
 - Independent complete security/code review, cross-engine browser testing, load/concurrency capacity and storage-retention limits remain release gates. All store transactions currently serialize; history/evidence growth is not performance-qualified.
@@ -184,3 +189,11 @@ Full regression evidence, rollback boundary and remaining gates:
 
 Exact scope, evidence, delivery and remaining work:
 [completion pass](COMPLETION_PASS_2026_10_05.md).
+
+Delivery: features `c25bb27` and entry-page cache fix `fd3f2fa` are committed and
+pushed; API/web images `operational-fd3f2fa` are deployed and healthy with the
+original database preserved. Two additional real-Nginx HTTP/TLS regression tests
+pass. The former quick-tunnel hostname stopped resolving; the current preview is
+<https://compression-ethnic-judge-determine.trycloudflare.com/>. This replacement
+is still temporary, not a durable-production-hosting claim. The completion-pass
+receipt records exact source/image hashes, current origin, recovery and limits.
