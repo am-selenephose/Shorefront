@@ -154,3 +154,33 @@ it does not close the unfinished commercial infrastructure programme.
 
 Full regression evidence, rollback boundary and remaining gates:
 [2026-10-05 release record](RELEASE_2026_10_05.md).
+
+## Searchable decisions and offline verification — 2026-10-05
+
+- Decision history now reaches all packets through bounded pages, with server-side
+  literal question/call-ID/packet-ID search and pending/approved filters. This
+  supersedes the earlier 100-packet navigation limitation. It is packet-ID order,
+  not chronological order or a frozen multi-page snapshot.
+- Failed loads preserve the last loaded page and offer retry; stale responses
+  cannot replace a newer search. A startup hash-change race that could display
+  Pulse at a Recovery URL is fixed and covered by the browser regression.
+- The public showcase now explicitly says its operational picture is simulated.
+  It remains read-only and isolated; the private workspace keeps its real-mode
+  label. No data-access authority changed.
+- An independent, standard-library-only offline verifier checks export consistency
+  and supports a separately retained audit-root pin. It does **not** provide
+  signatures, external timestamps, physical-event truth or commercial validation.
+  See [verification instructions](EVIDENCE_VERIFICATION.md).
+- Removed only unreferenced duplicate workspace implementations; live workspaces
+  and the newer coordination visuals remain. Removed code is recoverable in Git.
+- Fresh checks: **278 API tests with PostgreSQL, 19 operational browser tests,
+  31 built training browser tests**, TypeScript/build and configuration test pass.
+  Production npm audit found zero vulnerabilities. The private live backup restored
+  with matching evidence and passed the offline verifier. These results do not
+  constitute independent security approval, load testing or cross-engine QA.
+- The programme queue now separates completed subsets from federation, external
+  integration, signed-evidence, counterfactual/learning and durable-hosting gaps.
+  `production_ready` remains false.
+
+Exact scope, evidence, delivery and remaining work:
+[completion pass](COMPLETION_PASS_2026_10_05.md).

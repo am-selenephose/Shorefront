@@ -5,7 +5,7 @@ import ProductEvidence from './ProductEvidence'
 import ProductDecisions from './ProductDecisions'
 import ProductAccount from './ProductAccount'
 import {OperationalCalls, OperationalExceptions, OperationalPlan, OperationalPulse} from './ProductWorkspaces'
-import {ProductError, dateLabel, productRequest, recordName, setSession, validateWorkspace, type Fact, type Session, type User, type Workspace} from './productClient'
+import {ProductError, productRequest, setSession, validateWorkspace, type Fact, type Session, type User, type Workspace} from './productClient'
 import './product.css'
 
 const views = ['Pulse', 'Plan', 'Calls', 'Exceptions', 'Coordination', 'Recovery', 'Records', 'Evidence', 'Team'] as const
@@ -55,56 +55,6 @@ function SignIn({setup, onSession}: {setup: boolean; onSession: (value: Session)
     </div>
 }
 
-function Pulse({workspace, team}: {workspace: Workspace; team:User[]}) {
-  const {records, attention} = workspace
-  const port = records.find(r => r.kind === 'port')
-  return <><section className="product-pulse-heading"><span className="product-index">PULSE / OPERATIONAL WORKSPACE</span><h1>Your port. Your operational record.</h1><p>{port ? `${recordName(port)} — facts supplied by your team, with their sources preserved.` : 'Start with your port, then bring its berths, vessels and calls into one accountable picture.'}</p></section>
-    <div className="product-stats">{[['Port calls', records.filter(r => r.kind === 'call').length], ['Open incidents', records.filter(r => r.kind === 'incident' && r.payload.status !== 'resolved').length], ['Actions to complete', attention.length], ['Recorded facts', records.length]].map(([name, count], i) => <div key={name}><span className="product-index">0{i+1} / {name}</span><strong>{count}</strong></div>)}</div>
-    <div className="product-section-heading"><div><p className="eyebrow">ATTENTION</p><h2>The next accountable action.</h2></div><a href="#records">Manage records →</a></div>
-    {attention.length ? <div className="product-record-grid">{attention.map(task => <article className="product-card" key={task.record_id}><span className="product-index">{task.payload.status === 'in_progress' ? 'IN PROGRESS' : 'OPEN'} · {new Date(String(task.payload.due_at)) < new Date() ? 'OVERDUE' : 'SCHEDULED'}</span><h2>{recordName(task)}</h2><p>Due {dateLabel(String(task.payload.due_at))}</p><p>{task.payload.assignee_id ? `Assigned to ${team.find(member => member.id === task.payload.assignee_id)?.name ?? task.payload.assignee_id}` : 'Unassigned — choose an owner'}</p><p className="product-provenance">{task.source}</p></article>)}</div> : <section className="product-empty"><span className="product-index">CLEAR QUEUE</span><h2>No open tasks recorded.</h2><p>This means no open tasks are in Shorefront. It does not certify that the port is free of operational risk.</p><a href="#records">Record an incident or task →</a></section>}
-    <aside className="product-boundary"><b>Recorded facts, not a simulated harbor.</b><p>Weather, vessel positions and predicted savings stay unknown until supported by actual observations and validated integrations. Shorefront does not control vessels.</p></aside>
-  </>
-}
-
-function Evidence() {
-  const [history, setHistory] = useState<Fact[]>([])
-  const [error, setError] = useState('')
-  const [loading, setLoading] = useState(true)
-  const [more, setMore] = useState(false)
-  const [download, setDownload] = useState(false)
-  const [knownAt, setKnownAt] = useState('')
-  const [validAt, setValidAt] = useState('')
-  const [replay, setReplay] = useState<Fact[]|null>(null)
-  async function load(after=0) {
-    setLoading(true); setError('')
-    try {const rows = await productRequest<Fact[]>(`/history?after=${after}&limit=100`); if (!Array.isArray(rows)) throw new Error('Invalid history response'); setHistory(old => after ? [...old, ...rows] : rows); setMore(rows.length === 100)}
-    catch (failure) {setError(String(failure))} finally {setLoading(false)}
-  }
-  useEffect(() => {void load()}, [])
-  async function exportEvidence() {
-    setDownload(true); setError('')
-    try {
-      const data = await productRequest('/evidence')
-      const url = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], {type:'application/json'}))
-      const link = document.createElement('a'); link.href=url; link.download='shorefront-evidence.json'; link.click(); window.setTimeout(() => URL.revokeObjectURL(url), 1000)
-    } catch (failure) {setError(String(failure))} finally {setDownload(false)}
-  }
-  async function reconstruct(event: FormEvent) {
-    event.preventDefault(); setError(''); setReplay(null)
-    try {const params = new URLSearchParams({known_at:new Date(knownAt).toISOString(), valid_at:new Date(validAt).toISOString()}); setReplay(validateWorkspace(await productRequest<Workspace>(`/workspace?${params}`)).records)}
-    catch (failure) {setError(String(failure))}
-  }
-  return <><div className="product-section-heading"><div><p className="eyebrow">EVIDENCE / PRESERVED CONTEXT</p><h1>Every correction keeps its past.</h1></div><button disabled={download} onClick={() => void exportEvidence()}>{download ? 'Preparing…' : 'Export evidence'}</button></div>
-    <p>Recorded time answers “what did we know?” Effective time answers “when did it apply?” The audit uses a SHA-256 chain, not a digital signature.</p>
-    <form className="product-replay" onSubmit={reconstruct}><label>Known by<input type="datetime-local" value={knownAt} required onChange={e => setKnownAt(e.target.value)}/></label><label>Effective at<input type="datetime-local" value={validAt} required onChange={e => setValidAt(e.target.value)}/></label><button type="submit">Reconstruct view</button></form>
-    {replay !== null && <section className="product-card"><h2>Historical facts · {replay.length}</h2>{replay.map(r => <p key={`${r.kind}:${r.record_id}`}>{recordName(r)} · revision {r.revision}</p>)}</section>}
-    {error && <p role="alert" className="product-error">{error} <button onClick={() => void load()}>Retry</button></p>}
-    <h2>Record history</h2>{loading && <p role="status">Loading recorded history…</p>}
-    {!loading && !history.length && <div className="product-empty"><h3>No operational versions yet.</h3><p>Create a record to start its history.</p></div>}
-    <ol className="product-history">{history.map(r => <li key={r.sequence}><div><span className="product-index">{r.kind} / V{r.revision}</span><strong>{recordName(r)}</strong><span>{r.source}</span></div><div><span>Recorded {dateLabel(r.known_at)}</span><span>Effective {dateLabel(r.valid_at)}</span></div></li>)}</ol>
-    {more && <button disabled={loading} onClick={() => void load(history.at(-1)?.sequence)}>Load older versions</button>}
-  </>
-}
 
 function Team({members, session, writable, onRefresh, onSession}: {members: User[]; session: Session; writable: boolean; onRefresh: () => Promise<void>; onSession:(value:Session)=>void}) {
   const [error, setError] = useState('')
@@ -178,7 +128,7 @@ export default function ProductApp({needsSetup}: {needsSetup: boolean}) {
     } finally {refreshing.current = false; setInitial(false)}
   }, [adopt, clearSession])
   useEffect(() => {void refresh().catch(() => {}); const timer = window.setInterval(() => {if (!document.hidden) void refresh().catch(() => {})}, 15000); return () => window.clearInterval(timer)}, [refresh])
-  useEffect(() => {const navigate = () => setView(readView()); const expire = () => {clearSession(); setError('Your session has expired or access was revoked.')}; const offline = () => {setFresh(false); setError('Connection lost. This view may be stale; changes are disabled.')}; window.addEventListener('hashchange', navigate); window.addEventListener('shorefront:unauthorized', expire); window.addEventListener('offline', offline); return () => {window.removeEventListener('hashchange', navigate); window.removeEventListener('shorefront:unauthorized', expire); window.removeEventListener('offline', offline)}}, [clearSession])
+  useEffect(() => {const navigate = () => setView(readView()); const expire = () => {clearSession(); setError('Your session has expired or access was revoked.')}; const offline = () => {setFresh(false); setError('Connection lost. This view may be stale; changes are disabled.')}; window.addEventListener('hashchange', navigate); navigate(); window.addEventListener('shorefront:unauthorized', expire); window.addEventListener('offline', offline); return () => {window.removeEventListener('hashchange', navigate); window.removeEventListener('shorefront:unauthorized', expire); window.removeEventListener('offline', offline)}}, [clearSession])
   async function signOut() {
     epoch.current++
     lockView(true)

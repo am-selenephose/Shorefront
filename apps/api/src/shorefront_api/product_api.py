@@ -6,11 +6,12 @@ import json
 import os
 import secrets
 from urllib.parse import urlsplit
+from typing import Literal
 
 from fastapi import FastAPI, HTTPException, Query, Request, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import AwareDatetime
-from sqlalchemy import delete, insert, select, update
+from sqlalchemy import JSON, cast, delete, insert, or_, select, type_coerce, update
 
 from .config import setting
 from .product_coordination import schedule_conflicts, coordination_actions
@@ -271,10 +272,22 @@ def create_product_app(database_url=None, installation_id=None, origin=None, boo
             return create_packet(store, connection, actor, body, key)
 
     @app.get('/api/v1/decisions')
-    def decision_list(request: Request, limit: int = Query(100, ge=1, le=500)):
+    def decision_list(request: Request, limit: int = Query(100, ge=1, le=500),
+                      after: str = Query('', max_length=96), q: str = Query('', max_length=200),
+                      state: Literal['all', 'pending', 'approved'] = 'all'):
         with store.transaction() as connection:
             identify(connection, request)
-            return [get_packet(connection, row.id) for row in connection.execute(select(packets.c.id).order_by(packets.c.id).limit(limit))]
+            query = select(packets).where(packets.c.id > after)
+            if state != 'all':
+                query = query.where(packets.c.receipt.is_(None) if state == 'pending' else packets.c.receipt.is_not(None))
+            if search := q.strip():
+                # SQLite JSON lives as text; PostgreSQL requires an explicit cast.
+                body = cast(packets.c.payload, JSON) if connection.dialect.name == 'postgresql' else type_coerce(packets.c.payload, JSON)
+                query = query.where(or_(packets.c.id.icontains(search, autoescape=True),
+                                        body['question'].as_string().icontains(search, autoescape=True),
+                                        body['call_id'].as_string().icontains(search, autoescape=True)))
+            rows = connection.execute(query.order_by(packets.c.id).limit(limit)).mappings()
+            return [{**json.loads(row['payload']), 'receipt': json.loads(row['receipt']) if row['receipt'] else None} for row in rows]
 
     @app.get('/api/v1/decisions/{packet_id}')
     def decision_detail(packet_id: str, request: Request):

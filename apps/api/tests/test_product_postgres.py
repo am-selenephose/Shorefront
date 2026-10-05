@@ -40,6 +40,15 @@ def test_postgres_commands_owner_and_backup_restore(tmp_path):
                 'record_id':'concurrent-port', 'expected_revision':0, 'source':'PostgreSQL test', 'payload':{'name':f'Port {index}','timezone':'UTC'}}).status_code
         with ThreadPoolExecutor(max_workers=2) as pool:
             assert sorted(pool.map(writer, [1,2])) == [201,409]
+        packet_ids = []
+        for question in ['Normal plan', 'Berth 100%_ready', 'Berth 100XXready']:
+            result = client.post('/api/v1/decisions', headers=headers(client), json={'call_id':'call-one','question':question})
+            assert result.status_code == 201, result.text
+            packet_ids.append(result.json()['id'])
+        assert [r['id'] for r in client.get('/api/v1/decisions', params={'q':'BERTH 100%_','limit':1}).json()] == [packet_ids[1]]
+        assert len(client.get('/api/v1/decisions', params={'q':'call-one','state':'pending'}).json()) == 3
+        assert client.get('/api/v1/decisions', params={'state':'approved'}).json() == []
+        assert [r['id'] for r in client.get('/api/v1/decisions', params={'after':min(packet_ids)}).json()] == sorted(packet_ids)[1:]
         evidence = client.get('/api/v1/evidence').json()
         assert evidence['audit_valid'] is True
     env = {**os.environ, 'PGHOST':url.query['host'], 'PGPORT':str(url.port or 5432), 'PGUSER':url.username or 'shorefront_test', 'PGDATABASE':url.database or 'postgres'}

@@ -12,6 +12,8 @@ test('customer onboarding, durable record editing, evidence and logout', async (
   await page.getByRole('button', {name: 'Create workspace'}).click()
   await expect(page.getByRole('heading', {name: 'Your port. Your operational record.'})).toBeVisible()
   await expect(page.getByRole('heading', {name: 'Bring your first call into view'})).toBeVisible()
+  await expect(page.locator('.product-boundary')).toContainText('Real operational mode.')
+  await expect(page.locator('.product-boundary')).not.toContainText('Simulated operational picture.')
   await page.getByRole('button', {name:'Set up port',exact:true}).click()
   await expect(page.getByLabel('Timezone')).toBeVisible()
   await page.getByRole('button', {name:'Cancel',exact:true}).click()

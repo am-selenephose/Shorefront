@@ -15,6 +15,8 @@ test('public showcase is data-rich, read-only and isolated from operational data
   await expect(page.getByText('MV Aurora', {exact:true}).first()).toBeVisible()
   await expect(page.getByText('Tug 14 unavailable', {exact:true}).first()).toBeVisible()
   await expect(page.getByRole('navigation', {name:'Showcase workspaces'})).toBeVisible()
+  await expect(page.locator('.product-boundary')).toContainText('Simulated operational picture.')
+  await expect(page.locator('.product-boundary')).not.toContainText('Real operational mode.')
 
   await page.getByRole('link', {name:'Plan', exact:true}).click()
   await expect(page.locator('[data-product-workspace="plan"]')).toContainText('North Quay')

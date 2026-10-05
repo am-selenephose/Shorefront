@@ -77,4 +77,4 @@
 - [x] Document safe empty installation, explicit training, account recovery, backup and migration ownership.
 - [x] Verify startup defaults and schemas against isolated local storage; run complete suites.
 - [x] Review full diff in a separate self-review pass; fix with regression tests. Independent review remains a release gate.
-- [ ] Commit/push the verified checkpoint; deploy only with an explicitly confirmed operational target and access. Record unpassed gates accurately.
+- [x] Commit/push the verified checkpoint; deploy only with an explicitly confirmed operational target and access. Record unpassed gates accurately. Application `337cbaa` was pushed and deployed to the existing dedicated installation; see `docs/RELEASE_2026_10_05.md`. This closes that delivery step, not the remaining commercial programme.

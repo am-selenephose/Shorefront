@@ -46,7 +46,7 @@ function AttentionRows({items,team,...actions}:{items:Fact[];team:User[]} & Oper
     <RecordActions record={record} {...actions}/></article>)}</div>
 }
 
-export function OperationalPulse({workspace,team,...actions}:{workspace:Workspace;team:User[]} & OperationalActions) {
+export function OperationalPulse({workspace,team,simulated=false,...actions}:{workspace:Workspace;team:User[];simulated?:boolean} & OperationalActions) {
   const records=workspace.records, queue=attention(records), port=byKind(records,'port')[0]
   const incidents=records.filter(r=>r.kind==='incident'&&pending(r)), tasks=records.filter(r=>r.kind==='task'&&pending(r))
   const handoffs=records.filter(r=>r.kind==='handoff'&&pending(r)), resources=records.filter(r=>r.kind==='resource'&&pending(r))
@@ -57,7 +57,7 @@ export function OperationalPulse({workspace,team,...actions}:{workspace:Workspac
     <div className="ops-pulse-grid"><section className="ops-panel"><header><div><span className="product-index">ATTENTION QUEUE</span><h2>What needs action now</h2></div><b>{queue.length}</b></header>
       {queue.length?<><AttentionRows items={queue.slice(0,12)} team={team} {...actions}/><a className="ops-link" href="#exceptions">View all {queue.length} attention items →</a></>:<div className="ops-empty"><b>No unresolved attention items</b><p>No unresolved work is recorded here. This does not certify that the port is risk-free.</p><button disabled={!actions.writable} onClick={()=>actions.onCreate('incident')}>Record incident</button></div>}</section>
       <section className="ops-panel"><header><div><span className="product-index">COORDINATION</span><h2>Commitments & obligations</h2></div></header><div className="ops-mini-stats">{[['OPEN COMMITMENTS',records.filter(r=>r.kind==='commitment'&&pending(r)).length],['OPEN OBLIGATIONS',records.filter(r=>r.kind==='obligation'&&pending(r)).length],['OVERDUE TASKS',tasks.filter(r=>due(r)<Date.now()).length],['TRACKED RESOURCES',byKind(records,'resource').length]].map(([label,count])=><div key={label}><span>{label}</span><b>{count}</b></div>)}</div><a className="ops-link" href="#coordination">Open coordination desk →</a><div className="ops-panel-actions"><button disabled={!actions.writable} onClick={()=>actions.onCreate('task')}>Assign new task</button></div></section></div>
-    <aside className="product-boundary"><b>Real operational mode.</b><p>No synthetic vessels, weather or savings. Unknown values remain unknown; Shorefront does not control vessels.</p></aside>
+    <aside className="product-boundary">{simulated ? <><b>Simulated operational picture.</b><p>Fictional records illustrate the workflow. This read-only showcase has no access to your operational database and does not control vessels.</p></> : <><b>Real operational mode.</b><p>No synthetic vessels, weather or savings. Unknown values remain unknown; Shorefront does not control vessels.</p></>}</aside>
   </div>
 }
 
