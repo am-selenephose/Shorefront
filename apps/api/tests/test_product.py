@@ -133,6 +133,23 @@ def test_references_and_payload_are_validated_atomically(customer):
     assert customer.get('/api/v1/workspace').json()['records'] == []
 
 
+def test_berth_coordinates_are_optional_but_validated(customer):
+    assert write(customer, 'port', 'p', {'name': 'P', 'timezone': 'UTC'}).status_code == 201
+    recorded = write(customer, 'berth', 'geo-berth', {
+        'name': 'Coordinate Quay', 'port_id': 'p',
+        'latitude': 24.8441, 'longitude': 66.9762,
+    })
+    assert recorded.status_code == 201, recorded.text
+    assert recorded.json()['payload']['latitude'] == 24.8441
+    assert recorded.json()['payload']['longitude'] == 66.9762
+    assert write(customer, 'berth', 'bad-lat', {
+        'name': 'Bad latitude', 'port_id': 'p', 'latitude': 91, 'longitude': 66.9,
+    }).status_code == 422
+    assert write(customer, 'berth', 'bad-lon', {
+        'name': 'Bad longitude', 'port_id': 'p', 'latitude': 24.8, 'longitude': 181,
+    }).status_code == 422
+
+
 def test_two_clock_history_preserves_late_corrections(customer):
     original = write(customer, 'port', 'p', {'name': 'Original', 'timezone': 'UTC'}, valid_at='2026-01-01T00:00:00Z').json()
     corrected = write(customer, 'port', 'p', {'name': 'Corrected', 'timezone': 'UTC'}, revision=1, valid_at='2026-01-01T00:00:00Z')

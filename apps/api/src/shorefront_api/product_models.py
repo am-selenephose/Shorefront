@@ -40,6 +40,8 @@ class Berth(StrictModel):
     port_id: Identifier
     max_length_m: float | None = Field(default=None, gt=0, le=2000, allow_inf_nan=False)
     max_draft_m: float | None = Field(default=None, gt=0, le=100, allow_inf_nan=False)
+    latitude: float | None = Field(default=None, ge=-90, le=90, allow_inf_nan=False)
+    longitude: float | None = Field(default=None, ge=-180, le=180, allow_inf_nan=False)
 
 
 class Vessel(StrictModel):

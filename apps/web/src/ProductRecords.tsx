@@ -5,7 +5,7 @@ import ProductImport from './ProductImport'
 type Field = {key: string; label: string; type?: 'time'|'number'|'text'|'boolean'; ref?: string; choices?: string[]; optional?: boolean}
 export const recordFields: Record<string, Field[]> = {
   port: [{key:'name', label:'Name'}, {key:'timezone', label:'Timezone'}],
-  berth: [{key:'name', label:'Name'}, {key:'port_id', label:'Port', ref:'port'}, {key:'max_length_m', label:'Maximum length (m)', type:'number', optional:true}, {key:'max_draft_m', label:'Maximum draft (m)', type:'number', optional:true}],
+  berth: [{key:'name', label:'Name'}, {key:'port_id', label:'Port', ref:'port'}, {key:'max_length_m', label:'Maximum length (m)', type:'number', optional:true}, {key:'max_draft_m', label:'Maximum draft (m)', type:'number', optional:true}, {key:'latitude', label:'Latitude', type:'number', optional:true}, {key:'longitude', label:'Longitude', type:'number', optional:true}],
   vessel: [{key:'name', label:'Name'}, {key:'imo', label:'IMO number', optional:true}, {key:'length_m', label:'Length (m)', type:'number', optional:true}, {key:'draft_m', label:'Draft (m)', type:'number', optional:true}],
   call: [{key:'vessel_id', label:'Vessel', ref:'vessel'}, {key:'berth_id', label:'Berth', ref:'berth', optional:true}, {key:'eta', label:'Arrival (your local time)', type:'time'}, {key:'etd', label:'Departure (your local time)', type:'time'}, {key:'status', label:'Status', choices:['planned','arrived','berthed','departed','cancelled']}],
   resource: [{key:'name', label:'Name'}, {key:'port_id', label:'Port', ref:'port'}, {key:'resource_type', label:'Resource type', choices:['tug','pilot','crew','equipment']}, {key:'available', label:'Available', type:'boolean'}],
