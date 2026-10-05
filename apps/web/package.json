@@ -8,6 +8,7 @@
     "build": "tsc -b && vite build --config vite.config.ts",
     "typecheck": "tsc -b",
     "test:config": "node --experimental-strip-types --test tests/runtime-config.test.mjs",
+    "test:delivery": "node --test tests/delivery-cache.test.mjs",
     "test:e2e": "playwright test",
     "test:product": "playwright test --config playwright.product.config.ts"
   },

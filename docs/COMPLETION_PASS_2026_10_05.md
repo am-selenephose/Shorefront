@@ -100,4 +100,29 @@ are exercised in isolated fixtures. The private backup is mode 0600 and is not
 published. No customer records, account credentials or approvals were created
 for live verification.
 
-Delivery hashes and post-update checks are recorded below after commit/deployment.
+## Live delivery follow-up: stale browser shell
+
+Application `c25bb273bab6b3541e050c47a1b5a1c318a52604` was committed, pushed and
+deployed to the existing installation. API/web health, source hashes, public HTML
+hash and preserved database evidence passed. A previously opened browser tab,
+however, reused the old HTML and old bundle: the server supplied the new release
+while the browser still showed the old showcase boundary. The HTML had no explicit
+cache policy, allowing heuristic freshness. This was a delivery defect, not a
+successful browser acceptance result.
+
+- Both Nginx configurations now require revalidation for `/index.html` (including
+  root, showcase-query and SPA fallback requests) and `/theme-init.js`.
+- The policy leaves upstream API and content-hashed asset headers unchanged.
+  Existing security headers are preserved; unchanged shells can still return 304.
+- `SHOREFRONT_TEST_WEB_IMAGE=shorefront-web:operational-c25bb27 npm run test:delivery`
+  launches disposable loopback-only HTTP/TLS test endpoints from a prebuilt local
+  image with the checkout configuration mounted read-only. It uses no customer
+  data, deployment network or credentials, pulls no images, and removes its own
+  containers and generated test certificate afterwards.
+- Both real-Nginx tests failed before the configuration change because the header
+  was missing, then passed after it. They cover root, showcase, direct index,
+  fallback, theme bootstrap, conditional 304 and security-header preservation.
+- A page cached before this fix may require one hard refresh. The new header
+  cannot retroactively invalidate a response already considered fresh by a client.
+
+Final delivery hashes and post-update checks are recorded below after deployment.
