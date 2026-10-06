@@ -17,8 +17,8 @@ Baseline: `943ee5c`, clean `feat/shorefront-identity`. API baseline: 173 passed 
 | Typed operational graph/history | Implemented typed references, derived relationship graph and effective/knowledge-time reconstruction; not a general semantic reconciliation engine |
 | Commitment/recipient handoff workflow | Implemented installation-member transition rules, acknowledgement and proof; no external partner acknowledgement |
 | Trust envelopes/decision packets/historical comparison | Implemented immutable recorded-input packets, deterministic schedule options, supervisor approval, explicit uncalibrated warnings; no historical counterfactual twin |
-| Partner projection/federated identity | Not yet delivered |
-| Standards adapters/schema registry | Not yet delivered |
+| Partner projection/federated identity | Scoped field/resource projections delivered; federated identity/SSO remains open |
+| Standards adapters/schema registry | Generic scoped operational-record ingestion delivered; standards/vendor adapters and external schema registry remain open |
 | Distributed reconciliation/signed evidence | Not yet delivered |
 | Commercial obligations/outcome learning | Implemented reviewed obligation states and observed outcome deviations; no legal interpretation, predictive learning or causal savings claim |
 | Production deployment/customer validation | Not verified |
@@ -197,3 +197,12 @@ pass. The former quick-tunnel hostname stopped resolving; the current preview is
 <https://compression-ethnic-judge-determine.trycloudflare.com/>. This replacement
 is still temporary, not a durable-production-hosting claim. The completion-pass
 receipt records exact source/image hashes, current origin, recovery and limits.
+## Advanced command UI and scoped connections checkpoint - 2026-10-06
+
+- The operational browser is now a denser command surface: map-first Pulse, persistent desktop status rail, global record search, berth/call runway, signal bands, dense call/record/team registers, exception pressure, map-layer controls and responsive mobile layouts.
+- Added an administrator-only Connections workspace. Inbound machine sources receive one-time bearer credentials, explicit writable record-kind allowlists, bounded atomic/idempotent batches, durable source attribution, usage counters, expiry, rotation and revocation. Plaintext tokens are returned only at creation/rotation; Shorefront stores digests.
+- Added partner read projections with separate one-time credentials, explicit record-kind and payload-field allowlists and optional recorded-call scope. Unknown call scopes fail closed instead of broadening access. Projection output excludes raw source attribution and actor IDs.
+- These connection primitives are not federated identity, vendor-specific AIS/TOS/weather connectors, a standards schema registry, durable external delivery/receipt federation or proof of third-party acceptance. Those remain separate work. production_ready remains false.
+- Fresh full gate: 288 API tests with isolated PostgreSQL and no skips, 21 operational browser tests, 31 training browser tests, runtime-config 1 passed, delivery-cache/TLS 2 passed, production build passed and npm production audit reported zero vulnerabilities.
+- Live-database migration was rehearsed against a restored backup and then applied additively. All pre-existing operational counts remained unchanged; sf_connection_source and sf_partner_grant were added empty. PostgreSQL container identity, start time and volume remained unchanged across migration and API/web cutover.
+- Deployed application source is GitHub commit d9ee49a0998dc41965397d8571e57a96cf918f2a, verified source tree 8399d60c9152645a76f5c0f5599c07717a7152fe, image tag operational-d9ee49a.
