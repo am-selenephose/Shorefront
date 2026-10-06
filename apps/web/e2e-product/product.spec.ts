@@ -139,6 +139,52 @@ test('real invitation, call setup, decision review and supervisor approval', asy
   await otherContext.close()
 })
 
+
+test('admin manages scoped data sources and partner projection credentials', async ({page}) => {
+  const runtime=await (await page.request.get('/api/v1/runtime/capabilities')).json()
+  await page.goto(runtime.needs_setup ? '/#setup=test-only-bootstrap-for-local-product-browser-suite' : '/')
+  if(runtime.needs_setup) await page.getByLabel('Full name').fill('Port Owner')
+  await page.getByLabel('Email', {exact:true}).fill('owner@example.test')
+  await page.getByLabel('Password', {exact:true}).fill(password)
+  await page.getByRole('button', {name:runtime.needs_setup?'Create workspace':'Sign in', exact:true}).click()
+  await expect(page.getByRole('link', {name:'Connections', exact:true})).toBeVisible()
+  await page.getByRole('link', {name:'Connections', exact:true}).click()
+  await expect(page.getByRole('heading', {name:'Connect the port without surrendering the workspace.'})).toBeVisible()
+
+  await page.getByRole('button', {name:'Add data source', exact:true}).click()
+  await page.getByLabel('Source ID').fill('browser-source')
+  await page.getByLabel('Display name').fill('Browser source')
+  await page.getByRole('button', {name:'Create source credential', exact:true}).click()
+  const sourceReceipt=page.locator('.connection-token').filter({hasText:'Browser source'})
+  await expect(sourceReceipt).toContainText('ONE-TIME CREDENTIAL')
+  const sourceToken=(await sourceReceipt.locator('code').textContent())?.trim() ?? ''
+  expect(sourceToken.length).toBeGreaterThanOrEqual(32)
+  await sourceReceipt.getByRole('button',{name:'Hide credential'}).click()
+  const sourceTable=page.getByRole('table',{name:'Data source registry'})
+  await expect(sourceTable).toContainText('Browser source')
+  await expect(sourceTable).not.toContainText(sourceToken)
+
+  await page.getByRole('button', {name:'Create partner projection', exact:true}).click()
+  await page.getByLabel('Grant ID').fill('browser-projection')
+  await page.getByLabel('Partner / purpose').fill('Browser partner')
+  await page.getByRole('button', {name:'Create projection credential', exact:true}).click()
+  const grantReceipt=page.locator('.connection-token').filter({hasText:'Browser partner'})
+  await expect(grantReceipt).toContainText('ONE-TIME CREDENTIAL')
+  const grantToken=(await grantReceipt.locator('code').textContent())?.trim() ?? ''
+  expect(grantToken.length).toBeGreaterThanOrEqual(32)
+  await grantReceipt.getByRole('button',{name:'Hide credential'}).click()
+  const grantTable=page.getByRole('table',{name:'Partner projection registry'})
+  await expect(grantTable).toContainText('Browser partner')
+  await expect(grantTable).not.toContainText(grantToken)
+
+  const sourceRow=sourceTable.getByRole('row').filter({hasText:'Browser source'})
+  await sourceRow.getByRole('button',{name:'Rotate'}).click()
+  await expect(page.locator('.connection-token').filter({hasText:'Browser source'})).toBeVisible()
+  await page.locator('.connection-token').filter({hasText:'Browser source'}).getByRole('button',{name:'Hide credential'}).click()
+  await sourceRow.getByRole('button',{name:'Revoke'}).click()
+  await expect(sourceRow).toContainText('REVOKED')
+})
+
 test('failed network logout does not silently reopen private data', async ({page}) => {
   await page.clock.install()
   await page.goto('/')
