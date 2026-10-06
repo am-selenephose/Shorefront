@@ -4,7 +4,7 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import select, update
 
-from shorefront_api.product_store import connection_sources, partner_grants
+from shorefront_api.product_store import connection_sources, partner_deliveries, partner_grants
 from test_product import BOOTSTRAP, ORIGIN, PASSWORD, activate, bootstrap, build_app, headers, invite, setup_call, write
 
 
@@ -252,3 +252,179 @@ def test_unknown_call_scope_is_rejected_instead_of_broadening_projection(connect
     })
     assert response.status_code == 422
     assert connected.get('/api/v1/connections/partner-grants').json() == []
+
+
+def create_delivery(client, grant_id='agent-window', key='delivery-1'):
+    response = client.post(
+        f'/api/v1/connections/partner-grants/{grant_id}/deliveries',
+        headers=headers(client, key),
+        json={},
+    )
+    assert response.status_code == 201, response.text
+    return response.json()
+
+
+def test_partner_delivery_is_immutable_pull_snapshot_with_exact_ack(connected):
+    setup_call(connected)
+    created = create_grant(connected, call_ids=['call-one'])
+    token = created['token']
+    frozen = create_delivery(connected)
+    delivery = frozen['delivery']
+    assert delivery['state'] == 'pending'
+    assert delivery['retrieval_count'] == 0
+    assert delivery['record_count'] == len(frozen['records'])
+    assert len(delivery['payload_digest']) == 64
+
+    queue = connected.get('/api/v1/partner/deliveries', headers={'Authorization': f'Bearer {token}'})
+    assert queue.status_code == 200
+    assert queue.json()[0]['id'] == delivery['id']
+    assert queue.json()[0]['retrieval_count'] == 0
+
+    premature = connected.post(
+        f"/api/v1/partner/deliveries/{delivery['id']}/acknowledge",
+        headers={'Authorization': f'Bearer {token}', 'Idempotency-Key': 'ack-premature'},
+        json={'payload_digest': delivery['payload_digest'], 'note': 'received'},
+    )
+    assert premature.status_code == 409
+
+    pulled = connected.get(
+        f"/api/v1/partner/deliveries/{delivery['id']}",
+        headers={'Authorization': f'Bearer {token}'},
+    )
+    assert pulled.status_code == 200
+    assert pulled.json()['records'] == frozen['records']
+    assert pulled.json()['delivery']['state'] == 'delivered'
+    assert pulled.json()['delivery']['retrieval_count'] == 1
+    assert pulled.json()['delivery']['first_delivered_at']
+
+    wrong = connected.post(
+        f"/api/v1/partner/deliveries/{delivery['id']}/acknowledge",
+        headers={'Authorization': f'Bearer {token}', 'Idempotency-Key': 'ack-wrong'},
+        json={'payload_digest': '0' * 64, 'note': 'wrong bytes'},
+    )
+    assert wrong.status_code == 409
+
+    ack = connected.post(
+        f"/api/v1/partner/deliveries/{delivery['id']}/acknowledge",
+        headers={'Authorization': f'Bearer {token}', 'Idempotency-Key': 'ack-good'},
+        json={'payload_digest': delivery['payload_digest'], 'note': 'Imported into agent view'},
+    )
+    assert ack.status_code == 200, ack.text
+    assert ack.json()['state'] == 'acknowledged'
+    assert ack.json()['acknowledged_digest'] == delivery['payload_digest']
+    assert ack.json()['acknowledged_at']
+    assert ack.json()['acknowledgement_note'] == 'Imported into agent view'
+    replay = connected.post(
+        f"/api/v1/partner/deliveries/{delivery['id']}/acknowledge",
+        headers={'Authorization': f'Bearer {token}', 'Idempotency-Key': 'ack-good'},
+        json={'payload_digest': delivery['payload_digest'], 'note': 'Imported into agent view'},
+    )
+    assert replay.json() == ack.json()
+
+    listing = connected.get('/api/v1/connections/deliveries', headers=headers(connected))
+    assert listing.status_code == 200
+    assert listing.json()[0]['state'] == 'acknowledged'
+    assert 'records' not in listing.json()[0]
+
+
+def test_delivery_reconciliation_reports_exact_projection_drift(connected):
+    setup_call(connected)
+    created = create_grant(connected, call_ids=['call-one'])
+    token = created['token']
+    frozen = create_delivery(connected)
+    delivery = frozen['delivery']
+    assert connected.get(
+        f"/api/v1/partner/deliveries/{delivery['id']}",
+        headers={'Authorization': f'Bearer {token}'},
+    ).status_code == 200
+    assert connected.post(
+        f"/api/v1/partner/deliveries/{delivery['id']}/acknowledge",
+        headers={'Authorization': f'Bearer {token}', 'Idempotency-Key': 'ack-1'},
+        json={'payload_digest': delivery['payload_digest']},
+    ).status_code == 200
+
+    same = connected.get(
+        f"/api/v1/connections/deliveries/{delivery['id']}/reconciliation",
+        headers=headers(connected),
+    )
+    assert same.status_code == 200
+    assert same.json()['state'] == 'in_sync'
+    assert same.json()['added'] == same.json()['removed'] == same.json()['changed'] == []
+
+    call = next(record for record in connected.get('/api/v1/workspace').json()['records']
+                if record['kind'] == 'call' and record['record_id'] == 'call-one')
+    changed_payload = {**call['payload'], 'status': 'arrived'}
+    assert write(connected, 'call', 'call-one', changed_payload, revision=call['revision']).status_code == 201
+
+    drift = connected.get(
+        f"/api/v1/connections/deliveries/{delivery['id']}/reconciliation",
+        headers=headers(connected),
+    )
+    assert drift.status_code == 200
+    assert drift.json()['state'] == 'drifted'
+    assert drift.json()['added'] == []
+    assert drift.json()['removed'] == []
+    assert drift.json()['changed'] == ['call:call-one']
+    assert drift.json()['current_digest'] != drift.json()['delivered_digest']
+
+    # The frozen payload remains the original bytes after the operational record changes.
+    pulled_again = connected.get(
+        f"/api/v1/partner/deliveries/{delivery['id']}",
+        headers={'Authorization': f'Bearer {token}'},
+    ).json()
+    frozen_call = next(record for record in pulled_again['records'] if record['kind'] == 'call')
+    assert frozen_call['payload']['status'] == 'planned'
+
+
+def test_delivery_scope_revoke_and_idempotency_fail_closed(connected):
+    setup_call(connected)
+    first = create_grant(connected, grant_id='grant-a', call_ids=['call-one'])
+    second = create_grant(connected, grant_id='grant-b', call_ids=['call-one'])
+    delivery = create_delivery(connected, grant_id='grant-a', key='same-delivery-key')
+    delivery_id = delivery['delivery']['id']
+
+    assert connected.get(
+        f'/api/v1/partner/deliveries/{delivery_id}',
+        headers={'Authorization': f"Bearer {second['token']}"},
+    ).status_code == 404
+
+    call = next(record for record in connected.get('/api/v1/workspace').json()['records']
+                if record['kind'] == 'call' and record['record_id'] == 'call-one')
+    assert write(connected, 'call', 'call-one', {**call['payload'], 'status': 'arrived'},
+                 revision=call['revision']).status_code == 201
+    conflict = connected.post(
+        '/api/v1/connections/partner-grants/grant-a/deliveries',
+        headers=headers(connected, 'same-delivery-key'),
+        json={},
+    )
+    assert conflict.status_code == 409
+
+    assert connected.post(
+        '/api/v1/connections/partner-grants/grant-a/revoke',
+        headers=headers(connected), json={},
+    ).status_code == 200
+    assert connected.get(
+        '/api/v1/partner/deliveries',
+        headers={'Authorization': f"Bearer {first['token']}"},
+    ).status_code == 401
+    assert connected.post(
+        f'/api/v1/partner/deliveries/{delivery_id}/acknowledge',
+        headers={'Authorization': f"Bearer {first['token']}", 'Idempotency-Key': 'revoked-ack'},
+        json={'payload_digest': delivery['delivery']['payload_digest']},
+    ).status_code == 401
+
+
+def test_partner_delivery_table_requires_explicit_migration(tmp_path):
+    app = build_app(tmp_path / 'pre-delivery.db')
+    with TestClient(app, base_url=ORIGIN) as client:
+        bootstrap(client)
+    store = app.state.product_store
+    with store.engine.begin() as connection:
+        partner_deliveries.drop(connection)
+    with pytest.raises(RuntimeError, match='schema is missing'):
+        store.initialize(migrate=False)
+    store.initialize(migrate=True)
+    store.initialize(migrate=False)
+    with store.transaction() as connection:
+        assert connection.execute(select(partner_deliveries)).mappings().all() == []
+    store.engine.dispose()

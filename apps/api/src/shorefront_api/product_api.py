@@ -18,11 +18,14 @@ from .product_coordination import schedule_conflicts, coordination_actions
 from .product_auth import (COOKIE, create_user, identify, login_attempt, public_user,
                            password_hash, password_valid, require_admin, require_origin, start_session)
 from .product_models import (AcceptInvite, ApprovalRequest, Bootstrap, DecisionRequest, ImportBatch,
-                             IntegrationBatch, Invitation, Login, PartnerGrantCreate, PasswordChange,
-                             RecordCommand, SourceCreate, now, stamp)
+                             IntegrationBatch, Invitation, Login, PartnerDeliveryAck, PartnerGrantCreate,
+                             PasswordChange, RecordCommand, SourceCreate, now, stamp)
 from .product_decisions import approve_packet, create_packet, get_packet, packets, recall, remember
-from .product_connections import (create_partner_grant, create_source, ingest_records, list_partner_grants,
-                                  list_sources, partner_projection, revoke_partner_grant, revoke_source,
+from .product_connections import (acknowledge_partner_delivery, create_partner_delivery,
+                                  create_partner_grant, create_source, ingest_records,
+                                  list_partner_deliveries, list_partner_grants, list_sources,
+                                  partner_delivery_queue, partner_projection, pull_partner_delivery,
+                                  reconcile_partner_delivery, revoke_partner_grant, revoke_source,
                                   rotate_partner_grant, rotate_source)
 from .product_standards import (DCSA_PROFILE, ingest_dcsa_port_call, list_standard_events,
                                 list_standard_profiles)
@@ -335,6 +338,42 @@ def create_product_app(database_url=None, installation_id=None, origin=None, boo
         with store.transaction() as connection:
             actor, _ = identify(connection, request, mutation=True)
             return rotate_partner_grant(store, connection, actor, grant_id, expires_in_hours)
+
+    @app.get('/api/v1/connections/deliveries')
+    def partner_delivery_admin_list(request: Request):
+        with store.transaction() as connection:
+            actor, _ = identify(connection, request)
+            return list_partner_deliveries(connection, actor)
+
+    @app.post('/api/v1/connections/partner-grants/{grant_id}/deliveries', status_code=201)
+    def partner_delivery_create(grant_id: str, request: Request):
+        require_origin(request, site)
+        key = command_key(request)
+        with store.transaction() as connection:
+            actor, _ = identify(connection, request, mutation=True)
+            return create_partner_delivery(store, connection, actor, grant_id, key)
+
+    @app.get('/api/v1/connections/deliveries/{delivery_id}/reconciliation')
+    def partner_delivery_reconciliation(delivery_id: str, request: Request):
+        with store.transaction() as connection:
+            actor, _ = identify(connection, request)
+            return reconcile_partner_delivery(store, connection, actor, delivery_id)
+
+    @app.get('/api/v1/partner/deliveries')
+    def partner_delivery_list(request: Request):
+        with store.transaction() as connection:
+            return partner_delivery_queue(connection, request)
+
+    @app.get('/api/v1/partner/deliveries/{delivery_id}')
+    def partner_delivery_read(delivery_id: str, request: Request):
+        with store.transaction() as connection:
+            return pull_partner_delivery(store, connection, request, delivery_id)
+
+    @app.post('/api/v1/partner/deliveries/{delivery_id}/acknowledge')
+    def partner_delivery_ack(delivery_id: str, body: PartnerDeliveryAck, request: Request):
+        key = command_key(request)
+        with store.transaction() as connection:
+            return acknowledge_partner_delivery(store, connection, request, delivery_id, body, key)
 
     @app.get('/api/v1/partner/projection')
     def partner_projection_read(request: Request):

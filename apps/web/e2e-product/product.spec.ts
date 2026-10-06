@@ -181,6 +181,38 @@ test('admin manages scoped data sources and partner projection credentials', asy
   await expect(grantTable).toContainText('Browser partner')
   await expect(grantTable).not.toContainText(grantToken)
 
+  const grantRow=grantTable.getByRole('row').filter({hasText:'Browser partner'})
+  await grantRow.getByRole('button',{name:'Freeze delivery'}).click()
+  await expect(page.getByRole('status')).toContainText('Frozen delivery')
+  let deliveryTable=page.getByRole('table',{name:'Partner delivery ledger'})
+  await expect(deliveryTable).toContainText('browser-projection')
+  await expect(deliveryTable).toContainText('PENDING')
+
+  const queue=await page.request.get('/api/v1/partner/deliveries',{headers:{Authorization:'Bearer '+grantToken}})
+  expect(queue.status()).toBe(200)
+  const queued=await queue.json()
+  expect(queued).toHaveLength(1)
+  const deliveryId=queued[0].id as string
+  const pulled=await page.request.get('/api/v1/partner/deliveries/'+deliveryId,{headers:{Authorization:'Bearer '+grantToken}})
+  expect(pulled.status()).toBe(200)
+  const pulledBody=await pulled.json()
+  expect(pulledBody.delivery.state).toBe('delivered')
+  expect(pulledBody.delivery.retrieval_count).toBe(1)
+  const ack=await page.request.post('/api/v1/partner/deliveries/'+deliveryId+'/acknowledge',{
+    headers:{Authorization:'Bearer '+grantToken,'Idempotency-Key':'browser-delivery-ack'},
+    data:{payload_digest:pulledBody.delivery.payload_digest,note:'Browser partner imported snapshot'},
+  })
+  expect(ack.status()).toBe(200)
+  expect((await ack.json()).state).toBe('acknowledged')
+
+  await page.reload()
+  await expect(page.getByRole('heading',{name:'Connect the port without surrendering the workspace.'})).toBeVisible()
+  deliveryTable=page.getByRole('table',{name:'Partner delivery ledger'})
+  const deliveryRow=deliveryTable.getByRole('row').filter({hasText:deliveryId})
+  await expect(deliveryRow).toContainText('ACKNOWLEDGED')
+  await deliveryRow.getByRole('button',{name:'Reconcile'}).click()
+  await expect(deliveryRow).toContainText('IN SYNC')
+
   const sourceRow=sourceTable.getByRole('row').filter({hasText:'Browser source'})
   await sourceRow.getByRole('button',{name:'Rotate'}).click()
   await expect(page.locator('.connection-token').filter({hasText:'Browser source'})).toBeVisible()

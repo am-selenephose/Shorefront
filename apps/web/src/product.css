@@ -342,3 +342,10 @@
 .connection-standards table{width:100%;border-collapse:collapse;min-width:900px}.connection-standards th,.connection-standards td{padding:9px 11px;border-bottom:1px solid var(--border);text-align:left;font-size:8px}.connection-standards thead th{font:7px var(--font-mono);letter-spacing:.5px;color:var(--muted-foreground);background:var(--surface-deep)}
 .connection-standards td small{font:7px var(--font-mono);color:var(--muted-foreground)}
 @media(max-width:700px){.connection-standard-selector{grid-template-columns:1fr}.standard-profile-grid{grid-template-columns:1fr}}
+
+.connection-notice{margin:0;padding:10px 12px;border:1px solid var(--teal);border-left-width:3px;border-radius:5px;background:color-mix(in srgb,var(--teal) 7%,var(--surface));font:8px var(--font-mono);letter-spacing:.2px}
+.connection-deliveries{overflow:hidden}.connection-deliveries>header{margin:0}.connection-deliveries table{width:100%;border-collapse:collapse;min-width:1040px}
+.connection-deliveries th,.connection-deliveries td{padding:9px 10px;border-bottom:1px solid var(--border);text-align:left;vertical-align:top;font-size:8px}
+.connection-deliveries thead th{font:7px var(--font-mono);letter-spacing:.45px;color:var(--muted-foreground);background:var(--surface-deep)}
+.connection-deliveries td>b{display:block;font-size:8px}.connection-deliveries td>small{display:block;margin-top:3px;font:7px var(--font-mono);color:var(--muted-foreground)}
+.connection-deliveries code{font:7px var(--font-mono);white-space:nowrap}.connection-deliveries button{min-height:28px;padding:5px 8px;font-size:8px}

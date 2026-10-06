@@ -284,6 +284,11 @@ class IntegrationBatch(StrictModel):
     records: list[IntegrationItem] = Field(min_length=1, max_length=100)
 
 
+class PartnerDeliveryAck(StrictModel):
+    payload_digest: str = Field(pattern=r'^[0-9a-f]{64}$')
+    note: str = Field(default='', max_length=1000)
+
+
 class PartnerGrantCreate(StrictModel):
     id: Identifier
     name: Label
