@@ -192,3 +192,12 @@ The training runtime retains its narrower single-process coordination boundary.
 
 The Shorefront name is the owner's product decision. This repository change is
 not trademark, company-name or domain clearance.
+## Operational connections
+
+The administrator-only Connections workspace provides two deliberately different external boundaries.
+
+Inbound machine sources receive a one-time bearer credential and an explicit allowlist of operational record kinds they may write through POST /api/v1/integrations/{source_id}/records. Accepted records remain ordinary versioned Shorefront facts and are attributed to integration:<source_id>. Batches are bounded, atomic and idempotent.
+
+Partner projections receive separate one-time bearer credentials and explicit record-kind and payload-field allowlists through GET /api/v1/partner/projection. A projection may optionally be scoped to recorded port calls and their direct operational context. Raw source attribution, actor IDs and fields outside the allowlist are not returned.
+
+These are Shorefront-scoped API credentials, not federated SSO, vendor-specific AIS/TOS/weather connectors, a standards schema registry, contractual authority or evidence that an external provider accepted the integration. Real provider entitlements and delivery contracts remain separate release work.
