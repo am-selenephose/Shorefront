@@ -1,0 +1,113 @@
+import {useCallback,useEffect,useState,type FormEvent} from 'react'
+import {dateLabel,productRequest,recordName,type Fact,type User} from './productClient'
+
+type Source = {id:string;name:string;allowed_kinds:string[];active:boolean;created_by:string;created_at:string;expires_at:string;expired:boolean;last_used_at:string|null;write_count:number}
+type Grant = {id:string;name:string;allowed_kinds:string[];fields:Record<string,string[]>;call_ids:string[];active:boolean;created_by:string;created_at:string;expires_at:string;expired:boolean;last_used_at:string|null;access_count:number}
+
+const sourceKinds=['port','berth','vessel','call','resource','incident','task','outcome']
+const grantKinds=['port','berth','vessel','call','resource','incident','task','handoff','commitment','obligation','outcome']
+const safeFields:Record<string,string[]>={
+  port:['name','timezone','latitude','longitude'],
+  berth:['name','port_id','max_length_m','max_draft_m','latitude','longitude'],
+  vessel:['name','imo','length_m','draft_m'],
+  call:['vessel_id','berth_id','eta','etd','status'],
+  resource:['name','port_id','resource_type','available'],
+  incident:['title','call_id','severity','status'],
+  task:['title','call_id','incident_id','due_at','status'],
+  handoff:['title','call_id','due_at','status'],
+  commitment:['title','call_id','due_at','status'],
+  obligation:['title','call_id','due_at','status','clause_reference'],
+  outcome:['decision_id','actual_arrival','actual_departure'],
+}
+const defaultSource=new Set(['port','berth','vessel','call','resource','incident'])
+const defaultGrant=new Set(['port','berth','vessel','call','incident'])
+
+function TokenReceipt({title,token,onHide}:{title:string;token:string;onHide:()=>void}){
+  const [copied,setCopied]=useState(false)
+  async function copy(){try{await navigator.clipboard.writeText(token);setCopied(true)}catch{/* visible token remains available */}}
+  return <div className="connection-token" role="status"><div><span className="product-index">ONE-TIME CREDENTIAL</span><b>{title}</b><p>Store this secret now. Shorefront keeps only its SHA-256 digest and cannot show this token again.</p></div><code>{token}</code><div className="product-actions"><button type="button" onClick={()=>void copy()}>{copied?'Copied':'Copy token'}</button><button type="button" onClick={onHide}>Hide credential</button></div></div>
+}
+
+function KindSelector({label,kinds,selected,onChange}:{label:string;kinds:string[];selected:Set<string>;onChange:(value:Set<string>)=>void}){
+  return <fieldset className="connection-kind-selector"><legend>{label}</legend>{kinds.map(kind=><label key={kind}><input type="checkbox" checked={selected.has(kind)} onChange={event=>{const next=new Set(selected);if(event.target.checked)next.add(kind);else next.delete(kind);onChange(next)}}/><span>{kind}</span></label>)}</fieldset>
+}
+
+export default function ProductConnections({user,facts,writable}:{user:User;facts:Fact[];writable:boolean}){
+  const [sources,setSources]=useState<Source[]>([])
+  const [grants,setGrants]=useState<Grant[]>([])
+  const [sourceKindsSelected,setSourceKindsSelected]=useState(new Set(defaultSource))
+  const [grantKindsSelected,setGrantKindsSelected]=useState(new Set(defaultGrant))
+  const [sourceToken,setSourceToken]=useState<{label:string;token:string}|null>(null)
+  const [grantToken,setGrantToken]=useState<{label:string;token:string}|null>(null)
+  const [busy,setBusy]=useState(false),[error,setError]=useState('')
+  const [sourceOpen,setSourceOpen]=useState(false),[grantOpen,setGrantOpen]=useState(false)
+
+  const load=useCallback(async()=>{
+    if(user.role!=='admin') return
+    const [sourceRows,grantRows]=await Promise.all([
+      productRequest<Source[]>('/connections/sources'),
+      productRequest<Grant[]>('/connections/partner-grants'),
+    ])
+    setSources(sourceRows);setGrants(grantRows);setError('')
+  },[user.role])
+  useEffect(()=>{void load().catch(failure=>setError(String(failure)))},[load])
+
+  if(user.role!=='admin') return <div className="ops-workspace"><section className="ops-heading"><span className="product-index">CONNECTIONS / LEAST PRIVILEGE</span><h1>External access stays scoped.</h1><p>Connection credentials and partner projections are managed by an administrator. Your operational role is unchanged.</p></section><div className="product-boundary"><b>Administrator authority required.</b><p>This workspace does not reveal integration credentials, partner grants or their usage to non-administrators.</p></div></div>
+
+  async function createSource(event:FormEvent<HTMLFormElement>){
+    event.preventDefault();if(!sourceKindsSelected.size)return
+    setBusy(true);setError('')
+    const form=event.currentTarget,data=new FormData(form)
+    try{
+      const result=await productRequest<{source:Source;token:string}>('/connections/sources',{
+        id:String(data.get('id')),name:String(data.get('name')),expires_in_hours:Number(data.get('expires_in_hours')),
+        allowed_kinds:[...sourceKindsSelected],
+      })
+      setSourceToken({label:result.source.name,token:result.token});setSourceOpen(false);form.reset();setSourceKindsSelected(new Set(defaultSource));await load()
+    }catch(failure){setError(failure instanceof Error?failure.message:String(failure))}finally{setBusy(false)}
+  }
+  async function createGrant(event:FormEvent<HTMLFormElement>){
+    event.preventDefault();if(!grantKindsSelected.size)return
+    setBusy(true);setError('')
+    const form=event.currentTarget,data=new FormData(form),call=String(data.get('call_id')??'')
+    const fields=Object.fromEntries([...grantKindsSelected].map(kind=>[kind,safeFields[kind]]))
+    try{
+      const result=await productRequest<{grant:Grant;token:string}>('/connections/partner-grants',{
+        id:String(data.get('id')),name:String(data.get('name')),expires_in_hours:Number(data.get('expires_in_hours')),
+        allowed_kinds:[...grantKindsSelected],fields,call_ids:call?[call]:[],
+      })
+      setGrantToken({label:result.grant.name,token:result.token});setGrantOpen(false);form.reset();setGrantKindsSelected(new Set(defaultGrant));await load()
+    }catch(failure){setError(failure instanceof Error?failure.message:String(failure))}finally{setBusy(false)}
+  }
+  async function mutate(path:string,kind:'source'|'grant',label:string){
+    setBusy(true);setError('')
+    try{
+      const result=await productRequest<{token?:string;source?:Source;grant?:Grant}>(path,{})
+      if(result.token){(kind==='source'?setSourceToken:setGrantToken)({label,token:result.token})}
+      await load()
+    }catch(failure){setError(failure instanceof Error?failure.message:String(failure))}finally{setBusy(false)}
+  }
+
+  const activeSources=sources.filter(source=>source.active&&!source.expired)
+  const activeGrants=grants.filter(grant=>grant.active&&!grant.expired)
+  const integrationFacts=facts.filter(fact=>fact.source.startsWith('integration:'))
+  const calls=facts.filter(fact=>fact.kind==='call'&&!['departed','cancelled'].includes(String(fact.payload.status)))
+
+  return <div className="ops-workspace connections-workspace" data-product-workspace="connections">
+    <section className="ops-heading ops-heading-action"><div><span className="product-index">CONNECTIONS / DATA IN · SCOPED DATA OUT</span><h1>Connect the port without surrendering the workspace.</h1><p>Inbound sources get kind-scoped write credentials. Partners get field-scoped read projections. Tokens are shown once and stored only as digests.</p></div><div className="product-actions"><button disabled={!writable||busy} onClick={()=>setSourceOpen(value=>!value)}>Add data source</button><button className="product-primary" disabled={!writable||busy} onClick={()=>setGrantOpen(value=>!value)}>Create partner projection</button></div></section>
+    <div className="connection-signal-strip" aria-label="Connection summary"><div><span>ACTIVE SOURCES</span><b>{activeSources.length}</b></div><div><span>INTEGRATED FACTS</span><b>{integrationFacts.length}</b></div><div><span>ACTIVE PROJECTIONS</span><b>{activeGrants.length}</b></div><div><span>PARTNER READS</span><b>{grants.reduce((sum,grant)=>sum+grant.access_count,0)}</b></div><div><span>EXPIRED / REVOKED</span><b>{sources.length+grants.length-activeSources.length-activeGrants.length}</b></div></div>
+    {sourceToken&&<TokenReceipt title={sourceToken.label} token={sourceToken.token} onHide={()=>setSourceToken(null)}/>}
+    {grantToken&&<TokenReceipt title={grantToken.label} token={grantToken.token} onHide={()=>setGrantToken(null)}/>}
+    {error&&<p className="product-error" role="alert">{error}</p>}
+
+    {sourceOpen&&<section className="connection-editor ops-panel"><header><div><span className="product-index">INBOUND MACHINE CREDENTIAL</span><h2>Register a data source</h2></div><button onClick={()=>setSourceOpen(false)}>Close</button></header><form onSubmit={createSource}><fieldset disabled={!writable||busy}><div className="product-form-grid"><label>Source ID<input name="id" required pattern="[A-Za-z0-9_-]+" maxLength={96} placeholder="terminal-tos"/></label><label>Display name<input name="name" required maxLength={200} placeholder="Terminal TOS feed"/></label><label>Credential lifetime (hours)<input name="expires_in_hours" type="number" min={1} max={8760} defaultValue={720} required/></label></div><KindSelector label="Allowed inbound record kinds" kinds={sourceKinds} selected={sourceKindsSelected} onChange={setSourceKindsSelected}/><p className="connection-policy">The source cannot create users, approve decisions, manage grants, or write coordination state. Every accepted record is attributed to <code>integration:&lt;source-id&gt;</code>.</p><button className="product-primary" disabled={!sourceKindsSelected.size}>Create source credential</button></fieldset></form></section>}
+
+    {grantOpen&&<section className="connection-editor ops-panel"><header><div><span className="product-index">OUTBOUND READ PROJECTION</span><h2>Create a partner projection</h2></div><button onClick={()=>setGrantOpen(false)}>Close</button></header><form onSubmit={createGrant}><fieldset disabled={!writable||busy}><div className="product-form-grid"><label>Grant ID<input name="id" required pattern="[A-Za-z0-9_-]+" maxLength={96} placeholder="agent-call-window"/></label><label>Partner / purpose<input name="name" required maxLength={200} placeholder="Port agent call window"/></label><label>Credential lifetime (hours)<input name="expires_in_hours" type="number" min={1} max={2160} defaultValue={24} required/></label><label>Call scope<select name="call_id" defaultValue=""><option value="">All records in allowed kinds</option>{calls.map(call=><option key={call.record_id} value={call.record_id}>{recordName(facts.find(f=>f.kind==='vessel'&&f.record_id===call.payload.vessel_id)??call)+' · '+call.record_id}</option>)}</select></label></div><KindSelector label="Projected record kinds" kinds={grantKinds} selected={grantKindsSelected} onChange={setGrantKindsSelected}/><div className="connection-field-rules"><span className="product-index">FIELD ALLOWLIST PREVIEW</span>{[...grantKindsSelected].map(kind=><div key={kind}><b>{kind}</b><span>{safeFields[kind].join(' · ')}</span></div>)}</div><p className="connection-policy">Raw source attribution, actor IDs, proof notes, internal review notes and credentials are excluded from these default projections.</p><button className="product-primary" disabled={!grantKindsSelected.size}>Create projection credential</button></fieldset></form></section>}
+
+    <div className="connection-grid">
+      <section className="ops-panel connection-register"><header><div><span className="product-index">INBOUND REGISTRY</span><h2>Data source credentials</h2></div><b>{sources.length}</b></header>{sources.length?<div className="ops-table-scroll"><table aria-label="Data source registry"><thead><tr><th>Source</th><th>State</th><th>Allowed writes</th><th>Usage</th><th>Expires</th><th/></tr></thead><tbody>{sources.map(source=><tr key={source.id}><td><b>{source.name}</b><small>{source.id}</small></td><td><span className={'connection-state '+(source.active&&!source.expired?'active':'inactive')}>{source.active&&!source.expired?'ACTIVE':source.expired?'EXPIRED':'REVOKED'}</span></td><td><div className="connection-kind-pills">{source.allowed_kinds.map(kind=><span key={kind}>{kind}</span>)}</div></td><td><b>{source.write_count} records</b><small>{source.last_used_at?'last '+dateLabel(source.last_used_at):'never used'}</small></td><td>{dateLabel(source.expires_at)}</td><td><div className="connection-row-actions">{source.active&&!source.expired&&<><button disabled={busy||!writable} onClick={()=>void mutate('/connections/sources/'+source.id+'/rotate?expires_in_hours=720','source',source.name)}>Rotate</button><button disabled={busy||!writable} onClick={()=>void mutate('/connections/sources/'+source.id+'/revoke','source',source.name)}>Revoke</button></>}</div></td></tr>)}</tbody></table></div>:<div className="ops-empty"><b>No inbound sources registered.</b><p>Manual records remain fully usable. Add a source only when you have a real system or feed to connect.</p></div>}</section>
+      <section className="ops-panel connection-register"><header><div><span className="product-index">PARTNER PROJECTIONS</span><h2>Scoped external reads</h2></div><b>{grants.length}</b></header>{grants.length?<div className="ops-table-scroll"><table aria-label="Partner projection registry"><thead><tr><th>Projection</th><th>State</th><th>Scope</th><th>Fields</th><th>Usage</th><th/></tr></thead><tbody>{grants.map(grant=><tr key={grant.id}><td><b>{grant.name}</b><small>{grant.id}</small></td><td><span className={'connection-state '+(grant.active&&!grant.expired?'active':'inactive')}>{grant.active&&!grant.expired?'ACTIVE':grant.expired?'EXPIRED':'REVOKED'}</span></td><td><div className="connection-kind-pills">{grant.allowed_kinds.map(kind=><span key={kind}>{kind}</span>)}</div><small>{grant.call_ids.length?grant.call_ids.join(', '):'all allowed records'}</small></td><td><b>{Object.values(grant.fields).reduce((sum,fields)=>sum+fields.length,0)} fields</b><small>explicit allowlists</small></td><td><b>{grant.access_count} reads</b><small>{grant.last_used_at?'last '+dateLabel(grant.last_used_at):'never used'}</small></td><td><div className="connection-row-actions">{grant.active&&!grant.expired&&<><button disabled={busy||!writable} onClick={()=>void mutate('/connections/partner-grants/'+grant.id+'/rotate?expires_in_hours=24','grant',grant.name)}>Rotate</button><button disabled={busy||!writable} onClick={()=>void mutate('/connections/partner-grants/'+grant.id+'/revoke','grant',grant.name)}>Revoke</button></>}</div></td></tr>)}</tbody></table></div>:<div className="ops-empty"><b>No partner projections active.</b><p>Do not share the whole workspace. Create a projection only for the record kinds and fields a partner actually needs.</p></div>}</section>
+    </div>
+    <aside className="product-boundary"><b>Connection boundary.</b><p>This is scoped API access, not federated SSO or a claim that an external platform is integrated. A source must possess its own token; a partner sees only its explicit projection. Vendor contracts, live-feed entitlements and identity federation remain separate.</p></aside>
+  </div>
+}
