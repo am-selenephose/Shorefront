@@ -41,6 +41,30 @@ commands = Table('sf_command', metadata, Column('actor_id', String(96), primary_
 audit = Table('sf_audit', metadata, Column('sequence', Integer, primary_key=True, autoincrement=True),
               Column('payload', Text, nullable=False), Column('previous_hash', String(64), nullable=False),
               Column('hash', String(64), nullable=False))
+connection_sources = Table('sf_connection_source', metadata,
+                           Column('id', String(96), primary_key=True),
+                           Column('name', String(200), nullable=False),
+                           Column('digest', String(64), unique=True, nullable=False),
+                           Column('allowed_kinds', Text, nullable=False),
+                           Column('active', Integer, nullable=False),
+                           Column('created_by', String(96), nullable=False),
+                           Column('created_at', String(40), nullable=False),
+                           Column('expires_at', String(40), nullable=False),
+                           Column('last_used_at', String(40), nullable=True),
+                           Column('write_count', Integer, nullable=False))
+partner_grants = Table('sf_partner_grant', metadata,
+                       Column('id', String(96), primary_key=True),
+                       Column('name', String(200), nullable=False),
+                       Column('digest', String(64), unique=True, nullable=False),
+                       Column('allowed_kinds', Text, nullable=False),
+                       Column('field_rules', Text, nullable=False),
+                       Column('call_ids', Text, nullable=False),
+                       Column('active', Integer, nullable=False),
+                       Column('created_by', String(96), nullable=False),
+                       Column('created_at', String(40), nullable=False),
+                       Column('expires_at', String(40), nullable=False),
+                       Column('last_used_at', String(40), nullable=True),
+                       Column('access_count', Integer, nullable=False))
 
 
 def canonical(value) -> str:
