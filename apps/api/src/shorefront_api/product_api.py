@@ -18,8 +18,12 @@ from .product_coordination import schedule_conflicts, coordination_actions
 from .product_auth import (COOKIE, create_user, identify, login_attempt, public_user,
                            password_hash, password_valid, require_admin, require_origin, start_session)
 from .product_models import (AcceptInvite, ApprovalRequest, Bootstrap, DecisionRequest, ImportBatch,
-                             Invitation, Login, PasswordChange, RecordCommand, now, stamp)
+                             IntegrationBatch, Invitation, Login, PartnerGrantCreate, PasswordChange,
+                             RecordCommand, SourceCreate, now, stamp)
 from .product_decisions import approve_packet, create_packet, get_packet, packets, recall, remember
+from .product_connections import (create_partner_grant, create_source, ingest_records, list_partner_grants,
+                                  list_sources, partner_projection, revoke_partner_grant, revoke_source,
+                                  rotate_partner_grant, rotate_source)
 from .product_store import ProductStore, canonical, digest, graph, installation, invitations, public_record, sessions, users, versions
 from .storage import default_database_url
 
@@ -247,6 +251,73 @@ def create_product_app(database_url=None, installation_id=None, origin=None, boo
         if not key or len(key) > 128:
             raise HTTPException(400, 'Supply an Idempotency-Key of 1 to 128 characters')
         return key
+
+    @app.get('/api/v1/connections/sources')
+    def connection_source_list(request: Request):
+        with store.transaction() as connection:
+            actor, _ = identify(connection, request)
+            return list_sources(connection, actor)
+
+    @app.post('/api/v1/connections/sources', status_code=201)
+    def connection_source_create(body: SourceCreate, request: Request):
+        require_origin(request, site)
+        with store.transaction() as connection:
+            actor, _ = identify(connection, request, mutation=True)
+            return create_source(store, connection, actor, body)
+
+    @app.post('/api/v1/connections/sources/{source_id}/revoke')
+    def connection_source_revoke(source_id: str, request: Request):
+        require_origin(request, site)
+        with store.transaction() as connection:
+            actor, _ = identify(connection, request, mutation=True)
+            return revoke_source(store, connection, actor, source_id)
+
+    @app.post('/api/v1/connections/sources/{source_id}/rotate', status_code=201)
+    def connection_source_rotate(source_id: str, request: Request,
+                                 expires_in_hours: int = Query(720, ge=1, le=8760)):
+        require_origin(request, site)
+        with store.transaction() as connection:
+            actor, _ = identify(connection, request, mutation=True)
+            return rotate_source(store, connection, actor, source_id, expires_in_hours)
+
+    @app.post('/api/v1/integrations/{source_id}/records', status_code=201)
+    def integration_records(source_id: str, body: IntegrationBatch, request: Request):
+        key = command_key(request)
+        with store.transaction() as connection:
+            return ingest_records(store, connection, request, source_id, body, key)
+
+    @app.get('/api/v1/connections/partner-grants')
+    def partner_grant_list(request: Request):
+        with store.transaction() as connection:
+            actor, _ = identify(connection, request)
+            return list_partner_grants(connection, actor)
+
+    @app.post('/api/v1/connections/partner-grants', status_code=201)
+    def partner_grant_create(body: PartnerGrantCreate, request: Request):
+        require_origin(request, site)
+        with store.transaction() as connection:
+            actor, _ = identify(connection, request, mutation=True)
+            return create_partner_grant(store, connection, actor, body)
+
+    @app.post('/api/v1/connections/partner-grants/{grant_id}/revoke')
+    def partner_grant_revoke(grant_id: str, request: Request):
+        require_origin(request, site)
+        with store.transaction() as connection:
+            actor, _ = identify(connection, request, mutation=True)
+            return revoke_partner_grant(store, connection, actor, grant_id)
+
+    @app.post('/api/v1/connections/partner-grants/{grant_id}/rotate', status_code=201)
+    def partner_grant_rotate(grant_id: str, request: Request,
+                             expires_in_hours: int = Query(24, ge=1, le=2160)):
+        require_origin(request, site)
+        with store.transaction() as connection:
+            actor, _ = identify(connection, request, mutation=True)
+            return rotate_partner_grant(store, connection, actor, grant_id, expires_in_hours)
+
+    @app.get('/api/v1/partner/projection')
+    def partner_projection_read(request: Request):
+        with store.transaction() as connection:
+            return partner_projection(store, connection, request)
 
     @app.post('/api/v1/imports', status_code=201)
     def import_records(body: ImportBatch, request: Request):
