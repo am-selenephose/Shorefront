@@ -308,3 +308,23 @@
 /* Mobile keeps one primary operational canvas instead of duplicating the desktop status rail. */
 @media(max-width:720px){.product-command-rail{display:none}}
 @media(max-width:1200px){.ops-pulse-grid-advanced{grid-template-columns:1fr}}
+
+.connection-signal-strip{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));border:1px solid var(--border);border-radius:7px;background:var(--surface);overflow:hidden}
+.connection-signal-strip>div{padding:12px 14px;border-right:1px solid var(--border)}.connection-signal-strip>div:last-child{border-right:0}
+.connection-signal-strip span{display:block;font:7px var(--font-mono);letter-spacing:.6px;color:var(--muted-foreground)}.connection-signal-strip b{display:block;margin-top:6px;font:600 20px var(--font-mono)}
+.connection-token{display:grid;grid-template-columns:minmax(220px,.7fr) minmax(260px,1fr) auto;gap:14px;align-items:center;padding:16px 18px;border:1px solid var(--teal);border-left:4px solid var(--teal);border-radius:7px;background:var(--surface)}
+.connection-token b{display:block;margin-top:4px;font-size:13px}.connection-token p{margin:4px 0 0;font-size:9px}.connection-token code{padding:9px 10px;background:var(--surface-inset);font:9px var(--font-mono);overflow-wrap:anywhere;user-select:all}
+.connection-editor{overflow:hidden}.connection-editor>header{margin:0}.connection-editor>form{padding:16px}.connection-editor .product-form-grid{grid-template-columns:repeat(3,minmax(0,1fr))}
+.connection-kind-selector{display:flex!important;flex-wrap:wrap!important;gap:6px!important;margin:14px 0!important}.connection-kind-selector legend{width:100%;margin-bottom:4px;font:8px var(--font-mono);letter-spacing:.55px;color:var(--muted-foreground)}
+.product-shell .connection-kind-selector label{display:flex;flex-direction:row;align-items:center;gap:6px;width:auto;margin:0;padding:6px 8px;border:1px solid var(--border);border-radius:999px;background:var(--surface-inset);font-size:9px;text-transform:capitalize}
+.product-shell .connection-kind-selector input{width:12px!important;height:12px!important;min-height:0!important;margin:0}
+.connection-policy{padding:10px 12px;border-left:3px solid var(--teal);background:var(--surface-inset);font-size:9px!important}
+.connection-field-rules{display:grid;gap:5px;margin:14px 0;padding:12px;border:1px solid var(--border);border-radius:6px;background:var(--surface-inset)}
+.connection-field-rules>.product-index{margin-bottom:3px}.connection-field-rules>div{display:grid;grid-template-columns:100px 1fr;gap:10px;padding:5px 0;border-bottom:1px solid var(--border)}.connection-field-rules>div:last-child{border-bottom:0}.connection-field-rules b{font:8px var(--font-mono);text-transform:uppercase}.connection-field-rules span{font:8px/1.5 var(--font-mono);color:var(--muted-foreground)}
+.connection-grid{display:grid;grid-template-columns:1fr;gap:10px}.connection-register{overflow:hidden}.connection-register table{width:100%;border-collapse:collapse;min-width:900px}.connection-register th,.connection-register td{padding:10px 12px;border-bottom:1px solid var(--border);text-align:left;font-size:9px;vertical-align:middle}.connection-register thead th{background:var(--surface-deep);font:7px var(--font-mono);letter-spacing:.55px;color:var(--muted-foreground)}
+.connection-register td>b{display:block;font-size:10px}.connection-register td>small{display:block;margin-top:3px;font:7px/1.45 var(--font-mono);color:var(--muted-foreground)}
+.connection-kind-pills{display:flex;flex-wrap:wrap;gap:3px;max-width:280px}.connection-kind-pills span{padding:3px 5px;border:1px solid var(--border);border-radius:999px;background:var(--surface-inset);font:6px var(--font-mono);text-transform:uppercase}
+.connection-state{display:inline-flex;padding:4px 6px;border:1px solid var(--border-strong);border-radius:999px;font:7px var(--font-mono)}.connection-state.active{color:var(--teal);border-color:var(--teal)}.connection-state.inactive{color:var(--danger);border-color:var(--danger-border)}
+.connection-row-actions{display:flex;gap:4px}.connection-row-actions button{min-height:30px!important;padding:5px 7px!important;font-size:8px!important}
+@media(max-width:900px){.connection-signal-strip{grid-template-columns:1fr 1fr}.connection-token{grid-template-columns:1fr}.connection-editor .product-form-grid{grid-template-columns:1fr 1fr}}
+@media(max-width:600px){.connection-editor .product-form-grid{grid-template-columns:1fr}.connection-signal-strip{grid-template-columns:1fr 1fr}.connection-field-rules>div{grid-template-columns:1fr}}
