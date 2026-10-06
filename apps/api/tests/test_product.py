@@ -133,6 +133,22 @@ def test_references_and_payload_are_validated_atomically(customer):
     assert customer.get('/api/v1/workspace').json()['records'] == []
 
 
+def test_port_coordinates_are_optional_but_validated(customer):
+    recorded = write(customer, 'port', 'geo-port', {
+        'name': 'Coordinate Port', 'timezone': 'Asia/Karachi',
+        'latitude': 24.8441, 'longitude': 66.9762,
+    })
+    assert recorded.status_code == 201, recorded.text
+    assert recorded.json()['payload']['latitude'] == 24.8441
+    assert recorded.json()['payload']['longitude'] == 66.9762
+    assert write(customer, 'port', 'bad-port-lat', {
+        'name': 'Bad latitude', 'timezone': 'UTC', 'latitude': 91, 'longitude': 66.9,
+    }).status_code == 422
+    assert write(customer, 'port', 'bad-port-lon', {
+        'name': 'Bad longitude', 'timezone': 'UTC', 'latitude': 24.8, 'longitude': 181,
+    }).status_code == 422
+
+
 def test_berth_coordinates_are_optional_but_validated(customer):
     assert write(customer, 'port', 'p', {'name': 'P', 'timezone': 'UTC'}).status_code == 201
     recorded = write(customer, 'berth', 'geo-berth', {

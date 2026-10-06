@@ -148,7 +148,7 @@ export default function ProductApp({needsSetup}: {needsSetup: boolean}) {
         {view === 'Plan' && <><OperationalPlan workspace={workspace} {...actions}/><div className="ops-decision-review"><ProductDecisions facts={workspace.records} user={session.user} writable={writable} onRefresh={refresh}/></div></>}
         {view === 'Calls' && <OperationalCalls workspace={workspace} {...actions}/>}
         {view === 'Exceptions' && <OperationalExceptions workspace={workspace} team={team} {...actions}/>}
-        {view === 'Coordination' && <ProductCoordination facts={workspace.records} team={team} writable={writable} onRefresh={refresh} onCreate={actions.onCreate}/>}
+        {view === 'Coordination' && <ProductCoordination facts={workspace.records} team={team} writable={writable} onRefresh={refresh} onCreate={actions.onCreate} onEdit={actions.onEdit}/>}
         {view === 'Recovery' && <ProductDecisions facts={workspace.records} user={session.user} writable={writable} onRefresh={refresh}/>}
         {view === 'Records' && <ProductRecords facts={workspace.records} team={team} writable={writable} onSave={refresh}/>}
         {view === 'Evidence' && <ProductEvidence facts={workspace.records} team={team}/>}

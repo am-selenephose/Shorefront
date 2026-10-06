@@ -24,6 +24,8 @@ class StrictModel(BaseModel):
 class Port(StrictModel):
     name: Label
     timezone: str = Field(max_length=80)
+    latitude: float | None = Field(default=None, ge=-90, le=90, allow_inf_nan=False)
+    longitude: float | None = Field(default=None, ge=-180, le=180, allow_inf_nan=False)
 
     @field_validator('timezone')
     @classmethod
