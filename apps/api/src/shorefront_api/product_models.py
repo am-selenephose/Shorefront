@@ -236,3 +236,64 @@ class DecisionRequest(StrictModel):
 class ApprovalRequest(StrictModel):
     option_id: Identifier
     reason: str = Field(min_length=1, max_length=2000)
+
+
+INGESTIBLE_KINDS = {'port', 'berth', 'vessel', 'call', 'resource', 'incident', 'task', 'outcome'}
+PROJECTABLE_KINDS = set(RECORD_MODELS)
+
+
+class SourceCreate(StrictModel):
+    id: Identifier
+    name: Label
+    allowed_kinds: list[str] = Field(min_length=1, max_length=20)
+    expires_in_hours: int = Field(default=720, ge=1, le=8760)
+
+    @field_validator('allowed_kinds')
+    @classmethod
+    def valid_ingest_kinds(cls, values):
+        if len(values) != len(set(values)) or any(value not in INGESTIBLE_KINDS for value in values):
+            raise ValueError('Sources may write only explicitly supported operational record kinds')
+        return values
+
+
+class IntegrationItem(StrictModel):
+    kind: str
+    record_id: Identifier
+    expected_revision: int = Field(ge=0)
+    valid_at: AwareDatetime | None = None
+    payload: dict
+
+    @field_validator('kind')
+    @classmethod
+    def valid_kind(cls, value):
+        if value not in INGESTIBLE_KINDS:
+            raise ValueError('Unsupported integration record kind')
+        return value
+
+
+class IntegrationBatch(StrictModel):
+    records: list[IntegrationItem] = Field(min_length=1, max_length=100)
+
+
+class PartnerGrantCreate(StrictModel):
+    id: Identifier
+    name: Label
+    allowed_kinds: list[str] = Field(min_length=1, max_length=20)
+    fields: dict[str, list[str]]
+    call_ids: list[Identifier] = Field(default_factory=list, max_length=100)
+    expires_in_hours: int = Field(default=24, ge=1, le=2160)
+
+    @model_validator(mode='after')
+    def validate_projection(self):
+        if len(self.allowed_kinds) != len(set(self.allowed_kinds)) or any(kind not in PROJECTABLE_KINDS for kind in self.allowed_kinds):
+            raise ValueError('Projection contains an unsupported record kind')
+        if set(self.fields) != set(self.allowed_kinds):
+            raise ValueError('Every projected kind needs an explicit field allowlist')
+        for kind, fields in self.fields.items():
+            if not fields or len(fields) != len(set(fields)):
+                raise ValueError(f'{kind} requires a non-empty unique field allowlist')
+            allowed = set(RECORD_MODELS[kind].model_fields)
+            unknown = set(fields) - allowed
+            if unknown:
+                raise ValueError(f'{kind} projection contains unknown fields: {", ".join(sorted(unknown))}')
+        return self
