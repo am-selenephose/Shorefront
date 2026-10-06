@@ -5,11 +5,12 @@ import ProductEvidence from './ProductEvidence'
 import ProductDecisions from './ProductDecisions'
 import ProductAccount from './ProductAccount'
 import ProductCommandRail from './ProductCommandRail'
+import ProductConnections from './ProductConnections'
 import {OperationalCalls, OperationalExceptions, OperationalPlan, OperationalPulse} from './ProductWorkspaces'
 import {ProductError, productRequest, setSession, validateWorkspace, type Fact, type Session, type User, type Workspace} from './productClient'
 import './product.css'
 
-const views = ['Pulse', 'Plan', 'Calls', 'Exceptions', 'Coordination', 'Recovery', 'Records', 'Evidence', 'Team'] as const
+const views = ['Pulse', 'Plan', 'Calls', 'Exceptions', 'Coordination', 'Recovery', 'Connections', 'Records', 'Evidence', 'Team'] as const
 type View = typeof views[number]
 function readView(): View {return views.find(v => `#${v.toLowerCase()}` === location.hash) ?? 'Pulse'}
 function OperationalClock() {
@@ -165,6 +166,7 @@ export default function ProductApp({needsSetup}: {needsSetup: boolean}) {
     Exceptions:workspace?.attention.length??0,
     Coordination:workspace?.records.filter(record=>['handoff','commitment','obligation'].includes(record.kind)&&!['acknowledged','fulfilled','declined','cancelled','completed'].includes(String(record.payload.status))).length??0,
     Recovery:workspace?.records.filter(record=>record.kind==='call'&&record.payload.status==='planned').length??0,
+    Connections:workspace?.records.filter(record=>record.source.startsWith('integration:')).length??0,
     Records:workspace?.records.length??0,
     Evidence:workspace?.records.length??0,
     Team:team.filter(member=>member.active).length,
@@ -179,6 +181,7 @@ export default function ProductApp({needsSetup}: {needsSetup: boolean}) {
         {view === 'Exceptions' && <OperationalExceptions workspace={workspace} team={team} {...actions}/>}
         {view === 'Coordination' && <ProductCoordination facts={workspace.records} team={team} writable={writable} onRefresh={refresh} onCreate={actions.onCreate} onEdit={actions.onEdit}/>}
         {view === 'Recovery' && <ProductDecisions facts={workspace.records} user={session.user} writable={writable} onRefresh={refresh}/>}
+        {view === 'Connections' && <ProductConnections user={session.user} facts={workspace.records} writable={writable}/>}
         {view === 'Records' && <ProductRecords facts={workspace.records} team={team} writable={writable} onSave={refresh}/>}
         {view === 'Evidence' && <ProductEvidence facts={workspace.records} team={team}/>}
         {view === 'Team' && <Team members={team} session={session} writable={fresh} onRefresh={refresh} onSession={value => {if (locked.current || sessionEpoch !== epoch.current) return; epoch.current++; adopt(value)}}/>}
