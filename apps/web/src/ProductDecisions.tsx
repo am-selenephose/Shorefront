@@ -53,8 +53,12 @@ export default function ProductDecisions({facts, user, writable, onRefresh}: {fa
     catch (failure) {setError(String(failure))} finally {setBusy(false)}
   }
   const planned = facts.filter(f => f.kind === 'call' && f.payload.status === 'planned')
-  return <><p className="eyebrow">PLAN / EVIDENCE-BOUND REVIEW</p><h1>A decision with its context intact.</h1><p>Compare recorded berth windows. A supervisor approves the plan; Shorefront never treats that as vessel clearance or a financial return.</p>
-    <section className="product-card"><h2>Create a decision packet</h2><form onSubmit={propose}><fieldset disabled={!writable || busy}><div className="product-form-grid"><label>Planned call<select name="call_id" required><option value="">Select a planned call</option>{planned.map(c => <option value={c.record_id} key={c.record_id}>{recordName(facts.find(f => f.kind === 'vessel' && f.record_id === c.payload.vessel_id) ?? c)} · {dateLabel(String(c.payload.eta))}</option>)}</select></label><label>Decision question<input name="question" required maxLength={1000} defaultValue="Which recorded berth window should we use?"/></label></div><button className="product-primary">{busy ? 'Working…' : 'Prepare decision packet'}</button></fieldset></form>{!planned.length && <p>Create a planned port call in Records to start a review.</p>}</section>
+  const approved=packets.filter(packet=>packet.receipt).length
+  const pendingPackets=packets.filter(packet=>!packet.receipt).length
+  const warnings=packets.reduce((count,packet)=>count+packet.trust.warnings.length,0)
+  return <div className="decision-workspace-advanced"><div className="ops-heading"><p className="eyebrow">PLAN / EVIDENCE-BOUND REVIEW</p><h1>A decision with its context intact.</h1><p>Compare recorded berth windows. A supervisor approves the plan; Shorefront never treats that as vessel clearance or a financial return.</p></div>
+    <div className="decision-signal-strip" aria-label="Decision review summary"><div><span>PLANNED CALLS</span><b>{planned.length}</b></div><div><span>PACKETS ON PAGE</span><b>{packets.length}</b></div><div><span>PENDING</span><b>{pendingPackets}</b></div><div><span>APPROVED</span><b>{approved}</b></div><div><span>WARNINGS</span><b>{warnings}</b></div></div>
+    <section className="product-card decision-create-panel"><h2>Create a decision packet</h2><form onSubmit={propose}><fieldset disabled={!writable || busy}><div className="product-form-grid"><label>Planned call<select name="call_id" required><option value="">Select a planned call</option>{planned.map(c => <option value={c.record_id} key={c.record_id}>{recordName(facts.find(f => f.kind === 'vessel' && f.record_id === c.payload.vessel_id) ?? c)} · {dateLabel(String(c.payload.eta))}</option>)}</select></label><label>Decision question<input name="question" required maxLength={1000} defaultValue="Which recorded berth window should we use?"/></label></div><button className="product-primary">{busy ? 'Working…' : 'Prepare decision packet'}</button></fieldset></form>{!planned.length && <p>Create a planned port call in Records to start a review.</p>}</section>
     {error && <p className="product-error" role="alert">{error}</p>}
     {notice && <p role="status">{notice}</p>}
     <section className="product-card" aria-label="Decision history">
@@ -76,5 +80,5 @@ export default function ProductDecisions({facts, user, writable, onRefresh}: {fa
         {packet.receipt && <ProductOutcome decisionId={packet.id} expected={packet.options.find(o => o.id === packet.receipt?.option_id)!.call_payload as {eta:string; etd:string}} existing={facts.find(f => f.kind === 'outcome' && f.payload.decision_id === packet.id)} writable={writable} onRefresh={onRefresh}/>}
       </>}
     </section>)}
-  </>
+  </div>
 }

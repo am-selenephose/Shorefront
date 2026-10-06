@@ -51,9 +51,11 @@ export default function ProductEvidence({facts,team}:{facts:Fact[];team:User[]})
     finally{if(mounted.current&&request===replayGeneration.current)setReplaying(false)}
   }
   const filtered=history.filter(r=>`${recordName(r)} ${r.kind} ${r.source}`.toLowerCase().includes(query.toLowerCase()))
-  return <div className="ops-workspace" data-product-workspace="evidence">
-    <div className="product-section-heading"><div><p className="eyebrow">EVIDENCE / PRESERVED CONTEXT</p><h1>Every correction keeps its past.</h1></div><button disabled={download} onClick={()=>void exportEvidence()}>{download?'Preparing…':'Export evidence'}</button></div>
-    <p>Recorded time answers “what did we know?” Effective time answers “when did it apply?” Exported evidence uses a SHA-256 chain, not a digital signature.</p>
+  const categories=new Set(facts.map(record=>record.kind)).size
+  const sources=new Set(facts.map(record=>record.source).filter(Boolean)).size
+  return <div className="ops-workspace evidence-workspace-advanced" data-product-workspace="evidence">
+    <div className="product-section-heading ops-heading-action"><div><p className="eyebrow">EVIDENCE / PRESERVED CONTEXT</p><h1>Every correction keeps its past.</h1><p>Recorded time answers “what did we know?” Effective time answers “when did it apply?” Exported evidence uses a SHA-256 chain, not a digital signature.</p></div><button disabled={download} onClick={()=>void exportEvidence()}>{download?'Preparing…':'Export evidence'}</button></div>
+    <div className="evidence-signal-strip" aria-label="Evidence coverage summary"><div><span>CURRENT FACTS</span><b>{facts.length}</b></div><div><span>VERSIONS LOADED</span><b>{history.length}</b></div><div><span>SOURCES</span><b>{sources}</b></div><div><span>CATEGORIES</span><b>{categories}</b></div><div><span>TEAM ACTORS</span><b>{team.filter(user=>user.active).length}</b></div></div>
     {exportError&&<p className="product-error" role="alert">{exportError} Retry the export when connected.</p>}
     <section className="ops-panel"><header><div><span className="product-index">TWO-CLOCK RECONSTRUCTION</span><h2>Inspect the record as it stood</h2></div></header><div className="evidence-controls"><form className="product-replay" onSubmit={reconstruct}><label>Known by<input type="datetime-local" step="any" value={knownAt} required onChange={e=>setKnownAt(e.target.value)}/></label><label>Effective at<input type="datetime-local" step="any" value={validAt} required onChange={e=>setValidAt(e.target.value)}/></label><button type="submit">Reconstruct view</button></form><p>Inputs use your browser’s local timezone. Results retain their exact UTC timestamps. Historical facts are read-only.</p></div></section>
     {replaying&&<div className="evidence-loading" role="status">Reconstructing the selected clocks…</div>}

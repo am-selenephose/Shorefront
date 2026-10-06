@@ -1,4 +1,4 @@
-import {useEffect, useMemo, useRef} from 'react'
+import {useEffect, useMemo, useRef, useState} from 'react'
 import * as maplibregl from 'maplibre-gl'
 import type {Map, Marker} from 'maplibre-gl'
 import mapWorkerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url'
@@ -24,6 +24,9 @@ export default function ProductHarborMap({facts,focusedCallId,writable,onCreate,
   const node = useRef<HTMLDivElement|null>(null)
   const mapRef = useRef<Map|null>(null)
   const markers = useRef<Marker[]>([])
+  const [showBerths,setShowBerths]=useState(true)
+  const [showCalls,setShowCalls]=useState(true)
+  const [exceptionsOnly,setExceptionsOnly]=useState(false)
   const ports = useMemo(()=>facts.filter(f=>f.kind==='port'),[facts])
   const berths = useMemo(()=>facts.filter(f=>f.kind==='berth'),[facts])
   const calls = useMemo(()=>facts.filter(f=>f.kind==='call' && !['departed','cancelled'].includes(String(f.payload.status))),[facts])
@@ -71,13 +74,16 @@ export default function ProductHarborMap({facts,focusedCallId,writable,onCreate,
       }
       for (const berth of geoBerths) {
         const location=point(berth)!; points.push(location)
-        const berthEl=document.createElement('div'); berthEl.className='product-map-berth-marker'; berthEl.title=`Recorded berth: ${recordName(berth)}`
-        const pin=document.createElement('i'); const label=document.createElement('span'); label.textContent=recordName(berth); berthEl.append(pin,label)
-        markers.current.push(new maplibregl.Marker({element:berthEl,anchor:'bottom-left',offset:[8,-6]}).setLngLat([location.lon,location.lat]).addTo(map))
+        if(showBerths){
+          const berthEl=document.createElement('div'); berthEl.className='product-map-berth-marker'; berthEl.title=`Recorded berth: ${recordName(berth)}`
+          const pin=document.createElement('i'); const label=document.createElement('span'); label.textContent=recordName(berth); berthEl.append(pin,label)
+          markers.current.push(new maplibregl.Marker({element:berthEl,anchor:'bottom-left',offset:[8,-6]}).setLngLat([location.lon,location.lat]).addTo(map))
+        }
         const linked=calls.filter(call=>call.payload.berth_id===berth.record_id)
         linked.forEach((call,index)=>{
           const vessel=vessels.find(v=>v.record_id===call.payload.vessel_id)
           const openIncidents=incidents.filter(incident=>incident.payload.call_id===call.record_id).length
+          if(!showCalls || (exceptionsOnly && !openIncidents)) return
           const callEl=document.createElement('div')
           callEl.className=`product-map-call-marker coord-harbor-call${call.record_id===focusedCallId?' is-focused':''}${openIncidents?' has-incident':''}`
           callEl.style.setProperty('--call-stack',String(index))
@@ -104,7 +110,7 @@ export default function ProductHarborMap({facts,focusedCallId,writable,onCreate,
     const observer=new MutationObserver(()=>{if(map.isStyleLoaded())sync()})
     observer.observe(document.documentElement,{attributes:true,attributeFilter:['data-theme']})
     return()=>{map.off('load',sync);observer.disconnect()}
-  },[geoPorts,geoBerths,calls,vessels,incidents,focusedCallId])
+  },[geoPorts,geoBerths,calls,vessels,incidents,focusedCallId,showBerths,showCalls,exceptionsOnly])
 
   const setup = !hasGeography ? (
     <div className="product-map-setup">
@@ -126,6 +132,12 @@ export default function ProductHarborMap({facts,focusedCallId,writable,onCreate,
 
   return <section className="product-geographic-map" role="region" aria-label="Operational geographic harbor map">
     <div className="product-map-canvas" ref={node}/>
+    <div className="product-map-layers" role="group" aria-label="Map layers">
+      <span>LAYERS</span>
+      <button type="button" aria-pressed={showBerths} onClick={()=>setShowBerths(value=>!value)}>Berths</button>
+      <button type="button" aria-pressed={showCalls} onClick={()=>setShowCalls(value=>!value)}>Calls</button>
+      <button type="button" aria-pressed={exceptionsOnly} disabled={!showCalls} onClick={()=>setExceptionsOnly(value=>!value)}>Exceptions only</button>
+    </div>
     {setup}
     <div className="product-map-legend">
       <span><i className="port"/> Recorded port</span>
