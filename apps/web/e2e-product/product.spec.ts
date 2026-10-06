@@ -150,10 +150,13 @@ test('admin manages scoped data sources and partner projection credentials', asy
   await expect(page.getByRole('link', {name:'Connections', exact:true})).toBeVisible()
   await page.getByRole('link', {name:'Connections', exact:true}).click()
   await expect(page.getByRole('heading', {name:'Connect the port without surrendering the workspace.'})).toBeVisible()
+  await expect(page.getByRole('heading', {name:'Validated external event contracts'})).toBeVisible()
+  await expect(page.getByText('DCSA Port Call 2.0.0', {exact:true})).toBeVisible()
 
   await page.getByRole('button', {name:'Add data source', exact:true}).click()
   await page.getByLabel('Source ID').fill('browser-source')
   await page.getByLabel('Display name').fill('Browser source')
+  await page.locator('.connection-standard-selector label').filter({hasText:'DCSA Port Call 2.0.0'}).getByRole('checkbox').check()
   await page.getByRole('button', {name:'Create source credential', exact:true}).click()
   const sourceReceipt=page.locator('.connection-token').filter({hasText:'Browser source'})
   await expect(sourceReceipt).toContainText('ONE-TIME CREDENTIAL')
@@ -162,6 +165,7 @@ test('admin manages scoped data sources and partner projection credentials', asy
   await sourceReceipt.getByRole('button',{name:'Hide credential'}).click()
   const sourceTable=page.getByRole('table',{name:'Data source registry'})
   await expect(sourceTable).toContainText('Browser source')
+  await expect(sourceTable).toContainText('dcsa-port-call-2.0.0')
   await expect(sourceTable).not.toContainText(sourceToken)
 
   await page.getByRole('button', {name:'Create partner projection', exact:true}).click()

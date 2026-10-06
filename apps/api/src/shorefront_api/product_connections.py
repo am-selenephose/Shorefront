@@ -9,7 +9,7 @@ from fastapi import HTTPException, Request
 from sqlalchemy import insert, select, update
 
 from .product_models import IntegrationBatch, PartnerGrantCreate, RecordCommand, SourceCreate, now, stamp
-from .product_store import (canonical, commands, connection_sources, digest, partner_grants)
+from .product_store import (canonical, commands, connection_sources, digest, partner_grants, source_standard_profiles)
 
 
 def _expires(hours: int) -> str:
@@ -27,11 +27,12 @@ def _bearer(request: Request) -> str:
     return value[7:].strip()
 
 
-def _source_public(row) -> dict:
+def _source_public(row, standard_profiles=None) -> dict:
     return {
         'id': row['id'],
         'name': row['name'],
         'allowed_kinds': json.loads(row['allowed_kinds']),
+        'standard_profiles': list(standard_profiles or []),
         'active': bool(row['active']),
         'created_by': row['created_by'],
         'created_at': row['created_at'],
@@ -59,6 +60,14 @@ def _grant_public(row) -> dict:
     }
 
 
+def _source_profiles(connection, source_id: str) -> list[str]:
+    return list(connection.execute(
+        select(source_standard_profiles.c.profile_id)
+        .where(source_standard_profiles.c.source_id == source_id)
+        .order_by(source_standard_profiles.c.profile_id)
+    ).scalars())
+
+
 def create_source(store, connection, actor, body: SourceCreate) -> dict:
     if actor['role'] != 'admin':
         raise HTTPException(403, 'Administrator authority required')
@@ -79,17 +88,19 @@ def create_source(store, connection, actor, body: SourceCreate) -> dict:
         'write_count': 0,
     }
     connection.execute(insert(connection_sources).values(**row))
+    for profile_id in body.standard_profiles:
+        connection.execute(insert(source_standard_profiles).values(source_id=body.id, profile_id=profile_id))
     store.add_audit(connection, actor['id'], 'connection.source.created',
                     {'id': body.id, 'name': body.name, 'allowed_kinds': body.allowed_kinds,
-                     'expires_at': row['expires_at']})
-    return {'source': _source_public(row), 'token': token}
+                     'standard_profiles': body.standard_profiles, 'expires_at': row['expires_at']})
+    return {'source': _source_public(row, body.standard_profiles), 'token': token}
 
 
 def list_sources(connection, actor) -> list[dict]:
     if actor['role'] != 'admin':
         raise HTTPException(403, 'Administrator authority required')
     rows = connection.execute(select(connection_sources).order_by(connection_sources.c.id)).mappings()
-    return [_source_public(row) for row in rows]
+    return [_source_public(row, _source_profiles(connection, row['id'])) for row in rows]
 
 
 def revoke_source(store, connection, actor, source_id: str) -> dict:
@@ -101,7 +112,7 @@ def revoke_source(store, connection, actor, source_id: str) -> dict:
     if row['active']:
         connection.execute(update(connection_sources).where(connection_sources.c.id == source_id).values(active=0))
         store.add_audit(connection, actor['id'], 'connection.source.revoked', {'id': source_id})
-    return {**_source_public({**row, 'active': 0}), 'active': False}
+    return {**_source_public({**row, 'active': 0}, _source_profiles(connection, source_id)), 'active': False}
 
 
 def rotate_source(store, connection, actor, source_id: str, hours: int) -> dict:
@@ -117,7 +128,7 @@ def rotate_source(store, connection, actor, source_id: str, hours: int) -> dict:
     refreshed = {**row, 'digest': digest(token), 'active': 1, 'expires_at': expires_at}
     store.add_audit(connection, actor['id'], 'connection.source.rotated',
                     {'id': source_id, 'expires_at': expires_at})
-    return {'source': _source_public(refreshed), 'token': token}
+    return {'source': _source_public(refreshed, _source_profiles(connection, source_id)), 'token': token}
 
 
 def _authenticated_source(connection, request: Request, source_id: str):

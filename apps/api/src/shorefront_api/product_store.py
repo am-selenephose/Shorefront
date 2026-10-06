@@ -65,6 +65,23 @@ partner_grants = Table('sf_partner_grant', metadata,
                        Column('expires_at', String(40), nullable=False),
                        Column('last_used_at', String(40), nullable=True),
                        Column('access_count', Integer, nullable=False))
+source_standard_profiles = Table('sf_connection_source_profile', metadata,
+                                 Column('source_id', String(96), primary_key=True),
+                                 Column('profile_id', String(96), primary_key=True))
+standard_events = Table('sf_standard_event', metadata,
+                        Column('sequence', Integer, primary_key=True, autoincrement=True),
+                        Column('source_id', String(96), nullable=False, index=True),
+                        Column('profile_id', String(96), nullable=False, index=True),
+                        Column('event_id', String(96), nullable=False, index=True),
+                        Column('revision', Integer, nullable=False),
+                        Column('external_key', String(96), nullable=False, index=True),
+                        Column('event_updated_at', String(40), nullable=False),
+                        Column('received_at', String(40), nullable=False),
+                        Column('digest', String(64), nullable=False),
+                        Column('state', String(24), nullable=False),
+                        Column('payload', Text, nullable=False),
+                        Column('materialized', Text, nullable=False),
+                        UniqueConstraint('source_id', 'profile_id', 'event_id', 'revision'))
 
 
 def canonical(value) -> str:

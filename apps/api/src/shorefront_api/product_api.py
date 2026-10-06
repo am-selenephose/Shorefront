@@ -24,6 +24,8 @@ from .product_decisions import approve_packet, create_packet, get_packet, packet
 from .product_connections import (create_partner_grant, create_source, ingest_records, list_partner_grants,
                                   list_sources, partner_projection, revoke_partner_grant, revoke_source,
                                   rotate_partner_grant, rotate_source)
+from .product_standards import (DCSA_PROFILE, ingest_dcsa_port_call, list_standard_events,
+                                list_standard_profiles)
 from .product_store import ProductStore, canonical, digest, graph, installation, invitations, public_record, sessions, users, versions
 from .storage import default_database_url
 
@@ -285,6 +287,26 @@ def create_product_app(database_url=None, installation_id=None, origin=None, boo
         key = command_key(request)
         with store.transaction() as connection:
             return ingest_records(store, connection, request, source_id, body, key)
+
+    @app.get('/api/v1/connections/standards')
+    def connection_standard_profiles(request: Request):
+        with store.transaction() as connection:
+            actor, _ = identify(connection, request)
+            return list_standard_profiles(connection, actor)
+
+    @app.get('/api/v1/connections/standard-events')
+    def connection_standard_event_list(request: Request, limit: int = Query(100, ge=1, le=500)):
+        with store.transaction() as connection:
+            actor, _ = identify(connection, request)
+            return list_standard_events(connection, actor, limit=limit)
+
+    @app.post('/api/v1/integrations/{source_id}/standards/{profile_id}/events', status_code=202)
+    def integration_standard_events(source_id: str, profile_id: str, body: dict, request: Request):
+        if profile_id != DCSA_PROFILE:
+            raise HTTPException(404, 'Unknown operational standard profile')
+        key = command_key(request)
+        with store.transaction() as connection:
+            return ingest_dcsa_port_call(store, connection, request, source_id, body, key)
 
     @app.get('/api/v1/connections/partner-grants')
     def partner_grant_list(request: Request):

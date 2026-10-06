@@ -240,12 +240,14 @@ class ApprovalRequest(StrictModel):
 
 INGESTIBLE_KINDS = {'port', 'berth', 'vessel', 'call', 'resource', 'incident', 'task', 'outcome'}
 PROJECTABLE_KINDS = set(RECORD_MODELS)
+SUPPORTED_STANDARD_PROFILES = {'dcsa-port-call-2.0.0'}
 
 
 class SourceCreate(StrictModel):
     id: Identifier
     name: Label
     allowed_kinds: list[str] = Field(min_length=1, max_length=20)
+    standard_profiles: list[str] = Field(default_factory=list, max_length=20)
     expires_in_hours: int = Field(default=720, ge=1, le=8760)
 
     @field_validator('allowed_kinds')
@@ -253,6 +255,13 @@ class SourceCreate(StrictModel):
     def valid_ingest_kinds(cls, values):
         if len(values) != len(set(values)) or any(value not in INGESTIBLE_KINDS for value in values):
             raise ValueError('Sources may write only explicitly supported operational record kinds')
+        return values
+
+    @field_validator('standard_profiles')
+    @classmethod
+    def valid_standard_profiles(cls, values):
+        if len(values) != len(set(values)) or any(value not in SUPPORTED_STANDARD_PROFILES for value in values):
+            raise ValueError('Unsupported operational standard profile')
         return values
 
 
