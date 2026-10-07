@@ -44,7 +44,7 @@ export default function ProductHarborMap({facts,focusedCallId,writable,onCreate,
       container:node.current,
       center:[0,20], zoom:1.35, minZoom:1,
       dragRotate:false, pitchWithRotate:false,
-      style:{version:8,sources:{osm:{type:'raster',tiles:['https://tile.openstreetmap.org/{z}/{x}/{y}.png'],tileSize:256,attribution:'© OpenStreetMap contributors'}},layers:[{id:'osm',type:'raster',source:'osm'}]},
+      style:'https://tiles.openfreemap.org/styles/liberty',
     })
     map.addControl(new maplibregl.NavigationControl({showCompass:false}), 'bottom-right')
     mapRef.current=map
@@ -58,13 +58,6 @@ export default function ProductHarborMap({facts,focusedCallId,writable,onCreate,
       markers.current.forEach(marker=>marker.remove()); markers.current=[]
       const tokens=getComputedStyle(node.current!)
       const token=(name:string,fallback:string)=>tokens.getPropertyValue(name).trim() || fallback
-      const dark=document.documentElement.dataset.theme==='dark'
-      if (map.getLayer('osm')) {
-        map.setPaintProperty('osm','raster-brightness-min',dark?0.03:0.12)
-        map.setPaintProperty('osm','raster-brightness-max',dark?0.34:1)
-        map.setPaintProperty('osm','raster-saturation',dark?-0.78:-0.38)
-        map.setPaintProperty('osm','raster-contrast',dark?0.15:0.05)
-      }
       const points:Point[]=[]
       for (const port of geoPorts) {
         const location=point(port)!; points.push(location)
@@ -106,10 +99,13 @@ export default function ProductHarborMap({facts,focusedCallId,writable,onCreate,
       node.current!.style.setProperty('--map-surface',token('--surface','#f6f3df'))
       node.current!.style.setProperty('--map-foreground',token('--foreground','#193033'))
     }
-    if(map.isStyleLoaded()) sync(); else map.once('load',sync)
-    const observer=new MutationObserver(()=>{if(map.isStyleLoaded())sync()})
+    // DOM markers and viewport focus do not depend on vector-style readiness.
+    // Sync immediately so a coordination focus change cannot miss a one-shot
+    // map load event while style resources are still settling.
+    sync()
+    const observer=new MutationObserver(sync)
     observer.observe(document.documentElement,{attributes:true,attributeFilter:['data-theme']})
-    return()=>{map.off('load',sync);observer.disconnect()}
+    return()=>observer.disconnect()
   },[geoPorts,geoBerths,calls,vessels,incidents,focusedCallId,showBerths,showCalls,exceptionsOnly])
 
   const setup = !hasGeography ? (

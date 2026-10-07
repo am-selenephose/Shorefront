@@ -2,10 +2,19 @@ import {expect, test} from '@playwright/test'
 
 test('public showcase is data-rich, read-only and isolated from operational data', async ({page}) => {
   const privateApiRequests:string[] = []
+  const legacyOsmRequests:string[] = []
+  const mapProviderFailures:{status:number;url:string}[] = []
   page.on('request', request => {
     const url = new URL(request.url())
     if (url.pathname.startsWith('/api/v1/') && url.pathname !== '/api/v1/runtime/capabilities') {
       privateApiRequests.push(url.pathname)
+    }
+    if (url.hostname === 'tile.openstreetmap.org') legacyOsmRequests.push(url.href)
+  })
+  page.on('response', response => {
+    const url = new URL(response.url())
+    if (url.hostname === 'tiles.openfreemap.org' && response.status() >= 400) {
+      mapProviderFailures.push({status:response.status(),url:url.href})
     }
   })
 
@@ -17,6 +26,11 @@ test('public showcase is data-rich, read-only and isolated from operational data
   await expect(page.getByRole('navigation', {name:'Showcase workspaces'})).toBeVisible()
   await expect(page.locator('.product-boundary')).toContainText('Simulated operational picture.')
   await expect(page.locator('.product-boundary')).not.toContainText('Real operational mode.')
+  const geographicMap=page.getByRole('region',{name:'Operational geographic harbor map'})
+  await expect(geographicMap).toBeVisible()
+  await expect(geographicMap.locator('.maplibregl-ctrl-attrib-inner')).toContainText('OpenFreeMap')
+  expect(legacyOsmRequests).toEqual([])
+  expect(mapProviderFailures).toEqual([])
 
   await page.getByRole('link', {name:'Plan', exact:true}).click()
   await expect(page.locator('[data-product-workspace="plan"]')).toContainText('North Quay')
