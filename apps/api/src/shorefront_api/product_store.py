@@ -7,9 +7,9 @@ from datetime import datetime, timedelta
 from fastapi import HTTPException
 from pydantic import ValidationError
 from sqlalchemy import (Column, Integer, MetaData, String, Table, Text, UniqueConstraint,
-                        create_engine, insert, inspect, select, text)
+                        create_engine, insert, inspect, select, text, update)
 
-from .product_models import RECORD_MODELS, REFERENCES, RecordCommand, now, stamp
+from .product_models import INGESTIBLE_KINDS, RECORD_MODELS, REFERENCES, RecordCommand, now, stamp
 from .product_coordination import authorize_transition, cancellation_preserves_party, participant_eligible
 from .storage import normalize_database_url
 
@@ -35,6 +35,21 @@ versions = Table('sf_record_version', metadata, Column('sequence', Integer, prim
                  Column('known_at', String(40), nullable=False, index=True), Column('source', Text, nullable=False),
                  Column('actor_id', String(96), nullable=False), Column('payload', Text, nullable=False),
                  UniqueConstraint('kind', 'record_id', 'revision'))
+fact_conflicts = Table('sf_fact_conflict', metadata,
+                       Column('id', String(96), primary_key=True),
+                       Column('kind', String(32), nullable=False, index=True),
+                       Column('record_id', String(96), nullable=False, index=True),
+                       Column('baseline_revision', Integer, nullable=False),
+                       Column('challenger_revision', Integer, nullable=False),
+                       Column('fields', Text, nullable=False),
+                       Column('detected_at', String(40), nullable=False, index=True),
+                       Column('state', String(24), nullable=False, index=True),
+                       Column('resolved_at', String(40), nullable=True),
+                       Column('resolved_by', String(96), nullable=True),
+                       Column('accepted_revision', Integer, nullable=True),
+                       Column('resolution_note', Text, nullable=True),
+                       Column('resolution_revision', Integer, nullable=True),
+                       UniqueConstraint('kind', 'record_id', 'baseline_revision', 'challenger_revision'))
 commands = Table('sf_command', metadata, Column('actor_id', String(96), primary_key=True),
                  Column('key', String(128), primary_key=True), Column('digest', String(64), nullable=False),
                  Column('response', Text, nullable=False))
@@ -250,8 +265,129 @@ class ProductStore:
         result = connection.execute(insert(versions).values(**row))
         row['sequence'] = result.inserted_primary_key[0]
         response = public_record(row)
+        if (latest and kind in INGESTIBLE_KINDS and latest['actor_id'] != actor['id']
+                and not command.source.startswith('reconciliation:')
+                and not command.source.startswith('Approved decision ')):
+            previous_payload = json.loads(latest['payload'])
+            fields = sorted(key for key in set(previous_payload) | set(payload)
+                            if previous_payload.get(key) != payload.get(key))
+            if fields:
+                conflict_id = digest(canonical({
+                    'kind': kind, 'record_id': command.record_id,
+                    'baseline_revision': latest['revision'],
+                    'challenger_revision': row['revision'],
+                }))[:32]
+                conflict = {
+                    'id': conflict_id, 'kind': kind, 'record_id': command.record_id,
+                    'baseline_revision': latest['revision'], 'challenger_revision': row['revision'],
+                    'fields': canonical(fields), 'detected_at': stamp(now()), 'state': 'unresolved',
+                    'resolved_at': None, 'resolved_by': None, 'accepted_revision': None,
+                    'resolution_note': None, 'resolution_revision': None,
+                }
+                if connection.execute(select(fact_conflicts.c.id).where(
+                        fact_conflicts.c.id == conflict_id)).scalar_one_or_none() is None:
+                    connection.execute(insert(fact_conflicts).values(**conflict))
+                    self.add_audit(connection, actor['id'], 'fact.conflict.detected', {
+                        'id': conflict_id, 'kind': kind, 'record_id': command.record_id,
+                        'baseline_revision': latest['revision'], 'challenger_revision': row['revision'],
+                        'fields': fields,
+                    })
         self.add_audit(connection, actor['id'], 'record.written', response)
         connection.execute(insert(commands).values(actor_id=actor['id'], key=idempotency_key, digest=intent, response=canonical(response)))
+        return response
+
+    def _public_fact_conflict(self, connection, row) -> dict:
+        result = dict(row)
+        result['fields'] = json.loads(result['fields'])
+        candidates = {}
+        for revision in (result['baseline_revision'], result['challenger_revision']):
+            candidate = connection.execute(select(versions).where(
+                versions.c.kind == result['kind'],
+                versions.c.record_id == result['record_id'],
+                versions.c.revision == revision,
+            )).mappings().first()
+            if candidate is None:
+                raise RuntimeError('Fact conflict references a missing record version')
+            candidates[revision] = public_record(candidate)
+        result['baseline'] = candidates[result['baseline_revision']]
+        result['challenger'] = candidates[result['challenger_revision']]
+        return result
+
+    def fact_conflict_list(self, connection, state: str = 'unresolved') -> list[dict]:
+        query = select(fact_conflicts)
+        if state != 'all':
+            query = query.where(fact_conflicts.c.state == state)
+        rows = connection.execute(query.order_by(
+            fact_conflicts.c.detected_at.desc(), fact_conflicts.c.id)).mappings()
+        return [self._public_fact_conflict(connection, row) for row in rows]
+
+    def resolve_fact_conflict(self, connection, actor, conflict_id: str,
+                              accepted_revision: int, note: str, idempotency_key: str) -> dict:
+        if actor['role'] not in {'admin', 'operator', 'supervisor'}:
+            raise HTTPException(403, 'Operational reconciliation authority required')
+        intent = digest(canonical({
+            'conflict_id': conflict_id, 'accepted_revision': accepted_revision, 'note': note,
+        }))
+        prior = connection.execute(select(commands).where(
+            commands.c.actor_id == actor['id'], commands.c.key == idempotency_key
+        )).mappings().first()
+        if prior:
+            if prior['digest'] != intent:
+                raise HTTPException(409, 'Idempotency key already belongs to another command')
+            return json.loads(prior['response'])
+
+        row = connection.execute(select(fact_conflicts).where(
+            fact_conflicts.c.id == conflict_id)).mappings().first()
+        if row is None:
+            raise HTTPException(404, 'Fact conflict not found')
+        if row['state'] != 'unresolved':
+            raise HTTPException(409, 'Fact conflict has already been resolved')
+        candidates = {row['baseline_revision'], row['challenger_revision']}
+        if accepted_revision not in candidates:
+            raise HTTPException(422, 'Accepted revision must be one of the conflicting versions')
+
+        accepted = connection.execute(select(versions).where(
+            versions.c.kind == row['kind'],
+            versions.c.record_id == row['record_id'],
+            versions.c.revision == accepted_revision,
+        )).mappings().first()
+        if accepted is None:
+            raise RuntimeError('Fact conflict references a missing accepted version')
+        latest = connection.execute(select(versions).where(
+            versions.c.kind == row['kind'], versions.c.record_id == row['record_id']
+        ).order_by(versions.c.revision.desc()).limit(1)).mappings().first()
+
+        resolution_revision = None
+        if latest and latest['revision'] == row['challenger_revision'] and accepted_revision != latest['revision']:
+            command = RecordCommand(
+                record_id=row['record_id'],
+                expected_revision=latest['revision'],
+                source=f'reconciliation:{conflict_id}',
+                payload=json.loads(accepted['payload']),
+            )
+            materialized = self.write_record(
+                connection, actor, row['kind'], command,
+                digest(f'reconciliation:{conflict_id}:{accepted_revision}'),
+            )
+            resolution_revision = materialized['revision']
+
+        resolved_at = stamp(now())
+        connection.execute(update(fact_conflicts).where(
+            fact_conflicts.c.id == conflict_id).values(
+                state='resolved', resolved_at=resolved_at, resolved_by=actor['id'],
+                accepted_revision=accepted_revision, resolution_note=note,
+                resolution_revision=resolution_revision,
+            ))
+        self.add_audit(connection, actor['id'], 'fact.conflict.resolved', {
+            'id': conflict_id, 'kind': row['kind'], 'record_id': row['record_id'],
+            'accepted_revision': accepted_revision, 'resolution_revision': resolution_revision,
+            'note': note,
+        })
+        resolved = connection.execute(select(fact_conflicts).where(
+            fact_conflicts.c.id == conflict_id)).mappings().one()
+        response = self._public_fact_conflict(connection, resolved)
+        connection.execute(insert(commands).values(
+            actor_id=actor['id'], key=idempotency_key, digest=intent, response=canonical(response)))
         return response
 
     def evidence(self, connection):
@@ -262,6 +398,8 @@ class ProductStore:
         written = {}
         proposed = {}
         approved = {}
+        detected_conflicts = {}
+        resolved_conflicts = {}
         for row in rows:
             valid = valid and row['previous_hash'] == previous and row['hash'] == digest(previous + row['payload'])
             previous = row['hash']
@@ -274,6 +412,12 @@ class ProductStore:
                     proposed[entry['detail']['decision_id']] = entry['detail']['packet_digest']
                 elif entry.get('action') == 'decision.approved':
                     approved[entry['detail']['decision_id']] = entry['detail']
+                elif entry.get('action') == 'fact.conflict.detected':
+                    detail = entry['detail']
+                    detected_conflicts[detail['id']] = detail
+                elif entry.get('action') == 'fact.conflict.resolved':
+                    detail = entry['detail']
+                    resolved_conflicts[detail['id']] = detail
             except (ValueError, KeyError, TypeError):
                 valid = False
         saved = [public_record(row) for row in connection.execute(select(versions).order_by(versions.c.sequence)).mappings()]
@@ -283,11 +427,29 @@ class ProductStore:
         for packet in decisions:
             original = {**packet, 'receipt': None}
             valid = valid and proposed.get(packet['id']) == digest(canonical(original)) and approved.get(packet['id']) == packet['receipt']
+        conflicts = self.fact_conflict_list(connection, 'all')
+        valid = valid and len(conflicts) == len(detected_conflicts)
+        for conflict in conflicts:
+            detected = {'id': conflict['id'], 'kind': conflict['kind'], 'record_id': conflict['record_id'],
+                        'baseline_revision': conflict['baseline_revision'],
+                        'challenger_revision': conflict['challenger_revision'], 'fields': conflict['fields']}
+            valid = valid and detected_conflicts.get(conflict['id']) == detected
+            resolved = resolved_conflicts.get(conflict['id'])
+            if conflict['state'] == 'resolved':
+                expected = {'id': conflict['id'], 'kind': conflict['kind'], 'record_id': conflict['record_id'],
+                            'accepted_revision': conflict['accepted_revision'],
+                            'resolution_revision': conflict['resolution_revision'],
+                            'note': conflict['resolution_note']}
+                valid = valid and resolved == expected
+            else:
+                valid = valid and resolved is None
+        valid = valid and set(resolved_conflicts).issubset(set(detected_conflicts))
         return {'installation_id': self.owner, 'audit_valid': valid, 'audit_root': previous,
                 'assurance': 'SHA-256 chain; not a digital signature or external timestamp',
                 'audit': [dict(row) for row in rows],
                 'decisions': decisions,
-                'versions': saved}
+                'versions': saved,
+                'conflicts': conflicts}
 
 
 def graph(records):
