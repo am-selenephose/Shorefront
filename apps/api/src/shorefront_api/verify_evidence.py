@@ -59,7 +59,7 @@ def verify(data, *, installation, expected_root=None):
         require(all(isinstance(data[key], list) for key in ('audit', 'versions', 'decisions')), 'Missing evidence lists')
         previous = '0' * 64
         last_sequence = 0
-        written, proposed, approved = {}, {}, {}
+        written, proposed, approved, detected_conflicts, resolved_conflicts = {}, {}, {}, {}, {}
         for row in data['audit']:
             require(type(row['sequence']) is int and row['sequence'] > last_sequence, 'Audit order is invalid')
             last_sequence = row['sequence']
@@ -81,6 +81,14 @@ def verify(data, *, installation, expected_root=None):
                 key = detail['decision_id']
                 require(key not in approved, 'Duplicate decision approval')
                 approved[key] = detail
+            elif action == 'fact.conflict.detected':
+                key = detail['id']
+                require(key not in detected_conflicts, 'Duplicate fact conflict detection')
+                detected_conflicts[key] = detail
+            elif action == 'fact.conflict.resolved':
+                key = detail['id']
+                require(key not in resolved_conflicts, 'Duplicate fact conflict resolution')
+                resolved_conflicts[key] = detail
         require(data['audit_root'] == previous, 'Exported audit root does not match')
         if expected_root is not None:
             require(isinstance(expected_root, str) and re.fullmatch('[0-9a-f]{64}', expected_root), 'Expected root must be a SHA-256 hex digest')
@@ -95,6 +103,36 @@ def verify(data, *, installation, expected_root=None):
             last_sequence = record['sequence']
             require(key in written and canonical(record) == canonical(written[key]), 'Record differs from audited evidence')
         require(observed == set(written), 'Missing exported record')
+        exported_records = {record_key(record): record for record in data['versions']}
+        conflicts = data.get('conflicts', [])
+        require(isinstance(conflicts, list), 'Malformed conflict export')
+        observed_conflicts = set()
+        for conflict in conflicts:
+            require(isinstance(conflict, dict), 'Malformed fact conflict')
+            conflict_id = conflict['id']
+            require(isinstance(conflict_id, str) and conflict_id not in observed_conflicts, 'Duplicate or malformed fact conflict')
+            observed_conflicts.add(conflict_id)
+            detected = {'id': conflict_id, 'kind': conflict['kind'], 'record_id': conflict['record_id'],
+                        'baseline_revision': conflict['baseline_revision'],
+                        'challenger_revision': conflict['challenger_revision'], 'fields': conflict['fields']}
+            require(detected_conflicts.get(conflict_id) == detected, 'Fact conflict differs from audited detection')
+            baseline_key = record_key(conflict['baseline'])
+            challenger_key = record_key(conflict['challenger'])
+            require(exported_records.get(baseline_key) == conflict['baseline'], 'Fact conflict baseline differs from exported version')
+            require(exported_records.get(challenger_key) == conflict['challenger'], 'Fact conflict challenger differs from exported version')
+            require(baseline_key == (conflict['kind'], conflict['record_id'], conflict['baseline_revision']), 'Fact conflict baseline identity mismatch')
+            require(challenger_key == (conflict['kind'], conflict['record_id'], conflict['challenger_revision']), 'Fact conflict challenger identity mismatch')
+            resolution = resolved_conflicts.get(conflict_id)
+            if conflict['state'] == 'resolved':
+                expected = {'id': conflict_id, 'kind': conflict['kind'], 'record_id': conflict['record_id'],
+                            'accepted_revision': conflict['accepted_revision'],
+                            'resolution_revision': conflict['resolution_revision'],
+                            'note': conflict['resolution_note']}
+                require(resolution == expected, 'Fact conflict resolution differs from audited resolution')
+            else:
+                require(resolution is None, 'Unresolved fact conflict has a resolution audit event')
+        require(observed_conflicts == set(detected_conflicts), 'Missing exported fact conflict')
+        require(set(resolved_conflicts).issubset(observed_conflicts), 'Resolution has no exported fact conflict')
         observed = set()
         for packet in data['decisions']:
             key = packet['id']
@@ -105,7 +143,7 @@ def verify(data, *, installation, expected_root=None):
             require(canonical(approved.get(key)) == canonical(packet['receipt']), 'Approval differs from audited evidence')
         require(observed == set(proposed), 'Missing exported decision')
         require(set(approved).issubset(observed), 'Approval has no exported decision')
-        return {'valid': True, 'versions': len(written), 'decisions': len(proposed),
+        return {'valid': True, 'versions': len(written), 'decisions': len(proposed), 'conflicts': len(detected_conflicts),
                 'audit_entries': len(data['audit']), 'audit_root': previous, 'signed': False,
                 'root_pinned': expected_root is not None,
                 'assurance': 'Internal consistency only; not signer identity, external timestamp or proof of physical events.'}
