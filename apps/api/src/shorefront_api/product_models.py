@@ -219,6 +219,11 @@ class PasswordChange(StrictModel):
     new_password: str = Field(min_length=15, max_length=128)
 
 
+class ConflictResolution(StrictModel):
+    accepted_revision: int = Field(ge=1)
+    note: str = Field(min_length=1, max_length=2000)
+
+
 class ImportItem(StrictModel):
     kind: Identifier
     command: RecordCommand
