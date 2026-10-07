@@ -4,6 +4,7 @@ test('public showcase is data-rich, read-only and isolated from operational data
   const privateApiRequests:string[] = []
   const legacyOsmRequests:string[] = []
   const mapProviderFailures:{status:number;url:string}[] = []
+  const mapProviderResponses:{status:number;url:string}[] = []
   page.on('request', request => {
     const url = new URL(request.url())
     if (url.pathname.startsWith('/api/v1/') && url.pathname !== '/api/v1/runtime/capabilities') {
@@ -13,8 +14,9 @@ test('public showcase is data-rich, read-only and isolated from operational data
   })
   page.on('response', response => {
     const url = new URL(response.url())
-    if (url.hostname === 'tiles.openfreemap.org' && response.status() >= 400) {
-      mapProviderFailures.push({status:response.status(),url:url.href})
+    if (url.hostname === 'tiles.openfreemap.org') {
+      mapProviderResponses.push({status:response.status(),url:url.href})
+      if (response.status() >= 400) mapProviderFailures.push({status:response.status(),url:url.href})
     }
   })
 
@@ -28,7 +30,7 @@ test('public showcase is data-rich, read-only and isolated from operational data
   await expect(page.locator('.product-boundary')).not.toContainText('Real operational mode.')
   const geographicMap=page.getByRole('region',{name:'Operational geographic harbor map'})
   await expect(geographicMap).toBeVisible()
-  await expect(geographicMap.locator('.maplibregl-ctrl-attrib-inner')).toContainText('OpenFreeMap')
+  await expect.poll(()=>mapProviderResponses.length).toBeGreaterThan(0)
   await expect(page.getByText('SIMULATED HARBOR OVERVIEW', {exact:true})).toHaveCount(0)
   await expect(geographicMap.getByText('Port geography is not configured.', {exact:true})).toHaveCount(0)
   expect(await geographicMap.locator('.product-map-berth-marker').count()).toBeGreaterThanOrEqual(2)
