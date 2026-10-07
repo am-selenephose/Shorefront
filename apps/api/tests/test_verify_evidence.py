@@ -65,3 +65,34 @@ def test_cli_is_offline_reports_only_summary_and_rejects_duplicate_json_keys(evi
     assert invalid.returncode==1
     assert json.loads(invalid.stdout)['valid'] is False
     assert 'Traceback' not in invalid.stderr
+
+
+def test_offline_verifier_binds_fact_conflicts_and_resolution_to_audit(customer):
+    from shorefront_api.verify_evidence import verify
+    from test_product import write
+    original={'name':'MV Evidence Conflict','length_m':190}
+    changed={'name':'MV Evidence Conflict','length_m':205}
+    assert write(customer,'vessel','evidence-conflict-vessel',original).status_code==201
+    operator=activate(customer.app,invite(customer))
+    assert write(operator,'vessel','evidence-conflict-vessel',changed,revision=1).status_code==201
+    pending=customer.get('/api/v1/reconciliation/conflicts').json()
+    assert len(pending)==1
+    conflict=pending[0]
+    response=customer.post(
+        f"/api/v1/reconciliation/conflicts/{conflict['id']}/resolve",
+        headers=headers(customer,'verify-conflict-resolution'),
+        json={'accepted_revision':2,'note':'Second source confirmed against the current terminal register.'},
+    )
+    assert response.status_code==200,response.text
+    export=customer.get('/api/v1/evidence').json()
+    assert verify(export,installation='customer-a')['valid'] is True
+
+    for mutation in ('fields','baseline','resolution'):
+        tampered=deepcopy(export)
+        if mutation=='fields':
+            tampered['conflicts'][0]['fields']=['name']
+        elif mutation=='baseline':
+            tampered['conflicts'][0]['baseline']['payload']['length_m']=999
+        else:
+            tampered['conflicts'][0]['resolution_note']='tampered resolution'
+        assert verify(tampered,installation='customer-a')['valid'] is False
