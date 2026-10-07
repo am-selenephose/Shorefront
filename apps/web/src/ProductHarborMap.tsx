@@ -27,6 +27,7 @@ export default function ProductHarborMap({facts,focusedCallId,writable,onCreate,
   const [showBerths,setShowBerths]=useState(true)
   const [showCalls,setShowCalls]=useState(true)
   const [exceptionsOnly,setExceptionsOnly]=useState(false)
+  const [mapUnavailable,setMapUnavailable]=useState<string|null>(null)
   const ports = useMemo(()=>facts.filter(f=>f.kind==='port'),[facts])
   const berths = useMemo(()=>facts.filter(f=>f.kind==='berth'),[facts])
   const calls = useMemo(()=>facts.filter(f=>f.kind==='call' && !['departed','cancelled'].includes(String(f.payload.status))),[facts])
@@ -38,19 +39,32 @@ export default function ProductHarborMap({facts,focusedCallId,writable,onCreate,
   const firstUnmappedBerth = berths.find(b=>!point(b))
   const hasGeography = geoPorts.length>0 || geoBerths.length>0
   const needsSchematic = berths.length>0 && geoBerths.length===0
+  const showSchematic = needsSchematic || Boolean(mapUnavailable&&berths.length)
 
   useEffect(()=>{
-    if (!node.current || mapRef.current) return
-    const map = new maplibregl.Map({
-      container:node.current,
-      center:[0,20], zoom:1.35, minZoom:1,
-      dragRotate:false, pitchWithRotate:false,
-      style:'https://tiles.openfreemap.org/styles/liberty',
-    })
-    map.addControl(new maplibregl.NavigationControl({showCompass:false}), 'bottom-right')
-    mapRef.current=map
-    return()=>{markers.current.forEach(marker=>marker.remove());markers.current=[];map.remove();mapRef.current=null}
-  },[])
+    if (!node.current || mapRef.current || mapUnavailable) return
+    try {
+      const probe=document.createElement('canvas')
+      const webgl2=probe.getContext('webgl2')
+      if(!webgl2){
+        setMapUnavailable('WebGL2 is unavailable in this browser or graphics environment.')
+        return
+      }
+      webgl2.getExtension('WEBGL_lose_context')?.loseContext()
+      const map = new maplibregl.Map({
+        container:node.current,
+        center:[0,20], zoom:1.35, minZoom:1,
+        dragRotate:false, pitchWithRotate:false,
+        style:'https://tiles.openfreemap.org/styles/liberty',
+      })
+      map.addControl(new maplibregl.NavigationControl({showCompass:false}), 'bottom-right')
+      mapRef.current=map
+      return()=>{markers.current.forEach(marker=>marker.remove());markers.current=[];map.remove();mapRef.current=null}
+    } catch(error) {
+      const detail=error instanceof Error&&error.message ? error.message : 'The map renderer could not start.'
+      setMapUnavailable(detail)
+    }
+  },[mapUnavailable])
 
   useEffect(()=>{
     const map=mapRef.current
@@ -127,8 +141,8 @@ export default function ProductHarborMap({facts,focusedCallId,writable,onCreate,
     </div>
   ) : null
 
-  const schematic = needsSchematic ? <div className="product-map-schematic" role="region" aria-label="Schematic berth digital twin">
-    <header><div><span className="product-index">SCHEMATIC · NOT GEOGRAPHIC</span><b>Recorded berth relationships</b></div><small>Coordinates missing · no invented positions</small></header>
+  const schematic = showSchematic ? <div className="product-map-schematic" role="region" aria-label="Schematic berth digital twin">
+    <header><div><span className="product-index">SCHEMATIC · NOT GEOGRAPHIC</span><b>Recorded berth relationships</b></div><small>{mapUnavailable?'Map renderer unavailable · recorded coordinates retained, positions not displayed':'Coordinates missing · no invented positions'}</small></header>
     <div className="product-map-schematic-grid">{berths.slice(0,8).map((berth,index)=>{
       const linked=calls.filter(call=>call.payload.berth_id===berth.record_id)
       return <div className={`product-map-schematic-lane${linked.some(call=>call.record_id===focusedCallId)?' is-focused':''}`} key={berth.record_id}>
@@ -143,7 +157,14 @@ export default function ProductHarborMap({facts,focusedCallId,writable,onCreate,
   </div> : null
 
   return <section className="product-geographic-map" role="region" aria-label="Operational geographic harbor map">
-    <div className="product-map-canvas" ref={node}/>
+    <div className={'product-map-canvas'+(mapUnavailable?' is-unavailable':'')} ref={node}>
+      {mapUnavailable&&<div className="product-map-unavailable" role="status" aria-label="Geographic map unavailable">
+        <span className="product-index">GEOGRAPHIC MAP DEGRADED</span>
+        <b>Live map rendering is unavailable in this browser.</b>
+        <p>{mapUnavailable} Shorefront is keeping the recorded calls, berth horizon, coordination and evidence surfaces available instead of hiding operational context.</p>
+        <small>No geographic position is being inferred or substituted.</small>
+      </div>}
+    </div>
     {schematic}
     <div className="product-map-layers" role="group" aria-label="Map layers">
       <span>LAYERS</span>

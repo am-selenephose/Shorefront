@@ -84,6 +84,10 @@ jobs:
 
   browser:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        browser: [chromium, firefox, webkit]
     defaults:
       run:
         working-directory: apps/web
@@ -100,14 +104,17 @@ jobs:
       - name: Install browser and API dependencies
         run: |
           npm ci
-          npx playwright install --with-deps chromium
+          npx playwright install --with-deps ${{ matrix.browser }}
           cd ../api
           uv sync --extra dev
           cd ../web
           npm run build
-      - name: Operational browser workflows
+      - name: Operational browser workflows (${{ matrix.browser }})
+        env:
+          SHOREFRONT_E2E_BROWSER: ${{ matrix.browser }}
         run: npm run test:product
       - name: Training and simulator regressions
+        if: matrix.browser == 'chromium'
         run: npm run test:e2e
 
   delivery:

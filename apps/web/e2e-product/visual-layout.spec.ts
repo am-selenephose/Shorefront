@@ -1,4 +1,5 @@
 import {expect,test} from '@playwright/test'
+import {expectGeographicMapRenderer} from './map-capability'
 
 test('coordination responsibility graph stays inside its visual panel at desktop width', async ({page}) => {
   await page.setViewportSize({width:1440,height:1000})
@@ -73,7 +74,10 @@ test('public operating system stays readable and inside the viewport across work
   }
   await page.setViewportSize({width:1440,height:1000})
   await page.goto('/?showcase=1#pulse')
-  await expect(page.locator('.product-geographic-map .maplibregl-ctrl-attrib-inner')).toContainText('OpenFreeMap')
+  const geographicMap=page.getByRole('region',{name:'Operational geographic harbor map'})
+  const webgl2=await expectGeographicMapRenderer(page,geographicMap)
+  if(webgl2) await expect(page.locator('.product-geographic-map .maplibregl-ctrl-attrib-inner')).toContainText('OpenFreeMap')
+  else await expect(geographicMap.getByRole('region',{name:'Schematic berth digital twin'})).toBeVisible()
 })
 
 test('recovery and evidence surfaces expose decision context instead of dead demo space', async ({page}) => {

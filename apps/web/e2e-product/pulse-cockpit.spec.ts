@@ -1,4 +1,5 @@
 import {expect,test} from '@playwright/test'
+import {expectGeographicMapRenderer} from './map-capability'
 import {workflowCall,workflowSession} from './workflow-fixture'
 
 test('Pulse composes map, schematic fallback, focused call and berth horizon into one cockpit', async ({page}) => {
@@ -21,7 +22,7 @@ test('Pulse composes map, schematic fallback, focused call and berth horizon int
   await expect(horizon).toContainText('cockpit vessel')
 
   const map=command.getByRole('region',{name:'Operational geographic harbor map'})
-  await expect(map.locator('.maplibregl-canvas')).toBeVisible()
+  await expectGeographicMapRenderer(page,map)
   await expect(map.getByText('SCHEMATIC · NOT GEOGRAPHIC',{exact:true})).toBeVisible()
   await expect(map).toContainText('cockpit berth')
   await expect(map).toContainText('cockpit vessel')

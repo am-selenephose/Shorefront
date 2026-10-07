@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test'
+import {expectGeographicMapRenderer} from './map-capability'
 
 const password = 'test-only customer passphrase 42'
 test('customer onboarding, durable record editing, evidence and logout', async ({page}) => {
@@ -22,7 +23,7 @@ test('customer onboarding, durable record editing, evidence and logout', async (
   const emptyMap = page.getByRole('region', {name:'Operational geographic harbor map'})
   await expect(emptyMap).toBeVisible()
   await expect(emptyMap.getByText('Port geography is not configured.', {exact:true})).toBeVisible()
-  await expect(emptyMap.locator('.maplibregl-canvas')).toBeVisible()
+  await expectGeographicMapRenderer(page,emptyMap)
   await emptyMap.getByRole('button', {name:'Set up port geography', exact:true}).click()
   await expect(page.getByLabel(/^Latitude/)).toBeVisible()
   await expect(page.getByLabel(/^Longitude/)).toBeVisible()

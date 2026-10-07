@@ -1,4 +1,5 @@
 import {expect, test} from '@playwright/test'
+import {expectGeographicMapRenderer} from './map-capability'
 import {workflowSession, workflowCall, workflowPassword, writeFact} from './workflow-fixture'
 
 test('call workspace creates linked incidents and tasks with actionable exception closeout', async ({page}) => {
@@ -58,14 +59,15 @@ test('named recipient coordinates handoff and commitment preserving exact terms'
   const visual = page.getByRole('region',{name:'Coordination visual context'})
   await expect(visual).toBeVisible()
   await expect(visual.getByText('GEOGRAPHIC BASE MAP',{exact:true})).toBeVisible()
-  await expect(visual.getByRole('region',{name:'Operational geographic harbor map'}).locator('.maplibregl-canvas')).toBeVisible()
+  const webgl2=await expectGeographicMapRenderer(page,visual.getByRole('region',{name:'Operational geographic harbor map'}))
   await expect(visual.getByText('Berth-linked calls, not live AIS positions.',{exact:true})).toBeVisible()
   await expect(visual).toContainText('coord berth')
   await expect(visual).toContainText('coord vessel')
   await expect(visual.getByText('COORDINATION NETWORK',{exact:true})).toBeVisible()
   await expect(visual.locator('.coord-party-node').filter({hasText:'Duty Recipient'}).first()).toContainText('Duty Recipient')
   await visual.locator('.coord-thread-node').filter({hasText:'Shift transfer'}).click()
-  await expect(visual.locator('.coord-harbor-call.is-focused')).toContainText('coord vessel')
+  if(webgl2) await expect(visual.locator('.coord-harbor-call.is-focused')).toContainText('coord vessel')
+  else await expect(visual.locator('.product-map-schematic-call.is-focused')).toContainText('coord vessel')
   await expect(visual.locator('.coord-call-node.is-focused')).toContainText('coord vessel')
   await expect(visual.locator('.coord-party-node.is-focused')).toContainText('Duty Recipient')
   const handoffProgress = visual.locator('.coord-thread-node').filter({hasText:'Shift transfer'}).locator('.coord-thread-progress')

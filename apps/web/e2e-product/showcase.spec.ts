@@ -1,4 +1,5 @@
 import {expect, test} from '@playwright/test'
+import {expectGeographicMapRenderer} from './map-capability'
 
 test('public showcase is data-rich, read-only and isolated from operational data', async ({page}) => {
   const privateApiRequests:string[] = []
@@ -30,10 +31,16 @@ test('public showcase is data-rich, read-only and isolated from operational data
   await expect(page.locator('.product-boundary')).not.toContainText('Real operational mode.')
   const geographicMap=page.getByRole('region',{name:'Operational geographic harbor map'})
   await expect(geographicMap).toBeVisible()
-  await expect.poll(()=>mapProviderResponses.length).toBeGreaterThan(0)
+  const webgl2=await expectGeographicMapRenderer(page,geographicMap)
+  if(webgl2){
+    await expect.poll(()=>mapProviderResponses.length).toBeGreaterThan(0)
+    expect(await geographicMap.locator('.product-map-berth-marker').count()).toBeGreaterThanOrEqual(2)
+  }else{
+    expect(mapProviderResponses).toEqual([])
+    await expect(geographicMap.getByRole('region',{name:'Schematic berth digital twin'})).toContainText('North Quay')
+  }
   await expect(page.getByText('SIMULATED HARBOR OVERVIEW', {exact:true})).toHaveCount(0)
   await expect(geographicMap.getByText('Port geography is not configured.', {exact:true})).toHaveCount(0)
-  expect(await geographicMap.locator('.product-map-berth-marker').count()).toBeGreaterThanOrEqual(2)
   expect(legacyOsmRequests).toEqual([])
   expect(mapProviderFailures).toEqual([])
 
