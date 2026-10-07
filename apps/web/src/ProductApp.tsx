@@ -183,7 +183,7 @@ export default function ProductApp({needsSetup}: {needsSetup: boolean}) {
         {view === 'Recovery' && <ProductDecisions facts={workspace.records} user={session.user} writable={writable} onRefresh={refresh}/>}
         {view === 'Connections' && <ProductConnections user={session.user} facts={workspace.records} writable={writable}/>}
         {view === 'Records' && <ProductRecords facts={workspace.records} team={team} writable={writable} onSave={refresh}/>}
-        {view === 'Evidence' && <ProductEvidence facts={workspace.records} team={team}/>}
+        {view === 'Evidence' && <ProductEvidence facts={workspace.records} team={team} user={session.user} writable={writable} onRefresh={refresh}/>}
         {view === 'Team' && <Team members={team} session={session} writable={fresh} onRefresh={refresh} onSession={value => {if (locked.current || sessionEpoch !== epoch.current) return; epoch.current++; adopt(value)}}/>}
         {editor && <ContextEditor key={editor.id} record={editor.record} kind={editor.kind} payload={editor.payload} facts={workspace.records} team={team} writable={writable} onCancel={()=>setEditor(null)} onSave={async()=>{await refresh();setEditor(null)}}/>}
       </section>}
