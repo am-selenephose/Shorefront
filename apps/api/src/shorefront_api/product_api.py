@@ -17,7 +17,7 @@ from .config import setting
 from .product_coordination import schedule_conflicts, coordination_actions
 from .product_auth import (COOKIE, create_user, identify, login_attempt, public_user,
                            password_hash, password_valid, require_admin, require_origin, start_session)
-from .product_models import (AcceptInvite, ApprovalRequest, Bootstrap, DecisionRequest, ImportBatch,
+from .product_models import (AcceptInvite, ApprovalRequest, Bootstrap, ConflictResolution, DecisionRequest, ImportBatch,
                              IntegrationBatch, Invitation, Login, PartnerDeliveryAck, PartnerGrantCreate,
                              PasswordChange, RecordCommand, SourceCreate, now, stamp)
 from .product_decisions import approve_packet, create_packet, get_packet, packets, recall, remember
@@ -451,6 +451,24 @@ def create_product_app(database_url=None, installation_id=None, origin=None, boo
         with store.transaction() as connection:
             identify(connection, request)
             return schedule_conflicts(store.snapshot(connection))
+
+    @app.get('/api/v1/reconciliation/conflicts')
+    def reconciliation_conflicts(
+        request: Request,
+        state: Literal['unresolved', 'resolved', 'all'] = 'unresolved',
+    ):
+        with store.transaction() as connection:
+            identify(connection, request)
+            return store.fact_conflict_list(connection, state)
+
+    @app.post('/api/v1/reconciliation/conflicts/{conflict_id}/resolve')
+    def reconciliation_resolve(conflict_id: str, body: ConflictResolution, request: Request):
+        require_origin(request, site)
+        key = command_key(request)
+        with store.transaction() as connection:
+            actor, _ = identify(connection, request, mutation=True)
+            return store.resolve_fact_conflict(
+                connection, actor, conflict_id, body.accepted_revision, body.note, key)
 
     @app.get('/api/v1/outcomes')
     def outcomes(request: Request):
