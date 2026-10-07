@@ -615,3 +615,101 @@ def test_admin_cli_requires_one_action_and_reason(arguments):
         input='', text=True, capture_output=True, timeout=30)
     assert result.returncode == 2
     assert 'error:' in result.stderr
+
+def test_cross_source_fact_disagreement_requires_explicit_resolution(customer):
+    original = {'name': 'MV Resolve', 'imo': '1234567', 'length_m': 200}
+    changed = {'name': 'MV Resolve', 'imo': '1234567', 'length_m': 212}
+    assert write(customer, 'vessel', 'vessel-reconcile', original).status_code == 201
+
+    operator = activate(customer.app, invite(customer))
+    second = write(operator, 'vessel', 'vessel-reconcile', changed, revision=1)
+    assert second.status_code == 201, second.text
+
+    pending = customer.get('/api/v1/reconciliation/conflicts', params={'state': 'unresolved'})
+    assert pending.status_code == 200, pending.text
+    conflicts = pending.json()
+    assert len(conflicts) == 1
+    conflict = conflicts[0]
+    assert conflict['kind'] == 'vessel'
+    assert conflict['record_id'] == 'vessel-reconcile'
+    assert conflict['fields'] == ['length_m']
+    assert conflict['state'] == 'unresolved'
+    assert conflict['baseline']['revision'] == 1
+    assert conflict['challenger']['revision'] == 2
+    assert conflict['baseline']['actor_id'] != conflict['challenger']['actor_id']
+
+    evidence_before = customer.get('/api/v1/evidence').json()
+    assert evidence_before['audit_valid'] is True
+    assert evidence_before['conflicts'][0]['state'] == 'unresolved'
+
+    resolution = customer.post(
+        f"/api/v1/reconciliation/conflicts/{conflict['id']}/resolve",
+        headers=headers(customer, 'resolve-vessel-reconcile'),
+        json={'accepted_revision': 1, 'note': 'Harbor master confirmed the registered vessel particulars.'},
+    )
+    assert resolution.status_code == 200, resolution.text
+    resolved = resolution.json()
+    assert resolved['state'] == 'resolved'
+    assert resolved['accepted_revision'] == 1
+    assert resolved['resolution_revision'] == 3
+
+    current = next(
+        record for record in customer.get('/api/v1/workspace').json()['records']
+        if record['kind'] == 'vessel' and record['record_id'] == 'vessel-reconcile'
+    )
+    assert current['revision'] == 3
+    assert current['payload'] == conflict['baseline']['payload']
+    assert current['source'].startswith('reconciliation:')
+
+    versions = [
+        row for row in customer.get('/api/v1/history').json()
+        if row['kind'] == 'vessel' and row['record_id'] == 'vessel-reconcile'
+    ]
+    assert [row['revision'] for row in versions] == [1, 2, 3]
+    assert versions[1]['payload'] == conflict['challenger']['payload']
+    assert versions[2]['payload'] == conflict['baseline']['payload']
+
+    evidence_after = customer.get('/api/v1/evidence').json()
+    assert evidence_after['audit_valid'] is True
+    assert evidence_after['conflicts'][0]['state'] == 'resolved'
+    assert evidence_after['conflicts'][0]['resolution_note'].startswith('Harbor master confirmed')
+
+
+def test_same_actor_correction_does_not_create_source_conflict(customer):
+    original = {'name': 'MV Same Actor', 'length_m': 180}
+    corrected = {'name': 'MV Same Actor', 'length_m': 181}
+    assert write(customer, 'vessel', 'vessel-same-actor', original).status_code == 201
+    assert write(customer, 'vessel', 'vessel-same-actor', corrected, revision=1).status_code == 201
+    conflicts = customer.get('/api/v1/reconciliation/conflicts', params={'state': 'unresolved'})
+    assert conflicts.status_code == 200
+    assert conflicts.json() == []
+
+
+def test_conflict_ledger_tampering_breaks_server_evidence_verification(customer):
+    from sqlalchemy import update
+    from shorefront_api.product_store import fact_conflicts
+    assert write(customer, 'vessel', 'tamper-conflict-vessel',
+                 {'name':'Tamper Conflict Vessel','length_m':180}).status_code == 201
+    operator = activate(customer.app, invite(customer))
+    assert write(operator, 'vessel', 'tamper-conflict-vessel',
+                 {'name':'Tamper Conflict Vessel','length_m':199}, revision=1).status_code == 201
+    assert customer.get('/api/v1/evidence').json()['audit_valid'] is True
+    with customer.app.state.product_store.transaction() as connection:
+        connection.execute(update(fact_conflicts).values(fields='["name"]'))
+    assert customer.get('/api/v1/evidence').json()['audit_valid'] is False
+
+
+def test_reconciliation_table_requires_explicit_migration(tmp_path):
+    from sqlalchemy import inspect, text
+    from shorefront_api.product_store import ProductStore, fact_conflicts
+    url = f"sqlite:///{tmp_path / 'reconciliation-migration.db'}"
+    store = ProductStore(url, 'customer-a')
+    store.initialize(migrate=True)
+    with store.engine.begin() as connection:
+        connection.execute(text('DROP TABLE sf_fact_conflict'))
+    with pytest.raises(RuntimeError, match='schema is missing'):
+        store.initialize(migrate=False)
+    store.initialize(migrate=True)
+    assert fact_conflicts.name in inspect(store.engine).get_table_names()
+    store.initialize(migrate=False)
+    store.engine.dispose()
