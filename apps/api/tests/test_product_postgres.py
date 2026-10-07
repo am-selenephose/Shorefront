@@ -10,7 +10,7 @@ from sqlalchemy import create_engine, text
 from sqlalchemy.engine import make_url
 
 from shorefront_api.product_api import create_product_app
-from test_product import BOOTSTRAP, ORIGIN, bootstrap, headers, setup_call, write
+from test_product import BOOTSTRAP, ORIGIN, activate, bootstrap, headers, invite, setup_call, write
 
 
 def test_postgres_commands_owner_and_backup_restore(tmp_path):
@@ -31,6 +31,21 @@ def test_postgres_commands_owner_and_backup_restore(tmp_path):
     with TestClient(app, base_url=ORIGIN) as client:
         bootstrap(client)
         setup_call(client)
+        assert write(client, 'vessel', 'pg-conflict-vessel', {'name':'Postgres Conflict Vessel','length_m':190}).status_code == 201
+        operator = activate(app, invite(client))
+        changed = write(operator, 'vessel', 'pg-conflict-vessel',
+                        {'name':'Postgres Conflict Vessel','length_m':205}, revision=1)
+        assert changed.status_code == 201, changed.text
+        conflicts = client.get('/api/v1/reconciliation/conflicts').json()
+        assert len(conflicts) == 1
+        conflict = conflicts[0]
+        resolved = client.post(
+            f"/api/v1/reconciliation/conflicts/{conflict['id']}/resolve",
+            headers=headers(client, 'pg-reconciliation-resolution'),
+            json={'accepted_revision':1, 'note':'PostgreSQL test retained the registered vessel length.'},
+        )
+        assert resolved.status_code == 200, resolved.text
+        assert resolved.json()['resolution_revision'] == 3
         cookie = client.cookies.get('shorefront_session')
         csrf = client.get('/api/v1/auth/me').json()['csrf_token']
         def writer(index):
