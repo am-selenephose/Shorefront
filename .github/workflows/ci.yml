@@ -6,6 +6,10 @@ on:
     branches: [main]
   pull_request:
 
+concurrency:
+  group: shorefront-ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   api:
     runs-on: ubuntu-latest
@@ -19,6 +23,46 @@ jobs:
           enable-cache: true
       - run: uv sync --extra dev
       - run: uv run pytest -q
+
+  postgres:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - name: Install PostgreSQL client
+        run: sudo apt-get update && sudo apt-get install -y postgresql-client
+      - name: Install API dependencies
+        working-directory: apps/api
+        run: uv sync --extra dev
+      - name: Start disposable PostgreSQL with private Unix socket
+        run: |
+          set -euo pipefail
+          sock=/tmp/shorefront-product-pg.ci
+          mkdir -p "$sock"
+          chmod 0777 "$sock"
+          docker run -d --rm \
+            --name shorefront-ci-postgres \
+            -e POSTGRES_HOST_AUTH_METHOD=trust \
+            -v "$sock:/var/run/postgresql" \
+            postgres:17-alpine \
+            -c unix_socket_directories=/var/run/postgresql \
+            -c listen_addresses=
+          for attempt in $(seq 1 60); do
+            if test -S "$sock/.s.PGSQL.5432"; then exit 0; fi
+            sleep 0.25
+          done
+          docker logs shorefront-ci-postgres
+          exit 1
+      - name: Verify PostgreSQL concurrency and backup restore
+        working-directory: apps/api
+        env:
+          SF_TEST_POSTGRES_URL: postgresql+psycopg://postgres@/postgres?host=/tmp/shorefront-product-pg.ci
+        run: uv run pytest -q tests/test_product_postgres.py
+      - name: Stop disposable PostgreSQL
+        if: always()
+        run: docker stop shorefront-ci-postgres || true
 
   web:
     runs-on: ubuntu-latest
@@ -37,6 +81,50 @@ jobs:
       - run: npm run build
       - run: npm audit --omit=dev --audit-level=high
       - run: ../../deploy/basicdeploy_bundle.sh /tmp/shorefront-public-deploy.tgz
+
+  browser:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: apps/web/package-lock.json
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - name: Install browser and API dependencies
+        run: |
+          npm ci
+          npx playwright install --with-deps chromium
+          cd ../api
+          uv sync --extra dev
+          cd ../web
+          npm run build
+      - name: Operational browser workflows
+        run: npm run test:product
+      - name: Training and simulator regressions
+        run: npm run test:e2e
+
+  delivery:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: apps/web/package-lock.json
+      - run: npm ci
+      - run: docker build -t shorefront-web:local .
+      - run: npm run test:delivery
 
   deployment:
     runs-on: ubuntu-latest
