@@ -1,8 +1,10 @@
 import {lazy, Suspense, useCallback, useEffect, useRef, useState, type CSSProperties, type FormEvent} from 'react'
 import {dateLabel, productRequest, recordName, type Fact, type User} from './productClient'
 
-type Action = {status:string; label:string; requires_proof:boolean; requires_review:boolean}
-type Item = {record:Fact; creator_id:string; actions:Action[]}
+export type CoordinationAction = {status:string; label:string; requires_proof:boolean; requires_review:boolean}
+export type CoordinationItem = {record:Fact; creator_id:string; actions:CoordinationAction[]}
+type Action = CoordinationAction
+type Item = CoordinationItem
 const closed = new Set(['acknowledged','fulfilled','declined','cancelled','completed'])
 const ProductHarborMap = lazy(()=>import('./ProductHarborMap'))
 
@@ -104,14 +106,15 @@ function Transition({item, action, writable, onDone, onCancel}: {
   </form>
 }
 
-export default function ProductCoordination({facts,team,writable,onRefresh,onCreate,onEdit}: {
+export default function ProductCoordination({facts,team,writable,onRefresh,onCreate,onEdit,itemsOverride}: {
   facts:Fact[]; team:User[]; writable:boolean; onRefresh:()=>Promise<void>;
-  onCreate:(kind:string, payload?:Fact['payload'])=>void; onEdit:(record:Fact)=>void
+  onCreate:(kind:string, payload?:Fact['payload'])=>void; onEdit:(record:Fact)=>void;
+  itemsOverride?:CoordinationItem[]
 }) {
-  const [items,setItems] = useState<Item[]>([])
-  const [loading,setLoading] = useState(true)
+  const [items,setItems] = useState<Item[]>(itemsOverride ?? [])
+  const [loading,setLoading] = useState(!itemsOverride)
   const [error,setError] = useState('')
-  const [current,setCurrent] = useState(false)
+  const [current,setCurrent] = useState(Boolean(itemsOverride))
   const [scope,setScope] = useState('open')
   const [kind,setKind] = useState('all')
   const [query,setQuery] = useState('')
@@ -120,6 +123,10 @@ export default function ProductCoordination({facts,team,writable,onRefresh,onCre
   const generation = useRef(0)
   const load = useCallback(async () => {
     const request = ++generation.current
+    if (itemsOverride) {
+      setItems(itemsOverride); setError(''); setCurrent(true); setLoading(false)
+      return
+    }
     try {
       const result = await productRequest<{items:Item[]}>('/coordination')
       if (!Array.isArray(result.items)) throw new Error('Invalid coordination response')
@@ -129,7 +136,7 @@ export default function ProductCoordination({facts,team,writable,onRefresh,onCre
       if (request !== generation.current) return
       setError(String(failure)); setCurrent(false); throw failure
     } finally {if (request === generation.current) setLoading(false)}
-  },[])
+  },[itemsOverride])
   useEffect(()=>{void load().catch(()=>{}); return ()=>{generation.current++}},[load,facts])
   const member = (id:unknown)=>team.find(u=>u.id===id)?.name ?? String(id ?? 'Not assigned')
   const callLabel = (id:unknown)=> {

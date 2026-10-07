@@ -37,6 +37,7 @@ export default function ProductHarborMap({facts,focusedCallId,writable,onCreate,
   const firstPort = ports[0]
   const firstUnmappedBerth = berths.find(b=>!point(b))
   const hasGeography = geoPorts.length>0 || geoBerths.length>0
+  const needsSchematic = berths.length>0 && geoBerths.length===0
 
   useEffect(()=>{
     if (!node.current || mapRef.current) return
@@ -109,7 +110,7 @@ export default function ProductHarborMap({facts,focusedCallId,writable,onCreate,
   },[geoPorts,geoBerths,calls,vessels,incidents,focusedCallId,showBerths,showCalls,exceptionsOnly])
 
   const setup = !hasGeography ? (
-    <div className="product-map-setup">
+    <div className={`product-map-setup${needsSchematic?' compact schematic-setup':''}`}>
       <b>Port geography is not configured.</b>
       <p>Add verified port or berth coordinates. Shorefront keeps the geographic base map visible, but it will not invent your terminal location.</p>
       <div className="product-actions">
@@ -126,8 +127,24 @@ export default function ProductHarborMap({facts,focusedCallId,writable,onCreate,
     </div>
   ) : null
 
+  const schematic = needsSchematic ? <div className="product-map-schematic" role="region" aria-label="Schematic berth digital twin">
+    <header><div><span className="product-index">SCHEMATIC · NOT GEOGRAPHIC</span><b>Recorded berth relationships</b></div><small>Coordinates missing · no invented positions</small></header>
+    <div className="product-map-schematic-grid">{berths.slice(0,8).map((berth,index)=>{
+      const linked=calls.filter(call=>call.payload.berth_id===berth.record_id)
+      return <div className={`product-map-schematic-lane${linked.some(call=>call.record_id===focusedCallId)?' is-focused':''}`} key={berth.record_id}>
+        <div className="product-map-schematic-berth"><span>{String(index+1).padStart(2,'0')}</span><b>{recordName(berth)}</b><small>{berth.payload.max_length_m?`${berth.payload.max_length_m}m max`:'limits not recorded'}</small></div>
+        <div className="product-map-schematic-track">{showCalls?linked.filter(call=>!exceptionsOnly||incidents.some(incident=>incident.payload.call_id===call.record_id)).map(call=>{
+          const vessel=vessels.find(v=>v.record_id===call.payload.vessel_id)
+          const openIncidents=incidents.filter(incident=>incident.payload.call_id===call.record_id).length
+          return <div className={`product-map-schematic-call${call.record_id===focusedCallId?' is-focused':''}${openIncidents?' has-incident':''}`} key={call.record_id}><b>{vessel?recordName(vessel):call.record_id}</b><span>{String(call.payload.status)}</span><small>{openIncidents?`${openIncidents} open incident${openIncidents===1?'':'s'}`:'recorded call'}</small></div>
+        }):null}{!linked.length&&<span className="product-map-schematic-empty">No active call</span>}</div>
+      </div>
+    })}</div>
+  </div> : null
+
   return <section className="product-geographic-map" role="region" aria-label="Operational geographic harbor map">
     <div className="product-map-canvas" ref={node}/>
+    {schematic}
     <div className="product-map-layers" role="group" aria-label="Map layers">
       <span>LAYERS</span>
       <button type="button" aria-pressed={showBerths} onClick={()=>setShowBerths(value=>!value)}>Berths</button>

@@ -56,7 +56,7 @@ test('customer onboarding, durable record editing, evidence and logout', async (
   expect(await page.evaluate(() => Object.keys(localStorage).filter(k => /token|password|session/i.test(k)))).toEqual([])
 })
 
-test('operational UI retains coastal dark mode and fits mobile', async ({page}) => {
+test('operational UI retains coastal dark mode and fits mobile', async ({page}, testInfo) => {
   await page.setViewportSize({width: 375, height: 812})
   await page.goto('/')
   await page.getByLabel('Email', {exact: true}).fill('owner@example.test')
@@ -68,11 +68,11 @@ test('operational UI retains coastal dark mode and fits mobile', async ({page}) 
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark')
   await expect(page.getByRole('heading', {name: 'Your port. Your operational record.'})).toBeVisible()
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
-  await page.screenshot({path: 'test-results/product-mobile-dark.png', fullPage: true})
+  await page.screenshot({path: testInfo.outputPath('product-mobile-dark.png'), fullPage: true})
   await page.setViewportSize({width: 1440, height: 1000})
   await page.getByRole('button', {name: 'Switch to light mode'}).click()
   await expect.poll(() => page.locator('.product-shell button').first().evaluate(el => getComputedStyle(el).color)).toBe('rgb(25, 47, 50)')
-  await page.screenshot({path: 'test-results/product-desktop-light.png', fullPage: true})
+  await page.screenshot({path: testInfo.outputPath('product-desktop-light.png'), fullPage: true})
 })
 
 test('real invitation, call setup, decision review and supervisor approval', async ({page, browser}) => {

@@ -1,6 +1,6 @@
-import {lazy,Suspense,useEffect,useState} from 'react'
+import {useEffect,useState} from 'react'
 import {dateLabel,productRequest,recordName,type Fact,type User,type Workspace} from './productClient'
-const ProductHarborMap=lazy(()=>import('./ProductHarborMap'))
+import ProductAdvancedPulse from './ProductAdvancedPulse'
 
 export type OperationalActions = {
   writable:boolean
@@ -56,10 +56,7 @@ export function OperationalPulse({workspace,team,simulated=false,...actions}:{wo
   const sources=new Set(records.map(r=>r.source).filter(Boolean)).size
   return <div className="ops-workspace ops-pulse-advanced" data-product-workspace="pulse">
     <section className="ops-hero"><div><span className="product-index">PULSE / PORT OPERATIONS COMMAND CENTER</span><h1>Your port. Your operational record.</h1><p>{port?`${recordName(port)} - sourced facts, accountable actions and preserved context.`:'Your working picture begins with your port and its first recorded call.'}</p></div><div className="ops-live-badge"><span>RECORDED FACTS</span><b>{records.length}</b><small>{sources} distinct sources</small></div></section>
-    <section className="ops-command-center" role="region" aria-label="Port operations command center">
-      <div className="ops-command-map ops-panel"><header><div><span className="product-index">GEOSPATIAL OPERATING PICTURE</span><h2>{port?recordName(port):'Port geography'}</h2></div><div className="ops-map-metrics"><span>{mapped}/{berths.length} BERTHS MAPPED</span><b>{calls.length} ACTIVE CALLS</b></div></header><Suspense fallback={<div className="coord-map-loading" role="status">Loading operational map...</div>}><ProductHarborMap facts={records} focusedCallId="" writable={actions.writable} onCreate={actions.onCreate} onEdit={actions.onEdit}/></Suspense></div>
-      <section className="ops-runway ops-panel"><header><div><span className="product-index">NEXT MOVEMENTS</span><h2>Arrival runway</h2></div><b>{calls.length}</b></header>{calls.length?<div className="ops-runway-list">{calls.slice(0,7).map((call,index)=>{const vessel=find(records,'vessel',call.payload.vessel_id),berth=find(records,'berth',call.payload.berth_id),linked=records.filter(r=>r.payload.call_id===call.record_id&&pending(r)).length;return <button type="button" key={call.record_id} onClick={()=>actions.onEdit(call)} disabled={!actions.writable}><span className="runway-order">{String(index+1).padStart(2,'0')}</span><div><b>{vessel?recordName(vessel):call.record_id}</b><span>{berth?recordName(berth):'Berth unassigned'} · {text(call.payload.status)}</span><small>{dateLabel(text(call.payload.eta))}</small></div><em className={linked?'has-work':''}>{linked} open</em></button>})}</div>:<div className="ops-empty small"><b>No active arrivals recorded.</b><p>Unknown traffic remains unknown until it is recorded or integrated.</p></div>}</section>
-    </section>
+    <ProductAdvancedPulse workspace={workspace} simulated={simulated} {...actions}/>
     <div className="ops-signal-strip" aria-label="Operational coverage"><div><span>ACTIVE CALLS</span><b>{calls.length}</b><small>{byKind(records,'call').length} total recorded</small></div><div><span>OPEN INCIDENTS</span><b>{incidents.length}</b><small>{incidents.filter(r=>['critical','high'].includes(text(r.payload.severity))).length} high/critical</small></div><div><span>OPEN TASKS</span><b>{tasks.length}</b><small>{tasks.filter(r=>due(r)<Date.now()).length} overdue</small></div><div><span>COORDINATION</span><b>{handoffs.length}</b><small>open handoffs</small></div><div><span>RESOURCE GAPS</span><b>{resources.length}</b><small>{byKind(records,'resource').length} tracked</small></div><div><span>MAP COVERAGE</span><b>{berths.length?Math.round(mapped/berths.length*100):0}%</b><small>{mapped} geocoded berth{mapped===1?'':'s'}</small></div></div>
     {!byKind(records,'call').length && <SetupGuide facts={records} {...actions}/>}
     <div className="ops-pulse-grid ops-pulse-grid-advanced"><section className="ops-panel"><header><div><span className="product-index">ATTENTION QUEUE</span><h2>What needs action now</h2></div><b>{queue.length}</b></header>

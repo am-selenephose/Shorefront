@@ -20,7 +20,7 @@ test('public showcase is data-rich, read-only and isolated from operational data
 
   await page.goto('/?showcase=1')
   await expect(page.getByText('SIMULATED DEMO · READ ONLY', {exact:true}).first()).toBeVisible()
-  await expect(page.locator('h1').filter({hasText:'Northstar Container Harbor'})).toBeVisible()
+  await expect(page.getByText('Northstar Container Harbor', {exact:true}).first()).toBeVisible()
   await expect(page.getByText('MV Aurora', {exact:true}).first()).toBeVisible()
   await expect(page.getByText('Tug 14 unavailable', {exact:true}).first()).toBeVisible()
   await expect(page.getByRole('navigation', {name:'Showcase workspaces'})).toBeVisible()
@@ -29,6 +29,9 @@ test('public showcase is data-rich, read-only and isolated from operational data
   const geographicMap=page.getByRole('region',{name:'Operational geographic harbor map'})
   await expect(geographicMap).toBeVisible()
   await expect(geographicMap.locator('.maplibregl-ctrl-attrib-inner')).toContainText('OpenFreeMap')
+  await expect(page.getByText('SIMULATED HARBOR OVERVIEW', {exact:true})).toHaveCount(0)
+  await expect(geographicMap.getByText('Port geography is not configured.', {exact:true})).toHaveCount(0)
+  expect(await geographicMap.locator('.product-map-berth-marker').count()).toBeGreaterThanOrEqual(2)
   expect(legacyOsmRequests).toEqual([])
   expect(mapProviderFailures).toEqual([])
 
@@ -41,6 +44,14 @@ test('public showcase is data-rich, read-only and isolated from operational data
 
   await page.getByRole('link', {name:'Exceptions', exact:true}).click()
   await expect(page.locator('[data-product-workspace="exceptions"]')).toContainText('Tug 14 unavailable')
+
+  await page.getByRole('link', {name:'Coordination', exact:true}).click()
+  const coordinationVisual=page.getByRole('region',{name:'Coordination visual context'})
+  await expect(coordinationVisual).toBeVisible()
+  await expect(coordinationVisual).toContainText('Responsibility graph')
+  await expect(coordinationVisual).toContainText('Open coordination deadlines')
+  expect(await coordinationVisual.locator('.coord-network-line').count()).toBeGreaterThan(0)
+  expect(await coordinationVisual.locator('.coord-party-line').count()).toBeGreaterThan(0)
 
   await page.getByRole('link', {name:'Recovery', exact:true}).click()
   await expect(page.getByRole('heading', {name:'Compare recovery paths before a human decides.'})).toBeVisible()

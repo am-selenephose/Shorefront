@@ -1,6 +1,7 @@
 import {useEffect, useState} from 'react'
 import {OperationalCalls, OperationalExceptions, OperationalPlan, OperationalPulse, type Conflict, type OperationalActions} from './ProductWorkspaces'
 import {dateLabel, recordName, type Fact, type User, type Workspace} from './productClient'
+import ProductCoordination, {type CoordinationItem} from './ProductCoordination'
 import './product.css'
 
 const views = ['Pulse','Plan','Calls','Exceptions','Coordination','Recovery','Evidence'] as const
@@ -14,9 +15,9 @@ let seq=0
 const fact=(kind:string,record_id:string,payload:Fact['payload'],source='SIMULATED SOURCE'):Fact=>({sequence:++seq,kind,record_id,revision:1,valid_at:iso(-1),known_at:iso(-1),source,actor_id:'showcase-fixture',payload})
 
 const records:Fact[]=[
-  fact('port','demo-port',{name:'Northstar Container Harbor',timezone:'UTC'}),
-  fact('berth','north-quay',{name:'North Quay',port_id:'demo-port',max_length_m:320}),
-  fact('berth','east-quay',{name:'East Quay',port_id:'demo-port',max_length_m:280}),
+  fact('port','demo-port',{name:'Northstar Container Harbor',timezone:'UTC',latitude:51.9509,longitude:4.1365}),
+  fact('berth','north-quay',{name:'North Quay',port_id:'demo-port',max_length_m:320,latitude:51.9548,longitude:4.1279}),
+  fact('berth','east-quay',{name:'East Quay',port_id:'demo-port',max_length_m:280,latitude:51.9473,longitude:4.1450}),
   fact('vessel','mv-aurora',{name:'MV Aurora',length_m:248}),
   fact('vessel','pacific-meridian',{name:'Pacific Meridian',length_m:272}),
   fact('vessel','northstar-atlas',{name:'Northstar Atlas',length_m:214}),
@@ -42,19 +43,12 @@ function ThemeButton(){
 }
 function readView():ShowcaseView{return views.find(v=>`#${v.toLowerCase()}`===location.hash)??'Pulse'}
 
-function HarborVisual(){
-  return <section className="showcase-map ops-panel" aria-label="Simulated harbor overview"><header><div><span className="product-index">SIMULATED HARBOR OVERVIEW</span><h2>Northstar Container Harbor</h2></div><b>3 calls</b></header><div className="showcase-water">
-    <div className="showcase-pier pier-north"><span>NORTH QUAY</span></div><div className="showcase-pier pier-east"><span>EAST QUAY</span></div>
-    <div className="showcase-vessel vessel-aurora"><b>MV Aurora</b><span>ETA {new Date(iso(1)).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'})}</span></div>
-    <div className="showcase-vessel vessel-meridian"><b>Pacific Meridian</b><span>berth conflict</span></div>
-    <div className="showcase-vessel vessel-atlas"><b>Northstar Atlas</b><span>East Quay</span></div>
-    <div className="showcase-alert"><i/>TUG 14 UNAVAILABLE</div>
-  </div></section>
-}
+const demoCoordinationItems:CoordinationItem[]=records
+  .filter(record=>['handoff','commitment','obligation'].includes(record.kind))
+  .map(record=>({record,creator_id:'demo-operator',actions:[]}))
 
 function ShowcaseCoordination(){
-  const items=records.filter(r=>['handoff','commitment','obligation'].includes(r.kind))
-  return <div className="ops-workspace"><section className="ops-heading"><span className="product-index">COORDINATION / SIMULATED THREADS</span><h1>Promises become accountable work.</h1><p>Named parties, due windows and confirmation states stay attached to the port call.</p></section><div className="coord-grid">{items.map(item=><article className="coord-card" key={item.record_id}><header><span className="product-index">{item.kind} / SIMULATED</span><span className="coord-state">{String(item.payload.status)}</span></header><h2>{recordName(item)}</h2><p>MV Aurora · due {dateLabel(String(item.payload.due_at))}</p><p>{String(item.payload.note)}</p><p className="product-provenance">SIMULATED SOURCE · no external message sent</p></article>)}</div></div>
+  return <ProductCoordination facts={records} team={team} writable={false} onRefresh={async()=>{}} onCreate={()=>{}} onEdit={()=>{}} itemsOverride={demoCoordinationItems}/>
 }
 
 function ShowcaseRecovery(){
@@ -79,8 +73,8 @@ function ShowcaseEvidence(){
 export default function ShowcaseApp(){
   const [view,setView]=useState<ShowcaseView>(readView)
   useEffect(()=>{const sync=()=>setView(readView());window.addEventListener('hashchange',sync);return()=>window.removeEventListener('hashchange',sync)},[])
-  return <div className="product-shell showcase-shell"><aside className="product-sidebar"><a href="?showcase=1#pulse" className="product-wordmark">SHOREFRONT<span>PUBLIC PRODUCT SHOWCASE</span></a><div className="showcase-badge">SIMULATED DEMO · READ ONLY</div><nav aria-label="Showcase workspaces">{views.map((item,index)=><a key={item} href={`?showcase=1#${item.toLowerCase()}`} aria-current={view===item?'page':undefined}><span aria-hidden="true">0{index+1}</span>{item}</a>)}</nav><div className="product-sidebar-foot"><span className="product-index">ISOLATED SHOWCASE</span><strong>Fictional harbor data</strong><small>No operational database access</small><a className="showcase-signin" href="/">Return to sign in</a></div></aside><main><header className="product-topbar"><span className="showcase-banner">SIMULATED DEMO · READ ONLY</span><div className="showcase-top-actions"><a href="/">Return to sign in</a><ThemeButton/></div></header><section className="showcase-title"><span className="product-index">FICTIONAL PORT · PRODUCT WALKTHROUGH</span><h1>Northstar Container Harbor</h1><p>Explore Shorefront with a deliberately simulated disruption. Nothing on this route reads or writes a customer workspace.</p></section>
-    {view==='Pulse'&&<><HarborVisual/><OperationalPulse workspace={workspace} team={team} simulated {...actions}/></>}
+  return <div className="product-shell showcase-shell"><aside className="product-sidebar"><a href="?showcase=1#pulse" className="product-wordmark">SHOREFRONT<span>PUBLIC PRODUCT SHOWCASE</span></a><div className="showcase-badge">SIMULATED DEMO · READ ONLY</div><nav aria-label="Showcase workspaces">{views.map((item,index)=><a key={item} href={`?showcase=1#${item.toLowerCase()}`} aria-current={view===item?'page':undefined}><span aria-hidden="true">0{index+1}</span>{item}</a>)}</nav><div className="product-sidebar-foot"><span className="product-index">ISOLATED SHOWCASE</span><strong>Fictional harbor data</strong><small>No operational database access</small><a className="showcase-signin" href="/">Return to sign in</a></div></aside><main><header className="product-topbar"><span className="showcase-banner">SIMULATED DEMO · READ ONLY</span><div className="showcase-top-actions"><a href="/">Return to sign in</a><ThemeButton/></div></header><section className="showcase-contextline"><div><span className="product-index">FICTIONAL PORT / PRODUCT WALKTHROUGH</span><b>Northstar Container Harbor</b></div><p>Simulated disruption · isolated read-only data · no operational database access</p></section>
+    {view==='Pulse'&&<OperationalPulse workspace={workspace} team={team} simulated {...actions}/>}
     {view==='Plan'&&<OperationalPlan workspace={workspace} conflictsOverride={conflicts} {...actions}/>}
     {view==='Calls'&&<OperationalCalls workspace={workspace} {...actions}/>}
     {view==='Exceptions'&&<OperationalExceptions workspace={workspace} team={team} {...actions}/>}

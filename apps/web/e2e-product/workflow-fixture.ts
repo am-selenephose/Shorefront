@@ -17,7 +17,7 @@ export async function workflowSession(page: Page) {
 export async function writeFact(page: Page, kind:string, id:string, payload:Record<string,unknown>, revision=0) {
   const me = await (await page.request.get('/api/v1/auth/me')).json()
   const response = await page.request.post(`/api/v1/records/${kind}`, {
-    headers:{Origin:'http://127.0.0.1:5176','X-CSRF-Token':me.csrf_token,'Idempotency-Key':crypto.randomUUID()},
+    headers:{Origin:new URL(page.url()).origin,'X-CSRF-Token':me.csrf_token,'Idempotency-Key':crypto.randomUUID()},
     data:{record_id:id,expected_revision:revision,source:'Isolated browser workflow fixture',payload},
   })
   expect(response.status(), await response.text()).toBe(201)
