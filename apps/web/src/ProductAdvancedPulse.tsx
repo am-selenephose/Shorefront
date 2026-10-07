@@ -1,5 +1,6 @@
 import {lazy,Suspense,useEffect,useState} from 'react'
 import {dateLabel,productRequest,recordName,type Fact,type Workspace} from './productClient'
+import ProductOperationsDeck from './ProductOperationsDeck'
 const ProductHarborMap=lazy(()=>import('./ProductHarborMap'))
 
 type Actions={
@@ -106,5 +107,6 @@ export default function ProductAdvancedPulse({workspace,simulated=false,...actio
       <div className={unmapped?'is-warning':''}><span>UNMAPPED BERTHS</span><b>{unmapped}</b><small>{berths.length?`${mapped}/${berths.length} geocoded`:'no berth records'}</small></div>
       <div><span>PROVENANCE</span><b>{sources}</b><small>distinct recorded sources</small></div>
     </section>
+    <ProductOperationsDeck records={records} calls={calls} selectedId={selected?.record_id??''} onSelect={setSelectedId} sourceConflicts={sourceConflicts} writable={actions.writable} onEdit={actions.onEdit}/>
   </>
 }
