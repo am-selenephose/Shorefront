@@ -141,6 +141,7 @@ jobs:
       - run: sh -n deploy/basicdeploy_boot.sh deploy/basicdeploy_prepare.sh deploy/basicdeploy_bundle.sh
       - run: bash -n ops/backup-postgres.sh
       - run: bash -n ops/restore-postgres.sh
+      - run: bash -n ops/scheduled-backup.sh ops/operational-healthcheck.sh ops/install-user-ops.sh
       - run: docker compose -f docker-compose.prod.yml config >/dev/null
       - run: docker compose -f docker-compose.prod.yml -f docker-compose.tls.yml config >/dev/null
       - run: docker build -t shorefront-api:ci apps/api

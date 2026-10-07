@@ -11,9 +11,10 @@ from typing import Literal
 from fastapi import FastAPI, HTTPException, Query, Request, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import AwareDatetime
-from sqlalchemy import JSON, cast, delete, insert, or_, select, type_coerce, update
+from sqlalchemy import JSON, cast, delete, func, insert, or_, select, type_coerce, update
 
 from .config import setting
+from .observability import metrics, observe_http
 from .product_coordination import schedule_conflicts, coordination_actions
 from .product_auth import (COOKIE, create_user, identify, login_attempt, public_user,
                            password_hash, password_valid, require_admin, require_origin, start_session)
@@ -29,7 +30,7 @@ from .product_connections import (acknowledge_partner_delivery, create_partner_d
                                   rotate_partner_grant, rotate_source)
 from .product_standards import (DCSA_PROFILE, ingest_dcsa_port_call, list_standard_events,
                                 list_standard_profiles)
-from .product_store import ProductStore, canonical, digest, graph, installation, invitations, public_record, sessions, users, versions
+from .product_store import ProductStore, canonical, digest, fact_conflicts, graph, installation, invitations, public_record, sessions, users, versions
 from .storage import default_database_url
 
 
@@ -59,6 +60,7 @@ def create_product_app(database_url=None, installation_id=None, origin=None, boo
 
     app = FastAPI(title='Shorefront Operational Workspace', lifespan=lifespan)
     app.state.product_store = store
+    app.middleware('http')(observe_http)
 
     @app.middleware('http')
     async def boundaries(request: Request, call_next):
@@ -96,6 +98,29 @@ def create_product_app(database_url=None, installation_id=None, origin=None, boo
             needs_setup = connection.execute(select(users.c.id).limit(1)).first() is None
         return {'runtime_mode': 'operational', 'needs_setup': needs_setup, 'demo_controls_enabled': False,
                 'advisory_only': True, 'production_ready': False, 'installation_model': 'dedicated'}
+
+    @app.get('/metrics')
+    def operational_metrics():
+        current = stamp(now())
+        with store.transaction() as connection:
+            records_total = connection.execute(select(func.count()).select_from(versions)).scalar_one()
+            users_total = connection.execute(select(func.count()).select_from(users)).scalar_one()
+            active_sessions = connection.execute(
+                select(func.count()).select_from(sessions).where(sessions.c.expires_at > current)
+            ).scalar_one()
+            open_conflicts = connection.execute(
+                select(func.count()).select_from(fact_conflicts).where(fact_conflicts.c.state == 'unresolved')
+            ).scalar_one()
+        return Response(
+            content=metrics.render_operational(
+                runtime_ready=True,
+                records_total=records_total,
+                users_total=users_total,
+                active_sessions=active_sessions,
+                open_conflicts=open_conflicts,
+            ),
+            media_type='text/plain; version=0.0.4',
+        )
 
     @app.post('/api/v1/auth/bootstrap', status_code=201)
     def bootstrap(body: Bootstrap, request: Request, response: Response):

@@ -104,6 +104,46 @@ class MetricsRegistry:
 
         return "\n".join(lines) + "\n"
 
+    def render_operational(
+        self,
+        *,
+        runtime_ready: bool,
+        records_total: int,
+        users_total: int,
+        active_sessions: int,
+        open_conflicts: int,
+    ) -> str:
+        with self._lock:
+            http_rows = sorted(self._http.items())
+
+        lines = [
+            "# HELP shorefront_runtime_ready Whether the operational runtime is ready.",
+            "# TYPE shorefront_runtime_ready gauge",
+            f"shorefront_runtime_ready {1 if runtime_ready else 0}",
+            "# HELP shorefront_records_total Current record-version rows stored by this installation.",
+            "# TYPE shorefront_records_total gauge",
+            f"shorefront_records_total {int(records_total)}",
+            "# HELP shorefront_users_total Current user accounts stored by this installation.",
+            "# TYPE shorefront_users_total gauge",
+            f"shorefront_users_total {int(users_total)}",
+            "# HELP shorefront_active_sessions Current non-expired sessions stored by this installation.",
+            "# TYPE shorefront_active_sessions gauge",
+            f"shorefront_active_sessions {int(active_sessions)}",
+            "# HELP shorefront_open_reconciliation_conflicts Current unresolved factual disagreements.",
+            "# TYPE shorefront_open_reconciliation_conflicts gauge",
+            f"shorefront_open_reconciliation_conflicts {int(open_conflicts)}",
+            "# HELP shorefront_http_requests_total HTTP requests by method, route template, and status.",
+            "# TYPE shorefront_http_requests_total counter",
+        ]
+        for (method, route, status), count in http_rows:
+            lines.append(
+                "shorefront_http_requests_total"
+                f'{{method="{_escape_label(method)}",'
+                f'route="{_escape_label(route)}",'
+                f'status="{status}"}} {count}'
+            )
+        return "\n".join(lines) + "\n"
+
 
 metrics = MetricsRegistry()
 

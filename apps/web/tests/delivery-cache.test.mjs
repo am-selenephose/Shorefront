@@ -61,6 +61,8 @@ for(const tls of [false,true]) test(`${tls?'TLS':'HTTP'} entry points revalidate
       assert.equal(response.headers['referrer-policy'],'no-referrer')
       if(tls)assert.match(response.headers['strict-transport-security'],/max-age=/)
     }
+    const metrics=await get(base+'/metrics')
+    assert.equal(metrics.status,404,'Operational metrics must remain private to the API network')
     const initial=await get(base+'/index.html')
     const conditional=await get(base+'/index.html',{'If-Modified-Since':initial.headers['last-modified']})
     assert.equal(conditional.status,304,'Unchanged shells may be conditionally revalidated')

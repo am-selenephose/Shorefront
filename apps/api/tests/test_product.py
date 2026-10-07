@@ -713,3 +713,22 @@ def test_reconciliation_table_requires_explicit_migration(tmp_path):
     assert fact_conflicts.name in inspect(store.engine).get_table_names()
     store.initialize(migrate=False)
     store.engine.dispose()
+
+
+def test_operational_metrics_are_available_on_private_api(tmp_path):
+    app = build_app(tmp_path / 'metrics.db')
+    with TestClient(app, base_url=ORIGIN) as client:
+        bootstrap(client)
+        setup_call(client)
+        assert client.get('/readyz').status_code == 200
+        response = client.get('/metrics')
+        assert response.status_code == 200
+        assert response.headers['content-type'].startswith('text/plain')
+        body = response.text
+        assert 'shorefront_runtime_ready 1' in body
+        assert 'shorefront_records_total ' in body
+        assert 'shorefront_users_total 1' in body
+        assert 'shorefront_active_sessions ' in body
+        assert 'shorefront_open_reconciliation_conflicts 0' in body
+        assert 'shorefront_http_requests_total' in body
+        assert 'customer-a' not in body
