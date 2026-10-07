@@ -159,11 +159,13 @@ automatically discovered.
 ## Backup ownership and restore procedure
 
 Name an installation operator responsible for backup frequency, retention,
-encryption, restore authorization and recovery-time/data-loss objectives. These
-policies are not automated by the repository scripts. Backups contain customer
-records and authentication material; restrict the directory and transfer them
-through an approved encrypted channel. Use a new output filename for each backup
-because an explicitly chosen existing output path will be overwritten.
+encryption, restore authorization and recovery-time/data-loss objectives. The
+repository includes user-level health and daily-backup timers, but timer
+installation does not define a customer's RTO/RPO, off-site durability or
+encryption policy. Backups contain customer records and authentication material;
+restrict the directory and transfer them through an approved encrypted channel.
+Use a new output filename for each backup because an explicitly chosen existing
+output path will be overwritten.
 
 Set these switches **in the invoking shell**. They are not read automatically
 from the Compose environment file:

@@ -1,30 +1,61 @@
 # Next work for Shorefront
 
-The current product is Shorefront, with its own runtime and release lifecycle. Follow
-[the migration guide](RENAMING_AND_UPGRADING.md) for existing state and consumers.
-Do not infer a completed deployment from source changes or older release notes.
+The current product is Shorefront, with its own operational runtime, stable public
+hostname and release lifecycle. Follow RENAMING_AND_UPGRADING.md for existing
+state and consumers. Do not infer a completed customer deployment from source
+changes or a passing local release gate.
 
-## Commercial release gates still open
+## Current commercial release gates
 
-1. Resolve the previously identified authorization/demo-reset, atomicity and replay
-   concerns. Reproduce and verify them in isolated local fixtures; do not test
-   third-party systems or build offensive automation.
-2. Define the buyer and first paid workflow with real user evidence. Tenant
-   isolation, roles, audit exports, retention and onboarding need explicit product
-   requirements and end-to-end acceptance checks.
-3. Validate actual feed contracts, data licensing, freshness/error behavior and
-   recovery procedures before connecting live operations.
-4. Review the cream-first geometric interface with the owner. Pale cream is the
-   base; Space Grotesk/Space Mono, larger operational type, timeline lanes and
-   mobile navigation are applied. A remembered, optional dark mode now restores
-   the original inverse palette while keeping cream as the default. Continue
-   task-oriented product design and commercial onboarding from this corrected
-   [brand direction](../brand.md). Keep this product's coastal identity independent.
-5. Verify complete desktop/mobile, keyboard, loading/error/stale and permission
-   states; then measure performance and operator task completion.
-6. Exercise production-shaped PostgreSQL migrations, backup/restore and rollback
-   in an isolated environment before a separately authorized live release.
+1. **Prove the first buyer and paid workflow.** Run one complete real port-call
+   workflow with a design partner, measure operator task completion and record
+   concrete acceptance evidence. Build only the missing workflow revealed by that
+   use, rather than adding speculative modules.
 
-The vessel runtime remains a separate system. Shorefront accepts privacy-minimized
-normalized events and produces advisory coordination. Do not introduce physical
-actuation, crew-private records, or a second competing semantic contract here.
+2. **Connect one real operational source under contract.** Validate licensing,
+   schema, freshness, outage/error behavior, replay rules, provenance and recovery
+   before calling any feed live. The existing generic ingestion, DCSA subset and
+   reconciliation machinery are infrastructure, not proof of a vendor integration.
+
+3. **Define enterprise identity requirements.** Dedicated-installation accounts,
+   invitations and roles are implemented. Add OIDC/SAML/federated identity only
+   against a real buyer requirement and acceptance test.
+
+4. **Qualify production operations.** The host has private operational metrics,
+   a five-minute health timer, daily backups and a verified isolated restore.
+   Remaining work is explicit RTO/RPO, encrypted/off-site backup policy, retention
+   sizing, load/capacity testing, history/evidence growth qualification and a
+   multi-host/HA decision if the commercial SLA requires it.
+
+5. **Complete independent assurance.** Run an independent security/code review,
+   Firefox/WebKit acceptance, accessibility review and failure-mode exercises.
+   Chromium regression coverage is extensive but is not cross-engine certification.
+
+6. **Strengthen evidence only where the buyer needs it.** The audit chain and
+   offline verifier detect ordinary corruption and preserve provenance. External
+   signatures, trusted timestamps and enterprise key custody remain separate from
+   the current evidence model.
+
+7. **Expand standards/vendor surfaces from evidence, not ambition.** DCSA support
+   remains subset-not-certified. Add further DCSA events, TOS/PCS/AIS/weather
+   adapters and outbound delivery/retry infrastructure only for contracted
+   workflows.
+
+## Completed infrastructure that should not be reopened speculatively
+
+- dedicated operational runtime and PostgreSQL ownership boundary;
+- authenticated roles, invitations, password rotation/recovery and origin checks;
+- typed records, two-clock history, evidence export and offline verification;
+- decision packets with explicit human approval and bounded recorded-input checks;
+- geographic map, berth horizon, coordination and source reconciliation;
+- scoped inbound sources, partner projections/deliveries and DCSA subset gateway;
+- full operational/training browser regression jobs and disposable PostgreSQL CI;
+- real Nginx HTTP/TLS delivery regression tests;
+- private operational metrics, health timer and scheduled backups;
+- stable shorefront.animantum.com named-tunnel ingress;
+- isolated restore rehearsal of the latest live backup.
+
+The vessel runtime remains a separate system. Shorefront accepts
+privacy-minimized normalized events and produces advisory coordination. Do not
+introduce physical actuation, crew-private records or a competing semantic
+contract here.
