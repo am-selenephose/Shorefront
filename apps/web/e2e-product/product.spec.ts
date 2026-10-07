@@ -76,16 +76,25 @@ test('operational UI retains coastal dark mode and fits mobile', async ({page}, 
 })
 
 test('real invitation, call setup, decision review and supervisor approval', async ({page, browser}) => {
-  await page.goto('/')
+  const runtime=await (await page.request.get('/api/v1/runtime/capabilities')).json()
+  await page.goto(runtime.needs_setup?'/#setup=test-only-bootstrap-for-local-product-browser-suite':'/')
+  if(runtime.needs_setup) await page.getByLabel('Full name').fill('Port Owner')
   await page.getByLabel('Email', {exact:true}).fill('owner@example.test')
   await page.getByLabel('Password', {exact:true}).fill(password)
-  await page.getByRole('button', {name:'Sign in', exact:true}).click()
+  await page.getByRole('button', {name:runtime.needs_setup?'Create workspace':'Sign in', exact:true}).click()
   await expect(page.getByRole('link', {name:'Records', exact:true})).toBeVisible()
   const me = await (await page.request.get('/api/v1/auth/me')).json()
   const origin = 'http://127.0.0.1:5176'
   const headers = {Origin:origin, 'X-CSRF-Token':me.csrf_token}
-  const records = await (await page.request.get('/api/v1/workspace')).json()
-  const port = records.records.find((r:{kind:string}) => r.kind === 'port')
+  let records = await (await page.request.get('/api/v1/workspace')).json()
+  let port = records.records.find((r:{kind:string}) => r.kind === 'port')
+  if(!port){
+    const created=await page.request.post('/api/v1/records/port',{headers:{...headers,'Idempotency-Key':'browser-port'},data:{record_id:'browser-port',expected_revision:0,source:'Customer schedule',payload:{name:'Browser Port',timezone:'UTC'}}})
+    expect(created.status(),await created.text()).toBe(201)
+    records=await (await page.request.get('/api/v1/workspace')).json()
+    port=records.records.find((r:{kind:string}) => r.kind === 'port')
+  }
+  expect(port).toBeTruthy()
   for (const [kind,id,payload] of [
     ['berth','browser-berth',{name:'North Quay',port_id:port.record_id,max_length_m:300}],
     ['vessel','browser-vessel',{name:'Customer Meridian',length_m:220}],

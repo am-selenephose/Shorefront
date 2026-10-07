@@ -65,18 +65,20 @@ export default function ProductAdvancedPulse({workspace,simulated=false,...actio
           <Suspense fallback={<div className="coord-map-loading" role="status">Loading operational map…</div>}><ProductHarborMap facts={records} focusedCallId={selected?.record_id??''} writable={actions.writable} onCreate={actions.onCreate} onEdit={actions.onEdit}/></Suspense>
           <section className="ops-operating-horizon" role="region" aria-label="Port operating horizon">
             <header><div><span className="product-index">BERTH HORIZON / RECORDED WINDOWS</span><h3>Operating horizon</h3></div><div className="ops-horizon-switch" aria-label="Operating horizon range">{[6,12,24,48].map(value=><button type="button" key={value} className={horizonHours===value?'active':''} aria-pressed={horizonHours===value} onClick={()=>setHorizonHours(value)}>{value}H</button>)}</div></header>
-            <div className="ops-horizon-axis"><span>{dateLabel(new Date(horizonStart).toISOString())}</span><span>+{Math.round(horizonHours/2)}h</span><span>+{horizonHours}h</span></div>
-            {berths.length?<div className="ops-horizon-lanes">{berths.slice(0,8).map(berth=>{
-              const berthCalls=timelineCalls.filter(call=>call.payload.berth_id===berth.record_id)
-              return <div className="ops-horizon-lane" key={berth.record_id}><div className="ops-horizon-berth"><b>{recordName(berth)}</b><small>{typeof berth.payload.latitude==='number'&&typeof berth.payload.longitude==='number'?'GEO':'NO GEO'}</small></div><div className="ops-horizon-track">{berthCalls.map(call=>{
-                const eta=new Date(text(call.payload.eta)).getTime()
-                const rawEnd=new Date(text(call.payload.etd)).getTime()
-                const etd=Number.isFinite(rawEnd)?rawEnd:eta+3600000
-                const vessel=find(records,'vessel',call.payload.vessel_id)
-                const left=timePct(eta),right=timePct(etd),width=Math.max(3,right-left)
-                return <button type="button" key={call.record_id} className={`ops-horizon-call${selected?.record_id===call.record_id?' is-focused':''}`} style={{left:`${left}%`,width:`${width}%`}} onClick={()=>setSelectedId(call.record_id)}><b>{vessel?recordName(vessel):call.record_id}</b><span>{text(call.payload.status)}</span></button>
-              })}</div></div>
-            })}</div>:<div className="ops-empty small"><b>No berth horizon yet.</b><p>Record berths and calls to build the operating timeline.</p></div>}
+            <div className="ops-horizon-scroll" role="group" aria-label="Scrollable berth timeline" tabIndex={0}>
+              <div className="ops-horizon-axis"><span>{dateLabel(new Date(horizonStart).toISOString())}</span><span>+{Math.round(horizonHours/2)}h</span><span>+{horizonHours}h</span></div>
+              {berths.length?<div className="ops-horizon-lanes">{berths.slice(0,8).map(berth=>{
+                const berthCalls=timelineCalls.filter(call=>call.payload.berth_id===berth.record_id)
+                return <div className="ops-horizon-lane" key={berth.record_id}><div className="ops-horizon-berth"><b>{recordName(berth)}</b><small>{typeof berth.payload.latitude==='number'&&typeof berth.payload.longitude==='number'?'GEO':'NO GEO'}</small></div><div className="ops-horizon-track">{berthCalls.map(call=>{
+                  const eta=new Date(text(call.payload.eta)).getTime()
+                  const rawEnd=new Date(text(call.payload.etd)).getTime()
+                  const etd=Number.isFinite(rawEnd)?rawEnd:eta+3600000
+                  const vessel=find(records,'vessel',call.payload.vessel_id)
+                  const left=timePct(eta),right=timePct(etd),width=Math.max(3,right-left)
+                  return <button type="button" key={call.record_id} className={`ops-horizon-call${selected?.record_id===call.record_id?' is-focused':''}`} style={{left:`${left}%`,width:`${width}%`}} onClick={()=>setSelectedId(call.record_id)}><b>{vessel?recordName(vessel):call.record_id}</b><span>{text(call.payload.status)}</span></button>
+                })}</div></div>
+              })}</div>:<div className="ops-empty small"><b>No berth horizon yet.</b><p>Record berths and calls to build the operating timeline.</p></div>}
+            </div>
           </section>
         </div>
 

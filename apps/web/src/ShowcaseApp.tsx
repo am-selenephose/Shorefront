@@ -57,7 +57,28 @@ function ShowcaseRecovery(){
     {name:'Option B · Shift Aurora to East Quay',delay:'20 min',conflicts:'1 resource conflict',exposure:'$17k modeled',confidence:'MEDIUM'},
     {name:'Option C · Hold current plan',delay:'42 min',conflicts:'2 downstream impacts',exposure:'$38k modeled',confidence:'HIGH'},
   ]
-  return <div className="ops-workspace"><section className="ops-heading"><span className="product-index">RECOVERY / SIMULATED DECISION PACKET</span><h1>Compare recovery paths before a human decides.</h1><p>These values are fictional demo outputs. Operational Shorefront only records calculations backed by its configured decision inputs.</p></section><div className="showcase-recovery-baseline"><span>CURRENT STATE</span><b>MV Aurora · Tug 14 unavailable</b><p>42 min simulated delay · 2 downstream impacts · $38k simulated exposure</p></div><div className="showcase-recovery-grid">{options.map((option,index)=><article className={`showcase-option ${index===0?'preferred':''}`} key={option.name}><span className="product-index">{index===0?'PREFERRED SIMULATION':'SIMULATED ALTERNATIVE'}</span><h2>{option.name}</h2><dl><div><dt>PROJECTED DELAY</dt><dd>{option.delay}</dd></div><div><dt>CONFLICTS</dt><dd>{option.conflicts}</dd></div><div><dt>EXPOSURE</dt><dd>{option.exposure}</dd></div><div><dt>TRUST</dt><dd>{option.confidence}</dd></div></dl><button disabled>Human approval required</button></article>)}</div><aside className="product-boundary"><b>Demo only.</b><p>No option can mutate operational data from this showcase. There is no vessel actuation path.</p></aside></div>
+  const affected=[
+    ['MV Aurora','North Quay','11 min','Primary recovery target'],
+    ['Pacific Meridian','North Quay','0 min','Window preserved under A'],
+    ['Northstar Atlas','East Quay','0 min','No modeled change under A'],
+  ]
+  return <div className="ops-workspace showcase-recovery-workspace">
+    <section className="ops-heading"><span className="product-index">RECOVERY / SIMULATED DECISION PACKET</span><h1>Compare recovery paths before a human decides.</h1><p>These values are fictional demo outputs. Operational Shorefront only records calculations backed by its configured decision inputs.</p></section>
+    <div className="decision-signal-strip" aria-label="Decision context summary">
+      <div><span>SELECTED CALL</span><b>MV Aurora</b></div>
+      <div><span>TRIGGER</span><b>Tug 14</b></div>
+      <div><span>SOURCE STATE</span><b>1 conflict</b></div>
+      <div><span>DECISION STATE</span><b>Review</b></div>
+      <div><span>AUTHORITY</span><b>Human</b></div>
+    </div>
+    <div className="showcase-recovery-baseline"><span>CURRENT STATE</span><b>MV Aurora · Tug 14 unavailable</b><p>42 min simulated delay · 2 downstream impacts · $38k simulated exposure</p></div>
+    <div className="showcase-recovery-grid">{options.map((option,index)=><article className={`showcase-option ${index===0?'preferred':''}`} key={option.name}><span className="product-index">{index===0?'PREFERRED SIMULATION':'SIMULATED ALTERNATIVE'}</span><h2>{option.name}</h2><dl><div><dt>PROJECTED DELAY</dt><dd>{option.delay}</dd></div><div><dt>CONFLICTS</dt><dd>{option.conflicts}</dd></div><div><dt>EXPOSURE</dt><dd>{option.exposure}</dd></div><div><dt>TRUST</dt><dd>{option.confidence}</dd></div></dl><button disabled>Human approval required</button></article>)}</div>
+    <div className="showcase-recovery-lower">
+      <section className="ops-panel showcase-dependency-panel" aria-label="Recovery dependency chain"><header><div><span className="product-index">DECISION DEPENDENCY CHAIN</span><h2>Why this option exists</h2></div><b>4 STEPS</b></header><div className="showcase-dependency-chain"><div><span>01</span><b>Recorded conflict</b><small>Tug 14 unavailable</small></div><i/><div><span>02</span><b>Recorded alternative</b><small>Tug 08 available</small></div><i/><div><span>03</span><b>Schedule check</b><small>No new berth overlap</small></div><i/><div><span>04</span><b>Human authority</b><small>Supervisor approval required</small></div></div></section>
+      <section className="ops-panel showcase-impact-panel" aria-label="Affected call runway"><header><div><span className="product-index">AFFECTED CALL RUNWAY</span><h2>What changes under Option A</h2></div><b>{affected.length}</b></header><div className="showcase-impact-list">{affected.map(([vessel,berth,delta,note],index)=><article key={vessel}><span>{String(index+1).padStart(2,'0')}</span><div><b>{vessel}</b><small>{berth}</small></div><strong>{delta}</strong><em>{note}</em></article>)}</div></section>
+    </div>
+    <aside className="product-boundary"><b>Demo only.</b><p>No option can mutate operational data from this showcase. There is no vessel actuation path. Weather, tide, UKC and navigational safety remain outside this simulated packet.</p></aside>
+  </div>
 }
 
 function ShowcaseEvidence(){
@@ -67,7 +88,23 @@ function ShowcaseEvidence(){
     ['Terminal berth plan','SIMULATED SOURCE','revision 7','healthy'],
     ['Pilot commitment','SIMULATED SOURCE','accepted','healthy'],
   ]
-  return <div className="ops-workspace"><section className="ops-heading"><span className="product-index">EVIDENCE / SIMULATED CONTEXT</span><h1>Every demo decision keeps its context.</h1><p>Source, timing, conflict state and human authority remain visible instead of disappearing behind a recommendation.</p></section><section className="ops-panel"><header><div><span className="product-index">TRUST ENVELOPE</span><h2>Evidence used by the simulated recovery packet</h2></div><b>{evidence.length}</b></header><div className="showcase-evidence-list">{evidence.map(([name,source,age,state])=><article key={name}><div><b>{name}</b><span>{source}</span></div><div><span>{age}</span><em>{state}</em></div></article>)}</div></section><section className="ops-panel"><header><div><span className="product-index">TWO-CLOCK REPLAY</span><h2>What was known when the decision was reviewed?</h2></div></header><div className="showcase-timeline"><div><span>14:04</span><b>Tug availability conflict received</b><small>knowledge time</small></div><div><span>14:06</span><b>Recovery options generated</b><small>decision input snapshot</small></div><div><span>14:08</span><b>Duty supervisor review pending</b><small>human authority boundary</small></div></div></section></div>
+  const audit=[
+    ['14:04:22','SOURCE DISAGREEMENT','Tug availability baseline and challenger preserved'],
+    ['14:06:10','DECISION SNAPSHOT','Recovery packet bound to recorded inputs'],
+    ['14:07:41','EVIDENCE CHAIN','Decision context appended to SHA-256 audit chain'],
+    ['14:08:00','HUMAN REVIEW','Duty supervisor authority still pending'],
+  ]
+  return <div className="ops-workspace showcase-evidence-workspace">
+    <section className="ops-heading"><span className="product-index">EVIDENCE / SIMULATED CONTEXT</span><h1>Every demo decision keeps its context.</h1><p>Source, timing, conflict state and human authority remain visible instead of disappearing behind a recommendation.</p></section>
+    <div className="evidence-signal-strip" aria-label="Evidence context summary"><div><span>SOURCES</span><b>4</b></div><div><span>OPEN CONFLICTS</span><b>1</b></div><div><span>CLOCK EVENTS</span><b>3</b></div><div><span>AUDIT EVENTS</span><b>4</b></div><div><span>AUTHORITY</span><b>Human</b></div></div>
+    <div className="showcase-evidence-grid">
+      <section className="ops-panel"><header><div><span className="product-index">TRUST ENVELOPE</span><h2>Evidence used by the simulated recovery packet</h2></div><b>{evidence.length}</b></header><div className="showcase-evidence-list">{evidence.map(([name,source,age,state])=><article key={name}><div><b>{name}</b><span>{source}</span></div><div><span>{age}</span><em className={state.includes('conflict')?'conflict':''}>{state}</em></div></article>)}</div></section>
+      <section className="ops-panel showcase-conflict-preview" aria-label="Simulated source disagreement"><header><div><span className="product-index">SOURCE DISAGREEMENT</span><h2>Tug 14 availability</h2></div><b>OPEN</b></header><div className="showcase-conflict-versions"><article><span>BASELINE / V1</span><b>AVAILABLE</b><small>Terminal resource board · 14:02</small></article><i>≠</i><article><span>CHALLENGER / V2</span><b>UNAVAILABLE</b><small>Tug dispatch update · 14:04</small></article></div><div className="showcase-conflict-field"><span>CHANGED FIELD</span><b>available</b><p>Both observations remain preserved. No source silently wins.</p></div><div className="showcase-authority-row"><span>RESOLUTION</span><b>Human note + accepted revision required</b></div></section>
+    </div>
+    <section className="ops-panel"><header><div><span className="product-index">TWO-CLOCK REPLAY</span><h2>What was known when the decision was reviewed?</h2></div></header><div className="showcase-timeline"><div><span>14:04</span><b>Tug availability conflict received</b><small>knowledge time</small></div><div><span>14:06</span><b>Recovery options generated</b><small>decision input snapshot</small></div><div><span>14:08</span><b>Duty supervisor review pending</b><small>human authority boundary</small></div></div></section>
+    <section className="ops-panel showcase-audit-ledger" aria-label="Simulated audit lineage"><header><div><span className="product-index">AUDIT LINEAGE</span><h2>Evidence-bound event sequence</h2></div><b>SHA-256 CHAIN</b></header><div>{audit.map(([time,event,detail])=><article key={time}><time>{time}</time><b>{event}</b><span>{detail}</span></article>)}</div></section>
+    <aside className="product-boundary"><b>Evidence boundary.</b><p>The simulated chain demonstrates preserved context. It is not a digital signature, external timestamp, live AIS feed or regulator certification.</p></aside>
+  </div>
 }
 
 export default function ShowcaseApp(){
