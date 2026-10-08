@@ -11,7 +11,8 @@
     "test:delivery": "node --test tests/delivery-cache.test.mjs",
     "test:e2e": "playwright test",
     "test:product": "playwright test --config playwright.product.config.ts",
-    "test:intelligence": "playwright test --config playwright.intelligence.config.ts"
+    "test:intelligence": "playwright test --config playwright.intelligence.config.ts",
+    "test:quay": "playwright test --config playwright.quay.config.ts"
   },
   "dependencies": {
     "maplibre-gl": "^6.10.0",

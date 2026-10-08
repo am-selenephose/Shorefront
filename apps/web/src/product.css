@@ -1279,3 +1279,144 @@
     top:139px!important;
   }
 }
+
+/* Shorefront QUAY board is independent from the geographic map.
+   Fullscreen is an actual interactive berth timeline, not an enlarged image. */
+.quay-fullscreen{min-width:0}
+.quay-fullscreen-body{min-width:0}
+.quay-panel-tools{display:flex;align-items:center;gap:12px;justify-content:flex-end}
+.quay-berth-count{font:600 13px var(--font-mono);white-space:nowrap;color:var(--muted-foreground)}
+.product-shell .quay-expand-button{
+  display:inline-flex;align-items:center;gap:7px;justify-content:center;
+  min-height:38px;padding:8px 12px;
+  border:1px solid var(--accent-border);border-radius:6px;
+  background:color-mix(in srgb,var(--peach) 17%,var(--surface));
+  color:var(--foreground);font-size:13px;font-weight:700;
+  white-space:nowrap;
+}
+.product-shell .quay-expand-button span{font-size:18px;line-height:1}
+.product-shell .quay-expand-button:hover{background:var(--peach);color:var(--ink)}
+.quay-fullscreen-boundary{display:none}
+.product-shell .quay-fullscreen:fullscreen,
+.product-shell .quay-fullscreen.is-quay-expanded{
+  position:fixed!important;
+  inset:0!important;
+  z-index:2147483646!important;
+  display:flex!important;
+  flex-direction:column!important;
+  width:100vw!important;
+  height:100vh!important;
+  height:100dvh!important;
+  max-height:none!important;
+  min-height:0!important;
+  max-width:none!important;
+  min-width:0!important;
+  margin:0!important;
+  border:0!important;
+  border-radius:0!important;
+  overflow:hidden!important;
+  background:var(--background)!important;
+  box-shadow:0 0 0 100vmax rgba(0,0,0,.42);
+}
+.product-shell .quay-fullscreen:fullscreen>.quay-panel-header,
+.product-shell .quay-fullscreen.is-quay-expanded>.quay-panel-header{
+  display:flex;flex:0 0 auto;
+  align-items:center;justify-content:space-between;flex-wrap:wrap;
+  padding:20px 26px!important;gap:12px;
+  min-height:95px;
+  background:linear-gradient(110deg,var(--surface-deep),color-mix(in srgb,var(--peach) 14%,var(--surface)));
+  border-bottom:1px solid var(--accent-border);
+}
+.product-shell .quay-fullscreen:fullscreen>.quay-panel-header h2,
+.product-shell .quay-fullscreen.is-quay-expanded>.quay-panel-header h2{
+  font-size:clamp(23px,2.5vw,34px);margin:2px 0 0!important;
+}
+.product-shell .quay-fullscreen:fullscreen>.quay-panel-header h3,
+.product-shell .quay-fullscreen.is-quay-expanded>.quay-panel-header h3{
+  font-size:clamp(20px,2.2vw,30px);margin:2px 0 0!important;
+}
+.product-shell .quay-fullscreen:fullscreen>.quay-fullscreen-body,
+.product-shell .quay-fullscreen.is-quay-expanded>.quay-fullscreen-body{
+  flex:1 1 auto;min-height:0;width:100%;
+  overflow:auto;overscroll-behavior:contain;
+  background:linear-gradient(145deg,var(--surface),var(--surface-deep));
+}
+.product-shell .quay-fullscreen:fullscreen .ops-berth-board,
+.product-shell .quay-fullscreen.is-quay-expanded .ops-berth-board{
+  min-width:max(900px,100%);padding:24px 26px 34px;
+}
+.product-shell .quay-fullscreen:fullscreen .ops-berth-row,
+.product-shell .quay-fullscreen.is-quay-expanded .ops-berth-row{
+  grid-template-columns:clamp(168px,17vw,260px) minmax(0,1fr);
+  min-height:92px;
+}
+.product-shell .quay-fullscreen:fullscreen .ops-berth-label b,
+.product-shell .quay-fullscreen.is-quay-expanded .ops-berth-label b{
+  font-size:16px;font-weight:650;
+}
+.product-shell .quay-fullscreen:fullscreen .ops-berth-label small,
+.product-shell .quay-fullscreen.is-quay-expanded .ops-berth-label small{
+  font-size:14px;
+}
+.product-shell .quay-fullscreen:fullscreen .ops-timeline-call,
+.product-shell .quay-fullscreen.is-quay-expanded .ops-timeline-call{
+  min-height:44px;box-shadow:0 2px 10px rgba(0,0,0,.12);
+}
+.product-shell .quay-fullscreen:fullscreen .ops-timeline-call b,
+.product-shell .quay-fullscreen.is-quay-expanded .ops-timeline-call b{
+  font-size:14px;
+}
+.product-shell .quay-fullscreen:fullscreen .ops-horizon-scroll,
+.product-shell .quay-fullscreen.is-quay-expanded .ops-horizon-scroll{
+  height:100%;overflow:auto;
+}
+.product-shell .quay-fullscreen:fullscreen .ops-horizon-lanes,
+.product-shell .quay-fullscreen.is-quay-expanded .ops-horizon-lanes{
+  max-height:none;overflow:visible;
+}
+.product-shell .quay-fullscreen:fullscreen .ops-horizon-lane,
+.product-shell .quay-fullscreen.is-quay-expanded .ops-horizon-lane{
+  min-height:90px;grid-template-columns:165px minmax(0,1fr);
+}
+.product-shell .quay-fullscreen:fullscreen .ops-horizon-axis,
+.product-shell .quay-fullscreen.is-quay-expanded .ops-horizon-axis{margin-left:165px}
+.product-shell .quay-fullscreen:fullscreen .ops-horizon-berth b,
+.product-shell .quay-fullscreen.is-quay-expanded .ops-horizon-berth b{font-size:16px}
+.product-shell .quay-fullscreen:fullscreen .ops-horizon-call,
+.product-shell .quay-fullscreen.is-quay-expanded .ops-horizon-call{min-height:52px;top:15px}
+.product-shell .quay-fullscreen:fullscreen .quay-fullscreen-boundary,
+.product-shell .quay-fullscreen.is-quay-expanded .quay-fullscreen-boundary{
+  display:flex;flex:0 0 auto;align-items:center;justify-content:space-between;
+  flex-wrap:wrap;gap:5px 15px;
+  padding:12px 24px;
+  font:13px/1.5 var(--font-mono);
+  background:var(--surface-deep);color:var(--muted-foreground);
+  border-top:1px solid var(--accent-border);
+}
+.product-shell .quay-fullscreen:fullscreen .quay-fullscreen-boundary span:first-child,
+.product-shell .quay-fullscreen.is-quay-expanded .quay-fullscreen-boundary span:first-child{font-weight:700;color:var(--accent-foreground)}
+:root[data-theme='dark'] .product-shell .quay-fullscreen:fullscreen>.quay-panel-header,
+:root[data-theme='dark'] .product-shell .quay-fullscreen.is-quay-expanded>.quay-panel-header{
+  background:linear-gradient(115deg,#102b34,#224349 70%,#50392e);
+  border-bottom-color:var(--peach);
+}
+:root[data-theme='dark'] .product-shell .quay-expand-button{
+  border-color:var(--peach);background:rgba(254,175,119,.17);color:#ffe1c5;
+}
+:root[data-theme='dark'] .product-shell .quay-expand-button:hover{background:var(--peach);color:var(--ink)}
+@media(max-width:760px){
+  .product-shell .quay-fullscreen>.quay-panel-header{align-items:center;flex-wrap:wrap}
+  .quay-panel-tools{gap:7px;flex-wrap:wrap}
+  .product-shell .quay-fullscreen:fullscreen>.quay-panel-header,
+  .product-shell .quay-fullscreen.is-quay-expanded>.quay-panel-header{padding:10px 13px!important;min-height:100px}
+  .product-shell .quay-fullscreen:fullscreen .ops-berth-board,
+  .product-shell .quay-fullscreen.is-quay-expanded .ops-berth-board{min-width:840px;padding:18px 12px 28px}
+  .product-shell .quay-fullscreen:fullscreen .ops-horizon-lanes,
+  .product-shell .quay-fullscreen:fullscreen .ops-horizon-axis,
+  .product-shell .quay-fullscreen.is-quay-expanded .ops-horizon-lanes,
+  .product-shell .quay-fullscreen.is-quay-expanded .ops-horizon-axis{min-width:800px}
+  .product-shell .quay-fullscreen:fullscreen .quay-fullscreen-boundary,
+  .product-shell .quay-fullscreen.is-quay-expanded .quay-fullscreen-boundary{padding:9px 12px;font-size:12px}
+  .product-shell .quay-fullscreen:fullscreen .quay-panel-tools,
+  .product-shell .quay-fullscreen.is-quay-expanded .quay-panel-tools{margin-left:auto}
+}

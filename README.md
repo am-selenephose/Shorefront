@@ -35,6 +35,12 @@ Coordination is **advisory-only**. No helm, propulsion, machinery or other vesse
 actuation is permitted. Integration credentials are not human approval credentials.
 Synthetic information is not evidence of a real port operation or commercial deployment.
 
+The Pulse Operating Horizon and Plan Recorded Occupancy (Quay) timeline
+have independent full-screen controls. Use Exit full screen or Escape to
+return without changing selected records, planning windows or actual call
+data. Mobile browsers without native fullscreen use a full-viewport mode.
+This is separate from the geographic harbor map fullscreen.
+
 Operational users can open Readiness to inspect recorded-information coverage
 for every active port call. The Plan workspace includes What-if planning,
 which compares a proposed berth and time window against the existing schedule
@@ -157,6 +163,7 @@ npm run build
 npm run test:e2e
 npm run test:product
 npm run test:intelligence
+npm run test:quay
 ```
 
 The intelligence browser tests use their own disposable operational database and independent API/web ports. This isolates their customer-record fixtures from the other product tests.

@@ -1,6 +1,7 @@
 import {lazy,Suspense,useEffect,useState} from 'react'
 import {dateLabel,productRequest,recordName,type Fact,type Workspace} from './productClient'
 import ProductOperationsDeck from './ProductOperationsDeck'
+import QuayFullscreen from './QuayFullscreen'
 import {CoordinationMapLoading} from './CoordinationMapLoading'
 const ProductHarborMap=lazy(()=>import('./ProductHarborMap'))
 
@@ -65,8 +66,9 @@ export default function ProductAdvancedPulse({workspace,simulated=false,...actio
         <div className="ops-command-map ops-panel">
           <header><div><span className="product-index">GEOSPATIAL OPERATING PICTURE</span><h2>{records.find(record=>record.kind==='port')?recordName(records.find(record=>record.kind==='port')!):'Port geography'}</h2></div><div className="ops-map-metrics"><span>{mapped}/{berths.length} BERTHS MAPPED</span><b>{calls.length} ACTIVE CALLS</b></div></header>
           <Suspense fallback={<CoordinationMapLoading facts={records} focusedCallId={selected?.record_id??''}/>}><ProductHarborMap facts={records} focusedCallId={selected?.record_id??''} writable={actions.writable} onCreate={actions.onCreate} onEdit={actions.onEdit}/></Suspense>
-          <section className="ops-operating-horizon" role="region" aria-label="Port operating horizon">
-            <header><div><span className="product-index">BERTH HORIZON / RECORDED WINDOWS</span><h3>Operating horizon</h3></div><div className="ops-horizon-switch" aria-label="Operating horizon range">{[6,12,24,48].map(value=><button type="button" key={value} className={horizonHours===value?'active':''} aria-pressed={horizonHours===value} onClick={()=>setHorizonHours(value)}>{value}H</button>)}</div></header>
+          <QuayFullscreen className="ops-operating-horizon" label="Port operating horizon"
+            heading={<div><span className="product-index">QUAY / BERTH HORIZON</span><h3>Operating horizon</h3></div>}
+            tools={<div className="ops-horizon-switch" aria-label="Operating horizon range">{[6,12,24,48].map(value=><button type="button" key={value} className={horizonHours===value?'active':''} aria-pressed={horizonHours===value} onClick={()=>setHorizonHours(value)}>{value}H</button>)}</div>}>
             <div className="ops-horizon-scroll" role="group" aria-label="Scrollable berth timeline" tabIndex={0}>
               <div className="ops-horizon-axis"><span>{dateLabel(new Date(horizonStart).toISOString())}</span><span>+{Math.round(horizonHours/2)}h</span><span>+{horizonHours}h</span></div>
               {berths.length?<div className="ops-horizon-lanes">{berths.slice(0,8).map(berth=>{
@@ -81,7 +83,7 @@ export default function ProductAdvancedPulse({workspace,simulated=false,...actio
                 })}</div></div>
               })}</div>:<div className="ops-empty small"><b>No berth horizon yet.</b><p>Record berths and calls to build the operating timeline.</p></div>}
             </div>
-          </section>
+          </QuayFullscreen>
         </div>
 
         <aside className="ops-focus-panel ops-panel">
