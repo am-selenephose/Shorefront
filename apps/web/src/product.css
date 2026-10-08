@@ -1420,3 +1420,29 @@
   .product-shell .quay-fullscreen:fullscreen .quay-panel-tools,
   .product-shell .quay-fullscreen.is-quay-expanded .quay-panel-tools{margin-left:auto}
 }
+/* Decision Intelligence V1: accountable context within immutable review packets. */
+.decision-intelligence{margin-top:18px;padding:14px;border:1px solid var(--border-strong);border-left:3px solid var(--teal);background:var(--surface-inset);border-radius:4px}
+.decision-intelligence>header{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px}
+.decision-intelligence>header b{font-size:13px;font-weight:600;color:var(--teal)}
+.decision-intelligence-metrics{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:6px;margin:14px 0}
+.decision-intelligence-metrics>div{padding:10px;border:1px solid var(--border);background:var(--surface);min-width:0}
+.decision-intelligence-metrics span{display:block;font:13px/1.45 var(--font-mono);color:var(--muted-foreground)}
+.decision-intelligence-metrics strong{display:block;font-size:22px;line-height:1.4}
+.decision-intelligence>p{font-size:13px;margin:8px 0}.decision-intelligence summary{cursor:pointer;padding:10px 0;font-size:13px;font-weight:600}
+.decision-intelligence details{border-top:1px solid var(--border)}
+.decision-intelligence li{font-size:13px;line-height:1.55}
+.decision-intelligence small{display:block;font-size:13px;line-height:1.5;color:var(--muted-foreground)}
+@media(max-width:620px){.decision-intelligence-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}}
+
+/* Decision handoff: every measured signal remains visible before a write. */
+.whatif-impact,.whatif-supervision{margin:14px;padding:16px;border:1px solid var(--border-strong);background:var(--surface-inset);border-radius:5px}
+.whatif-impact header h3{font-size:17px;margin:6px 0 12px}
+.whatif-impact-metrics{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px}
+.whatif-impact-metrics>div{padding:10px;border:1px solid var(--border);background:var(--surface);min-width:0}
+.whatif-impact-metrics span{display:block;font:13px/1.4 var(--font-mono);color:var(--muted-foreground)}
+.whatif-impact-metrics b{display:block;font-size:24px;line-height:1.4}
+.whatif-impact p,.whatif-supervision p{font-size:13px;line-height:1.6}
+.whatif-impact summary{cursor:pointer;padding:10px 0;font-size:13px}
+.whatif-impact li,.whatif-supervision small{font-size:13px;line-height:1.6}
+.whatif-supervision code{overflow-wrap:anywhere}
+@media(max-width:760px){.whatif-impact-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}}

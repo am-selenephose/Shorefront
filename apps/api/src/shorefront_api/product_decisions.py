@@ -8,7 +8,8 @@ from fastapi import HTTPException
 from sqlalchemy import Column, String, Table, Text, insert, select, update
 
 from .product_coordination import schedule_conflicts
-from .product_models import RecordCommand, now, stamp
+from .product_decision_intelligence import analyze
+from .product_models import Call, RecordCommand, now, stamp
 from .product_store import canonical, commands, digest, metadata
 
 packets = Table('sf_decision_packet', metadata, Column('id', String(96), primary_key=True),
@@ -32,7 +33,7 @@ def remember(connection, actor, key, intent, response):
 def create_packet(store, connection, actor, request, key):
     if actor['role'] not in {'operator', 'supervisor', 'admin'}:
         raise HTTPException(403, 'Operational write permission required')
-    intent = digest(canonical({'decision': request.model_dump(mode='json')}))
+    intent = digest(canonical({'decision': request.model_dump(mode='json', exclude_none=True)}))
     replay = recall(connection, actor, key, intent)
     if replay is not None:
         return replay
@@ -43,6 +44,7 @@ def create_packet(store, connection, actor, request, key):
     current = call['payload']
     port_berth = next((r for r in inputs if r['kind'] == 'berth' and r['record_id'] == current['berth_id']), None)
     options = []
+    baseline_conflicts = schedule_conflicts(inputs)
 
     def option(label, body):
         projected = deepcopy(inputs)
@@ -53,9 +55,20 @@ def create_packet(store, connection, actor, request, key):
             conflicts.append({'kind': 'unassigned_berth', 'explanation': 'A recorded berth is required', 'record_ids': [request.call_id]})
         options.append({'id': f'option-{len(options)}', 'label': label, 'call_payload': body,
                         'eligible': not conflicts, 'rejected_reasons': [c['explanation'] for c in conflicts],
-                        'shift_minutes': (datetime.fromisoformat(body['eta']) - datetime.fromisoformat(current['eta'])).total_seconds() / 60})
+                        'shift_minutes': (datetime.fromisoformat(body['eta']) - datetime.fromisoformat(current['eta'])).total_seconds() / 60,
+                        'intelligence': analyze(inputs, request.call_id, body, baseline_conflicts)})
 
     option('Keep recorded plan', deepcopy(current))
+    if request.proposed is not None:
+        proposed = request.proposed.model_dump(mode='json')
+        candidate_berth = next((r for r in inputs if r['kind'] == 'berth'
+                               and r['record_id'] == proposed['berth_id']), None)
+        if proposed['berth_id'] is not None and candidate_berth is None:
+            raise HTTPException(422, 'The proposed berth does not exist in recorded data')
+        if port_berth and candidate_berth and port_berth['payload']['port_id'] != candidate_berth['payload']['port_id']:
+            raise HTTPException(422, 'The proposed berth is outside the recorded port')
+        candidate = Call.model_validate({**current, **proposed}).model_dump(mode='json')
+        option('Operator-proposed scenario (exact recorded inputs)', candidate)
     duration = datetime.fromisoformat(current['etd']) - datetime.fromisoformat(current['eta'])
     berths = [r for r in inputs if r['kind'] == 'berth' and port_berth and r['payload']['port_id'] == port_berth['payload']['port_id']]
     # Bound the proposal set; the interface does not claim global optimization.
@@ -70,6 +83,16 @@ def create_packet(store, connection, actor, request, key):
         body = {**current, 'berth_id': berth['record_id'], 'eta': start.isoformat(), 'etd': (start + duration).isoformat()}
         if berth['record_id'] != current['berth_id'] or start != datetime.fromisoformat(current['eta']):
             option(f"Earliest recorded slot · {berth['payload']['name']}", body)
+    # Evidence-priority ordering, not a forecast, global optimum or approval.
+    ranked = sorted((item for item in options if item['eligible']),
+                    key=lambda item: (len(item['intelligence']['introduced_conflicts']),
+                                      len(item['intelligence']['unavailable_port_resources']),
+                                      abs(item['shift_minutes']),
+                                      item['call_payload']['berth_id'] != current['berth_id'],
+                                      item['id']))
+    for index, item in enumerate(ranked,1):
+        item['intelligence']['review_rank']=index
+
     packet = {'id': str(uuid4()), 'created_at': stamp(now()), 'created_by': actor['id'],
               'question': request.question, 'call_id': request.call_id, 'call_revision': call['revision'],
               'input_digest': digest(canonical(inputs)), 'inputs': inputs, 'options': options,

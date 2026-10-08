@@ -2,7 +2,9 @@ import {useEffect, useRef, useState, type FormEvent} from 'react'
 import {productRequest, dateLabel, recordName, type Fact, type User} from './productClient'
 import ProductOutcome from './ProductOutcome'
 
-type Option = {id:string; label:string; eligible:boolean; rejected_reasons:string[]; shift_minutes:number; call_payload:Record<string,string>}
+type ImpactConflict={kind:string;record_ids:string[];explanation:string}
+type Impact={verification:string;confidence:string;review_rank:number|null;introduced_conflicts:ImpactConflict[];cleared_conflicts:ImpactConflict[];related_calls:{call_id:string;vessel_name:string;reasons:string[];source:string;known_at:string}[];open_work:{kind:string;record_id:string;call_id:string;status:string;source:string}[];unavailable_port_resources:{name:string;resource_type:string;source:string}[];missing_checks:string[];limitations:string[]}
+type Option = {id:string; label:string; eligible:boolean; rejected_reasons:string[]; shift_minutes:number; call_payload:Record<string,string>;intelligence?:Impact}
 type Packet = {id:string; created_at:string; question:string; call_id:string; input_digest:string; inputs:Fact[]; options:Option[]; trust:{confidence:string; warnings:string[]}; receipt:{approved_by:string; approved_at:string; reason:string; option_id:string; effect:string}|null}
 type HistoryQuery = {q:string; state:'all'|'pending'|'approved'; after:string; trail:string[]}
 const firstPage:HistoryQuery = {q:'',state:'all',after:'',trail:[]}
@@ -38,7 +40,13 @@ export default function ProductDecisions({facts, user, writable, onRefresh}: {fa
     } catch (failure) {if(requestGeneration===generation.current)setListError(String(failure))}
     finally {if(requestGeneration===generation.current)setLoading(false)}
   }
-  useEffect(() => {void load(); return()=>{generation.current++}}, [])
+  useEffect(() => {
+    let target=''
+    try{target=sessionStorage.getItem('shorefront.pendingDecisionReview')??'';sessionStorage.removeItem('shorefront.pendingDecisionReview')}catch{}
+    if(target)void load({...firstPage,q:target}).then(ok=>{if(ok){setSearch(target);setSelected(target)}})
+    else void load()
+    return()=>{generation.current++}
+  }, [])
   async function propose(event:FormEvent<HTMLFormElement>) {
     event.preventDefault(); setBusy(true); setError('')
     const body = Object.fromEntries(new FormData(event.currentTarget))
@@ -75,7 +83,23 @@ export default function ProductDecisions({facts, user, writable, onRefresh}: {fa
     </section>
     {!loading && !listError && loaded && !packets.length && <div className="product-empty"><h2>{viewQuery.q || viewQuery.state!=='all' || viewQuery.after?'No matching decisions.':'No decisions recorded yet.'}</h2><p>A packet preserves the inputs, choices and limitations reviewed at that moment. Adjust the filters or refresh history.</p></div>}
     {packets.map(packet => <section className="product-card product-packet" key={packet.id}><div className="product-section-heading"><div><span className="product-index">{packet.receipt ? 'APPROVED PLAN' : 'AWAITING REVIEW'} / {dateLabel(packet.created_at)}</span><h2>{packet.question}</h2></div><button onClick={() => setSelected(selected === packet.id ? null : packet.id)} aria-expanded={selected === packet.id}>{selected === packet.id ? 'Close packet' : 'Review packet'}</button></div>
-      {selected === packet.id && <><div className="product-boundary"><b>Confidence: {packet.trust.confidence}</b><ul>{packet.trust.warnings.map(w => <li key={w}>{w}</li>)}</ul><code>Input fingerprint: {packet.input_digest}</code><p>{packet.inputs.length} original facts preserved.</p></div><div className="product-record-grid">{packet.options.map(option => <article className="product-card" key={option.id}><span className="product-index">{option.eligible ? 'AVAILABLE FOR HUMAN REVIEW' : 'REJECTED BY RECORDED CONSTRAINTS'}</span><h3>{option.label}</h3><p>Schedule shift: {option.shift_minutes} minutes</p><p>{dateLabel(option.call_payload.eta)} → {dateLabel(option.call_payload.etd)}</p>{option.rejected_reasons.map(reason => <p key={reason}>{reason}</p>)}</article>)}</div>
+      {selected === packet.id && <><div className="product-boundary"><b>Confidence: {packet.trust.confidence}</b><ul>{packet.trust.warnings.map(w => <li key={w}>{w}</li>)}</ul><code>Input fingerprint: {packet.input_digest}</code><p>{packet.inputs.length} original facts preserved.</p></div><div className="product-record-grid">{packet.options.map(option => <article className="product-card" key={option.id}><span className="product-index">{option.eligible ? 'AVAILABLE FOR HUMAN REVIEW' : 'REJECTED BY RECORDED CONSTRAINTS'}</span><h3>{option.label}</h3><p>Schedule shift: {option.shift_minutes} minutes</p><p>{dateLabel(option.call_payload.eta)} → {dateLabel(option.call_payload.etd)}</p>{option.rejected_reasons.map(reason => <p key={reason}>{reason}</p>)}
+          {option.intelligence && <section className="decision-intelligence" aria-label={'Operational impact review for '+option.label}>
+            <header><span className="product-index">RECORDED IMPACT / HUMAN REVIEW</span>
+              <b>{option.intelligence.review_rank!=null?'Review order '+option.intelligence.review_rank:'Recorded conflict'}</b></header>
+            <div className="decision-intelligence-metrics">
+              <div><span>NEW CONFLICTS</span><strong>{option.intelligence.introduced_conflicts.length}</strong></div>
+              <div><span>CONFLICTS CLEARED</span><strong>{option.intelligence.cleared_conflicts.length}</strong></div>
+              <div><span>RELATED CALLS</span><strong>{option.intelligence.related_calls.length}</strong></div>
+              <div><span>OPEN WORK</span><strong>{option.intelligence.open_work.length}</strong></div>
+            </div>
+            <p><b>Verification:</b> {option.intelligence.verification.replaceAll('_',' ')} · confidence {option.intelligence.confidence}</p>
+            {option.intelligence.related_calls.length>0&&<details><summary>Related calls ({option.intelligence.related_calls.length})</summary><ul>{option.intelligence.related_calls.map(call=><li key={call.call_id}>{call.vessel_name} · {call.reasons.join(', ')} · source {call.source}</li>)}</ul></details>}
+            {option.intelligence.open_work.length>0&&<details><summary>Accountable open work ({option.intelligence.open_work.length})</summary><ul>{option.intelligence.open_work.map(item=><li key={item.kind+item.record_id}>{item.kind} / {item.status} · {item.call_id} · {item.source}</li>)}</ul></details>}
+            {option.intelligence.unavailable_port_resources.length>0&&<details><summary>Unavailable port-wide resources ({option.intelligence.unavailable_port_resources.length})</summary><ul>{option.intelligence.unavailable_port_resources.map(item=><li key={item.name+item.source}>{item.resource_type}: {item.name} · {item.source}; assignment to this call not established</li>)}</ul></details>}
+            {option.intelligence.missing_checks.length>0&&<details><summary>Unverified inputs ({option.intelligence.missing_checks.length})</summary><ul>{option.intelligence.missing_checks.map(item=><li key={item}>{item}</li>)}</ul></details>}
+            <small>No predicted delay, autonomous dispatch or marine clearance. Inspect the frozen source snapshot before approval.</small>
+          </section>}</article>)}</div>
         {packet.receipt ? <div className="product-boundary"><h3>Approval recorded</h3><p>{packet.receipt.reason}</p><p>{dateLabel(packet.receipt.approved_at)} · {packet.receipt.effect.replaceAll('_',' ')}</p></div> : <form onSubmit={e => void approve(e, packet)}><fieldset disabled={busy || loading || !!listError || !writable || user.role !== 'supervisor'}><div className="product-form-grid"><label>Option to approve<select name="option_id" required><option value="">Select an eligible option</option>{packet.options.filter(o => o.eligible).map(o => <option key={o.id} value={o.id}>{o.label}</option>)}</select></label><label>Approval reason<input name="reason" required maxLength={2000}/></label></div><button className="product-primary">Approve recorded plan</button></fieldset>{user.role !== 'supervisor' && <p>A supervisor account is required. Administrator access alone cannot approve this decision.</p>}</form>}
         {packet.receipt && <ProductOutcome decisionId={packet.id} expected={packet.options.find(o => o.id === packet.receipt?.option_id)!.call_payload as {eta:string; etd:string}} existing={facts.find(f => f.kind === 'outcome' && f.payload.decision_id === packet.id)} writable={writable} onRefresh={onRefresh}/>}
       </>}

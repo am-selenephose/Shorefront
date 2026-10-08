@@ -5,6 +5,7 @@ from pydantic import AwareDatetime, model_validator
 
 from .product_models import Identifier, Call, StrictModel
 from .product_coordination import schedule_conflicts
+from .product_decision_intelligence import analyze
 
 
 class WhatIf(StrictModel):
@@ -75,5 +76,6 @@ def compare_plan(records, proposed: WhatIf, read_at: str):
             'eta_minutes': round((proposed.eta - datetime.fromisoformat(original['eta'])).total_seconds() / 60),
             'etd_minutes': round((proposed.etd - datetime.fromisoformat(original['etd'])).total_seconds() / 60),
         },
+        'impact': analyze(records, proposed.call_id, candidate),
         'boundary': 'Recorded constraints only; no navigation, weather, tides, UKC or operational permission.',
     }

@@ -233,9 +233,22 @@ class ImportBatch(StrictModel):
     records: list[ImportItem] = Field(min_length=1, max_length=100)
 
 
+class ProposedPlan(StrictModel):
+    berth_id: Identifier | None
+    eta: AwareDatetime
+    etd: AwareDatetime
+
+    @model_validator(mode='after')
+    def valid_window(self):
+        if self.etd <= self.eta:
+            raise ValueError('Proposed departure must be after arrival')
+        return self
+
+
 class DecisionRequest(StrictModel):
     call_id: Identifier
     question: str = Field(min_length=1, max_length=1000)
+    proposed: ProposedPlan | None = None
 
 
 class ApprovalRequest(StrictModel):
