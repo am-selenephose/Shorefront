@@ -1446,3 +1446,8 @@
 .whatif-impact li,.whatif-supervision small{font-size:13px;line-height:1.6}
 .whatif-supervision code{overflow-wrap:anywhere}
 @media(max-width:760px){.whatif-impact-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}}
+
+/* Source authority is a gate, not an AI confidence badge. */
+.decision-source-blocker{border:1px solid var(--danger);border-left:4px solid var(--danger);border-radius:5px;background:var(--danger-surface);padding:12px;margin:12px 0;overflow-wrap:anywhere}
+.decision-source-blocker b{font-size:14px}
+.decision-source-blocker li,.decision-source-blocker a{font-size:13px;line-height:1.6}

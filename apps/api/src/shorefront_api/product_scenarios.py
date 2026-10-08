@@ -21,7 +21,7 @@ class WhatIf(StrictModel):
         return self
 
 
-def compare_plan(records, proposed: WhatIf, read_at: str):
+def compare_plan(records, proposed: WhatIf, read_at: str, unresolved=None):
     lookup = {(record['kind'], record['record_id']): record for record in records}
     call = lookup.get(('call', proposed.call_id))
     if call is None:
@@ -76,6 +76,6 @@ def compare_plan(records, proposed: WhatIf, read_at: str):
             'eta_minutes': round((proposed.eta - datetime.fromisoformat(original['eta'])).total_seconds() / 60),
             'etd_minutes': round((proposed.etd - datetime.fromisoformat(original['etd'])).total_seconds() / 60),
         },
-        'impact': analyze(records, proposed.call_id, candidate),
+        'impact': analyze(records, proposed.call_id, candidate, unresolved=unresolved),
         'boundary': 'Recorded constraints only; no navigation, weather, tides, UKC or operational permission.',
     }

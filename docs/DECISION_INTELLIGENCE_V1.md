@@ -29,3 +29,23 @@ No licensed AIS, weather, tide, under-keel clearance, vessel tracking, yard/cran
 ## Release proof and known next gaps
 
 The isolated branch is subject to full API and browser regression gates. The dedicated real-customer installation must not be seeded or modified for acceptance. Next capability work should add a qualified resource-to-call assignment contract, licensed provider freshness/error handling, and measured prediction calibration from actual outcomes, after a design partner validates those inputs.
+
+## Source authority gate (follow-up hardening)
+
+Human-reconciled source facts are a prerequisite for approval. What-if analysis
+shows unresolved disagreements involving the target call, its vessel, original
+or proposed berth/port, or related overlapping calls and their vessel/berth.
+Decision packets freeze those disagreement identifiers and fields into each
+option's review evidence; alternatives with relevant unresolved disagreements
+are **not eligible**, even when the geometric schedule has no conflict.
+
+At approval, the service rechecks unresolved conflicts within the transaction
+rather than relying exclusively on the recorded version digest (reconciliation
+state can change independently from the selected two-clock snapshot).
+An unrelated vessel's disagreement does not block another port call.
+Older stored packets remain readable; approval still uses the current gate.
+
+Port-wide resource warnings are shown as uncertain context, not as a claim
+that a specific tug/pilot/crew is assigned. This scope deliberately does not
+provide qualified contractual source authority, resource allocations,
+navigational clearance, prediction or autonomous dispatch.

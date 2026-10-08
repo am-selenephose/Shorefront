@@ -11,7 +11,33 @@ def overlaps(a,b):
 def key(conflict):
     return (conflict['kind'],tuple(sorted(conflict['record_ids'])))
 
-def analyze(records, call_id, candidate, original_conflicts=None):
+def relevant_source_disagreements(records, call_id, candidate, related, unresolved):
+    # A disagreement is relevant only if it concerns a scheduled object being
+    # assessed. Do not block an unrelated call or an unrelated port.
+    by_id={(record['kind'],record['record_id']):record for record in records}
+    current=by_id[('call',call_id)]['payload']
+    referenced={('call',call_id),('vessel',current['vessel_id'])}
+    for berth_id in (current.get('berth_id'),candidate.get('berth_id')):
+        if not berth_id:
+            continue
+        referenced.add(('berth',berth_id))
+        berth=by_id.get(('berth',berth_id))
+        if berth:
+            referenced.add(('port',berth['payload']['port_id']))
+    for peer in related:
+        referenced.add(('call',peer['call_id']))
+        call=by_id.get(('call',peer['call_id']))
+        if call:
+            referenced.add(('vessel',call['payload']['vessel_id']))
+            if call['payload'].get('berth_id'):
+                referenced.add(('berth',call['payload']['berth_id']))
+    return [{'id':c['id'],'kind':c['kind'],'record_id':c['record_id'],
+             'fields':c['fields'],'detected_at':c['detected_at']}
+            for c in unresolved
+            if c['state']=='unresolved' and (c['kind'],c['record_id']) in referenced]
+
+
+def analyze(records, call_id, candidate, original_conflicts=None, unresolved=None):
     by_id = {(record['kind'],record['record_id']):record for record in records}
     call = by_id[('call',call_id)]
     baseline = call['payload']
@@ -35,6 +61,7 @@ def analyze(records, call_id, candidate, original_conflicts=None):
             related.append({'call_id':record['record_id'],'vessel_name':vessel['payload']['name'] if vessel else 'Unknown vessel',
                             'reasons':reasons,'source':record['source'],'known_at':record['known_at']})
     related.sort(key=lambda item:item['call_id'])
+    disputes=relevant_source_disagreements(records,call_id,candidate,related,unresolved or [])
     ids={call_id}|{item['call_id'] for item in related}
     open_work=[{'kind':r['kind'],'record_id':r['record_id'],'call_id':r['payload']['call_id'],
                 'status':r['payload']['status'],'source':r['source'],'known_at':r['known_at']}
@@ -56,11 +83,11 @@ def analyze(records, call_id, candidate, original_conflicts=None):
     if not resources: missing.append('No port resource availability recorded')
     else: missing.append('Resource-to-call allocation is unverified')
     return {
-        'verification':'recorded_conflict' if new else 'recorded_checks_clear_with_unknowns' if missing else 'recorded_checks_clear',
+        'verification':'unresolved_source_disagreement' if disputes else 'recorded_conflict' if new else 'recorded_checks_clear_with_unknowns' if missing else 'recorded_checks_clear',
         'confidence':'uncalibrated',
         'introduced_conflicts':[new[k] for k in sorted(new.keys()-old.keys())],
         'cleared_conflicts':[old[k] for k in sorted(old.keys()-new.keys())],
-        'related_calls':related,'open_work':open_work,'unavailable_port_resources':unavailable,
+        'related_calls':related,'open_work':open_work,'source_disagreements':disputes,'unavailable_port_resources':unavailable,
         'missing_checks':missing,'review_rank':None,
         'limitations':['No external AIS, weather, tide or navigational clearance is inferred.',
                        'Other calls are not rescheduled and no delay or monetary saving is predicted.',

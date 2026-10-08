@@ -254,7 +254,8 @@ def create_product_app(database_url=None, installation_id=None, origin=None, boo
         with store.transaction() as connection:
             identify(connection, request, mutation=True)
             snapshot = store.snapshot(connection)
-        return compare_plan(snapshot, body, stamp(now()))
+            unresolved = store.fact_conflict_list(connection, 'unresolved')
+        return compare_plan(snapshot, body, stamp(now()), unresolved)
 
     @app.get('/api/v1/coordination')
     def coordination(request: Request):

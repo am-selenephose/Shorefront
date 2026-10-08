@@ -3,7 +3,7 @@ import {dateLabel,productRequest,recordName,type Fact} from './productClient'
 
 type Conflict={kind:string;record_ids:string[];explanation:string}
 type Alternative={berth_id:string|null;berth_name:string|null;eta:string;etd:string;conflicts:Conflict[]}
-type Impact={verification:string;introduced_conflicts:Conflict[];cleared_conflicts:Conflict[];related_calls:{call_id:string;vessel_name:string;reasons:string[]}[];open_work:{record_id:string;kind:string;call_id:string;source:string}[];unavailable_port_resources:{name:string;resource_type:string}[];missing_checks:string[]}
+type Impact={source_disagreements:{id:string;kind:string;record_id:string;fields:string[]}[];verification:string;introduced_conflicts:Conflict[];cleared_conflicts:Conflict[];related_calls:{call_id:string;vessel_name:string;reasons:string[]}[];open_work:{record_id:string;kind:string;call_id:string;source:string}[];unavailable_port_resources:{name:string;resource_type:string}[];missing_checks:string[]}
 type Result={call_id:string;vessel_name:string;source:string;known_at:string;read_at:string;read_only:true;baseline:Alternative;candidate:Alternative;impact:Impact;change:{berth_changed:boolean;eta_minutes:number;etd_minutes:number};boundary:string}
 type Props={facts:Fact[];writable:boolean;onEdit:(record:Fact)=>void}
 const clock=(date:unknown)=>{
@@ -102,7 +102,13 @@ export default function ProductWhatIf({facts,writable,onEdit}:Props){
               <div><span>CONFLICTS CLEARED</span><b>{result.impact.cleared_conflicts.length}</b></div>
               <div><span>RELATED CALLS</span><b>{result.impact.related_calls.length}</b></div>
               <div><span>OPEN ACCOUNTABLE WORK</span><b>{result.impact.open_work.length}</b></div>
+              <div><span>DISPUTED SOURCES</span><b>{result.impact.source_disagreements.length}</b></div>
             </div>
+            {result.impact.source_disagreements.length>0&&<div className="decision-source-blocker" role="alert">
+              <b>Relevant recorded facts disagree. No approval until human reconciliation.</b>
+              <ul>{result.impact.source_disagreements.map(item=><li key={item.id}>{item.kind} / {item.record_id} · disputed fields: {item.fields.join(', ')}</li>)}</ul>
+              <a href="#evidence">Inspect disagreements in Evidence →</a>
+            </div>}
             <p>Assessment: {result.impact.verification.replaceAll('_',' ')}. No external movement or resource assignment is inferred.</p>
             {result.impact.related_calls.length>0&&<p>Related calls: {result.impact.related_calls.map(item=>item.vessel_name).join(', ')}</p>}
             {result.impact.unavailable_port_resources.length>0&&<p>Port-wide unavailable resources: {result.impact.unavailable_port_resources.map(item=>item.name).join(', ')}. Allocation to this call is unverified.</p>}

@@ -3,7 +3,8 @@ import {productRequest, dateLabel, recordName, type Fact, type User} from './pro
 import ProductOutcome from './ProductOutcome'
 
 type ImpactConflict={kind:string;record_ids:string[];explanation:string}
-type Impact={verification:string;confidence:string;review_rank:number|null;introduced_conflicts:ImpactConflict[];cleared_conflicts:ImpactConflict[];related_calls:{call_id:string;vessel_name:string;reasons:string[];source:string;known_at:string}[];open_work:{kind:string;record_id:string;call_id:string;status:string;source:string}[];unavailable_port_resources:{name:string;resource_type:string;source:string}[];missing_checks:string[];limitations:string[]}
+type SourceDisagreement={id:string;kind:string;record_id:string;fields:string[];detected_at:string}
+type Impact={source_disagreements?:SourceDisagreement[];verification:string;confidence:string;review_rank:number|null;introduced_conflicts:ImpactConflict[];cleared_conflicts:ImpactConflict[];related_calls:{call_id:string;vessel_name:string;reasons:string[];source:string;known_at:string}[];open_work:{kind:string;record_id:string;call_id:string;status:string;source:string}[];unavailable_port_resources:{name:string;resource_type:string;source:string}[];missing_checks:string[];limitations:string[]}
 type Option = {id:string; label:string; eligible:boolean; rejected_reasons:string[]; shift_minutes:number; call_payload:Record<string,string>;intelligence?:Impact}
 type Packet = {id:string; created_at:string; question:string; call_id:string; input_digest:string; inputs:Fact[]; options:Option[]; trust:{confidence:string; warnings:string[]}; receipt:{approved_by:string; approved_at:string; reason:string; option_id:string; effect:string}|null}
 type HistoryQuery = {q:string; state:'all'|'pending'|'approved'; after:string; trail:string[]}
@@ -92,7 +93,13 @@ export default function ProductDecisions({facts, user, writable, onRefresh}: {fa
               <div><span>CONFLICTS CLEARED</span><strong>{option.intelligence.cleared_conflicts.length}</strong></div>
               <div><span>RELATED CALLS</span><strong>{option.intelligence.related_calls.length}</strong></div>
               <div><span>OPEN WORK</span><strong>{option.intelligence.open_work.length}</strong></div>
+              <div><span>DISPUTED SOURCES</span><strong>{option.intelligence.source_disagreements?.length??0}</strong></div>
             </div>
+            {(option.intelligence.source_disagreements?.length??0)>0&&<div className="decision-source-blocker" role="alert">
+              <b>Human reconciliation required before approval.</b>
+              <ul>{option.intelligence.source_disagreements?.map(item=><li key={item.id}>{item.kind} / {item.record_id} · disputed fields: {item.fields.join(', ')}</li>)}</ul>
+              <a href="#evidence">Review source disagreements in Evidence →</a>
+            </div>}
             <p><b>Verification:</b> {option.intelligence.verification.replaceAll('_',' ')} · confidence {option.intelligence.confidence}</p>
             {option.intelligence.related_calls.length>0&&<details><summary>Related calls ({option.intelligence.related_calls.length})</summary><ul>{option.intelligence.related_calls.map(call=><li key={call.call_id}>{call.vessel_name} · {call.reasons.join(', ')} · source {call.source}</li>)}</ul></details>}
             {option.intelligence.open_work.length>0&&<details><summary>Accountable open work ({option.intelligence.open_work.length})</summary><ul>{option.intelligence.open_work.map(item=><li key={item.kind+item.record_id}>{item.kind} / {item.status} · {item.call_id} · {item.source}</li>)}</ul></details>}

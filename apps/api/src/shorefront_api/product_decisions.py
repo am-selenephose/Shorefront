@@ -45,6 +45,7 @@ def create_packet(store, connection, actor, request, key):
     port_berth = next((r for r in inputs if r['kind'] == 'berth' and r['record_id'] == current['berth_id']), None)
     options = []
     baseline_conflicts = schedule_conflicts(inputs)
+    unresolved = store.fact_conflict_list(connection, 'unresolved')
 
     def option(label, body):
         projected = deepcopy(inputs)
@@ -53,10 +54,14 @@ def create_packet(store, connection, actor, request, key):
         conflicts = [c for c in schedule_conflicts(projected) if request.call_id in c['record_ids']]
         if not body['berth_id']:
             conflicts.append({'kind': 'unassigned_berth', 'explanation': 'A recorded berth is required', 'record_ids': [request.call_id]})
+        intelligence = analyze(inputs, request.call_id, body, baseline_conflicts, unresolved)
+        disputes = intelligence['source_disagreements']
         options.append({'id': f'option-{len(options)}', 'label': label, 'call_payload': body,
-                        'eligible': not conflicts, 'rejected_reasons': [c['explanation'] for c in conflicts],
+                        'eligible': not conflicts and not disputes,
+                        'rejected_reasons': [c['explanation'] for c in conflicts] +
+                            [f"Unresolved source disagreement for {c['kind']}/{c['record_id']}: {', '.join(c['fields'])}" for c in disputes],
                         'shift_minutes': (datetime.fromisoformat(body['eta']) - datetime.fromisoformat(current['eta'])).total_seconds() / 60,
-                        'intelligence': analyze(inputs, request.call_id, body, baseline_conflicts)})
+                        'intelligence': intelligence})
 
     option('Keep recorded plan', deepcopy(current))
     if request.proposed is not None:
@@ -140,6 +145,12 @@ def approve_packet(store, connection, actor, packet_id, request):
     option = next((o for o in packet['options'] if o['id'] == request.option_id), None)
     if not option or not option['eligible']:
         raise HTTPException(422, 'Select an eligible option after reviewing its limitations')
+    # Fact-conflict state lives outside the version snapshot; revalidate it
+    # inside this same transaction, not merely against the frozen input hash.
+    unresolved = store.fact_conflict_list(connection, 'unresolved')
+    current_assessment = analyze(inputs, packet['call_id'], option['call_payload'], unresolved=unresolved)
+    if current_assessment['source_disagreements']:
+        raise HTTPException(409, 'Relevant source facts disagree; reconcile them before creating a new decision packet')
     result = store.write_record(connection, actor, 'call', RecordCommand(record_id=packet['call_id'],
         expected_revision=packet['call_revision'], source=f"Approved decision {packet_id}", payload=option['call_payload']), f'decision-{packet_id}')
     receipt = {'decision_id': packet_id, 'option_id': request.option_id, 'reason': request.reason,

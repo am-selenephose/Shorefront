@@ -104,3 +104,55 @@ def test_operator_proposal_rejects_unregistered_berth_and_cross_port(customer):
     proposal['proposed']['berth_id']='other-berth'
     assert customer.post('/api/v1/decisions',headers=headers(customer),json=proposal).status_code==422
     assert customer.get('/api/v1/decisions').json()==[]
+
+
+def test_relevant_cross_source_vessel_disagreement_blocks_every_choice(customer):
+    from test_product import activate, invite
+    setup_call(customer)
+    operator=activate(customer.app,invite(customer))
+    current={'name':'Customer Vessel','length_m':212}
+    updated=write(operator,'vessel','vessel-one',current,revision=1)
+    assert updated.status_code==201, updated.text
+    conflict=customer.get('/api/v1/reconciliation/conflicts').json()
+    assert len(conflict)==1 and conflict[0]['kind']=='vessel'
+    scenario=customer.post('/api/v1/plan/what-if',headers=headers(customer),json={
+        'call_id':'call-one','berth_id':'berth-one',
+        'eta':'2026-10-05T10:00:00Z','etd':'2026-10-05T15:00:00Z'})
+    assert scenario.status_code==200, scenario.text
+    assert scenario.json()['impact']['source_disagreements'][0]['id']==conflict[0]['id']
+    assert scenario.json()['impact']['verification']=='unresolved_source_disagreement'
+    packet=create_packet(customer)
+    assert packet['options']
+    assert all(not o['eligible'] for o in packet['options'])
+    assert all(o['intelligence']['source_disagreements'] for o in packet['options'])
+    supervisor=activate(customer.app,invite(customer,'supervisor'),'supervisor')
+    denied=supervisor.post('/api/v1/decisions/'+packet['id']+'/approve',
+                           headers=headers(supervisor),json={
+                               'option_id':'option-0','reason':'Would like to approve'})
+    assert denied.status_code==422
+    assert customer.get('/api/v1/evidence').json()['audit_valid'] is True
+
+    # Accept the challenger, resolving the disagreement without re-running
+    # a contested source as if it had never existed.
+    resolved=customer.post('/api/v1/reconciliation/conflicts/'+conflict[0]['id']+'/resolve',
+                           headers=headers(customer),json={
+                               'accepted_revision':2,'note':'Checked original source particulars'})
+    assert resolved.status_code==200, resolved.text
+    new_packet=create_packet(customer)
+    assert new_packet['options'][0]['intelligence']['source_disagreements']==[]
+    assert any(o['eligible'] for o in new_packet['options'])
+    assert all(not o['eligible'] for o in packet['options'])
+    assert customer.get('/api/v1/evidence').json()['audit_valid'] is True
+
+
+def test_unrelated_source_disagreement_does_not_block_other_port_call(customer):
+    from test_product import activate, invite
+    setup_call(customer)
+    assert write(customer,'vessel','unrelated',{'name':'Unrelated vessel','length_m':100}).status_code==201
+    operator=activate(customer.app,invite(customer))
+    assert write(operator,'vessel','unrelated',{'name':'Unrelated vessel','length_m':120},
+                 revision=1).status_code==201
+    packet=create_packet(customer)
+    assert packet['options'][0]['eligible'] is True
+    assert packet['options'][0]['intelligence']['source_disagreements']==[]
+    assert len(customer.get('/api/v1/reconciliation/conflicts').json())==1
