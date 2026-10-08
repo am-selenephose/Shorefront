@@ -22,6 +22,7 @@ const point = (record:Fact): Point | null => finite(record.payload.longitude) &&
   ? {lon:record.payload.longitude, lat:record.payload.latitude} : null
 
 export default function ProductHarborMap({facts,focusedCallId,writable,onCreate,onEdit}:Props) {
+  const container = useRef<HTMLElement|null>(null)
   const node = useRef<HTMLDivElement|null>(null)
   const mapRef = useRef<Map|null>(null)
   const markers = useRef<Marker[]>([])
@@ -30,6 +31,73 @@ export default function ProductHarborMap({facts,focusedCallId,writable,onCreate,
   const [exceptionsOnly,setExceptionsOnly]=useState(false)
   const [mapUnavailable,setMapUnavailable]=useState<string|null>(null)
   const [mapReady,setMapReady]=useState(false)
+  const [nativeFullscreen,setNativeFullscreen]=useState(false)
+  const [fallbackFullscreen,setFallbackFullscreen]=useState(false)
+  const expanded=nativeFullscreen||fallbackFullscreen
+
+  // Keep the same MapLibre instance and geographic viewport when resizing.
+  // The browser's Fullscreen API is preferred, with a fixed-viewport
+  // fallback for browsers that do not expose it (including some mobile UAs).
+  useEffect(()=>{
+    let frame=0
+    const resize=()=>{
+      cancelAnimationFrame(frame)
+      frame=requestAnimationFrame(()=>mapRef.current?.resize())
+    }
+    const onFullscreenChange=()=>{
+      setNativeFullscreen(document.fullscreenElement===container.current)
+      resize()
+    }
+    const onEscape=(event:KeyboardEvent)=>{
+      if(event.key!=='Escape')return
+      if(fallbackFullscreen){
+        event.preventDefault()
+        setFallbackFullscreen(false)
+      }else if(document.fullscreenElement===container.current){
+        // Also handle webviews that deliver Escape to the app.
+        void document.exitFullscreen().catch(()=>{})
+      }
+    }
+    const observer=new ResizeObserver(resize)
+    if(container.current)observer.observe(container.current)
+    if(node.current)observer.observe(node.current)
+    document.addEventListener('fullscreenchange',onFullscreenChange)
+    document.addEventListener('keydown',onEscape)
+    window.addEventListener('resize',resize)
+    resize()
+    return()=>{
+      cancelAnimationFrame(frame)
+      observer.disconnect()
+      document.removeEventListener('fullscreenchange',onFullscreenChange)
+      document.removeEventListener('keydown',onEscape)
+      window.removeEventListener('resize',resize)
+    }
+  },[fallbackFullscreen])
+
+  useEffect(()=>{
+    if(!fallbackFullscreen)return
+    const previous=document.body.style.overflow
+    document.body.style.overflow='hidden'
+    return()=>{document.body.style.overflow=previous}
+  },[fallbackFullscreen])
+
+  async function toggleFullscreen(){
+    if(document.fullscreenElement===container.current){
+      await document.exitFullscreen()
+      return
+    }
+    if(fallbackFullscreen){setFallbackFullscreen(false);return}
+    if(container.current?.requestFullscreen){
+      try {
+        await container.current.requestFullscreen()
+        return
+      } catch {
+        // Browser denied native fullscreen: use the accessible viewport mode.
+      }
+    }
+    setFallbackFullscreen(true)
+  }
+
   const ports = useMemo(()=>facts.filter(f=>f.kind==='port'),[facts])
   const berths = useMemo(()=>facts.filter(f=>f.kind==='berth'),[facts])
   const calls = useMemo(()=>facts.filter(f=>f.kind==='call' && !['departed','cancelled'].includes(String(f.payload.status))),[facts])
@@ -160,7 +228,11 @@ export default function ProductHarborMap({facts,focusedCallId,writable,onCreate,
     })}</div>
   </div> : null
 
-  return <section className="product-geographic-map" role="region" aria-label="Operational geographic harbor map">
+  return <section ref={container} className={'product-geographic-map'+(fallbackFullscreen?' is-map-expanded':'')} data-map-expanded={expanded?'true':'false'} role="region" aria-label="Operational geographic harbor map">
+    <div className="product-map-fullscreen-header" aria-hidden={!expanded}>
+      <div><span className="product-index">SHOREFRONT / HARBOR VISUALIZATION</span><strong>Harbor map</strong><small>Recorded berths and calls, never live AIS positions</small></div>
+      <span className="product-map-fullscreen-hint">ESC TO EXIT</span>
+    </div>
     <div className={'product-map-canvas'+(mapUnavailable?' is-unavailable':'')} ref={node}>
       {mapUnavailable&&<div className="product-map-unavailable" role="status" aria-label="Geographic map unavailable">
         <span className="product-index">GEOGRAPHIC MAP DEGRADED</span>
@@ -173,6 +245,9 @@ export default function ProductHarborMap({facts,focusedCallId,writable,onCreate,
     {schematic}
     <div className="product-map-layers" role="group" aria-label="Map layers">
       <span>LAYERS</span>
+      <button type="button" className="product-map-expand-toggle" aria-label={expanded?'Exit full screen map':'Full screen map'} aria-pressed={expanded} onClick={()=>void toggleFullscreen()}>
+        <span aria-hidden="true">{expanded?'↙':'⛶'}</span>{expanded?'Exit full screen':'Full screen'}
+      </button>
       <button type="button" aria-pressed={showBerths} onClick={()=>setShowBerths(value=>!value)}>Berths</button>
       <button type="button" aria-pressed={showCalls} onClick={()=>setShowCalls(value=>!value)}>Calls</button>
       <button type="button" aria-pressed={exceptionsOnly} disabled={!showCalls} onClick={()=>setExceptionsOnly(value=>!value)}>Exceptions only</button>

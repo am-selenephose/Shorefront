@@ -48,5 +48,16 @@ test('authenticated readiness desk analyzes real records with inspectable eviden
   await page.keyboard.press('Escape')
   await expect(page.getByLabel('Global workspace search')).not.toBeFocused()
   await page.screenshot({path:testInfo.outputPath('readiness-night-mobile.png'),fullPage:true})
+  // The real authenticated map shares the exact same fullscreen control.
+  await page.setViewportSize({width:1280,height:900})
+  await page.goto('/#pulse')
+  const operationalMap=page.getByRole('region',{name:'Operational geographic harbor map'})
+  await expect(operationalMap).toBeVisible()
+  await operationalMap.getByRole('button',{name:'Full screen map'}).click()
+  await expect(operationalMap).toHaveAttribute('data-map-expanded','true')
+  await expect(operationalMap.getByRole('group',{name:'Map layers'})).toBeVisible()
+  await operationalMap.getByRole('button',{name:'Exit full screen map'}).click()
+  await expect(operationalMap).toHaveAttribute('data-map-expanded','false')
+
 
 })
