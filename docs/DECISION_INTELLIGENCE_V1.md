@@ -1,6 +1,6 @@
 # Shorefront: Operational Decision Intelligence V1
 
-Status: implemented on isolated feature branch `feat/shorefront-decision-intelligence-v1` for validation; not automatically a production release.
+Status: **released** as advisory operational software on 2026-10-08 from application source aa7f9f0. Full commercial readiness remains false; see [release receipt](RELEASE_DECISION_INTELLIGENCE_2026_10_08.md).
 
 ## End-to-end decision path
 
