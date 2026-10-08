@@ -1,5 +1,6 @@
 import {lazy, Suspense, useCallback, useEffect, useRef, useState, type CSSProperties, type FormEvent} from 'react'
 import {dateLabel, productRequest, recordName, type Fact, type User} from './productClient'
+import {CoordinationMapLoading} from './CoordinationMapLoading'
 
 export type CoordinationAction = {status:string; label:string; requires_proof:boolean; requires_review:boolean}
 export type CoordinationItem = {record:Fact; creator_id:string; actions:CoordinationAction[]}
@@ -30,7 +31,7 @@ function ProductHarborVisual({facts,items,focusedThreadKey,writable,onCreate,onE
   const berthCalls=(berthId:string)=>calls.filter(call=>call.payload.berth_id===berthId)
   return <article className="coord-harbor-visual">
     <header><div><span className="product-index">GEOGRAPHIC BASE MAP</span><h2>Harbor geography</h2></div><div className="coord-visual-metrics"><b>{calls.length} active calls</b><small>{berths.length-schematicBerths.length}/{berths.length} berths geocoded</small></div></header>
-    <Suspense fallback={<div className="coord-map-loading" role="status">Loading geographic base map…</div>}><ProductHarborMap facts={facts} focusedCallId={focusedCallId} writable={writable} onCreate={onCreate} onEdit={onEdit}/></Suspense>
+    <Suspense fallback={<CoordinationMapLoading facts={facts} focusedCallId={focusedCallId}/>}><ProductHarborMap facts={facts} focusedCallId={focusedCallId} writable={writable} onCreate={onCreate} onEdit={onEdit}/></Suspense>
     {schematicBerths.length>0 && <div className="coord-harbor-water coord-schematic-fallback">
       <div className="coord-schematic-label"><span className="product-index">SCHEMATIC BERTH LAYOUT · NOT GEOGRAPHIC</span><small>Only berths without recorded coordinates appear below.</small></div>
       {schematicBerths.map((berth,index)=>{const linkedCalls=berthCalls(berth.record_id);const focused=linkedCalls.some(call=>call.record_id===focusedCallId);return <div className={`coord-berth-lane ${focused?'is-focused':''}`} key={berth.record_id} style={{'--lane':index} as CSSProperties}><div className="coord-berth-name"><b>{recordName(berth)}</b><span>{berth.payload.max_length_m ? `${berth.payload.max_length_m}m max` : 'capacity not recorded'}</span></div><div className="coord-berth-track">{linkedCalls.length?linkedCalls.map((call,callIndex)=>{const vessel=vesselFor(call);return <div className={`coord-vessel-chip coord-harbor-call ${call.record_id===focusedCallId?'is-focused':''}`} key={call.record_id} style={{'--call':callIndex} as CSSProperties}><b>{vessel?recordName(vessel):call.record_id}</b><span>{dateLabel(String(call.payload.eta))} → {dateLabel(String(call.payload.etd))}</span><em>{threadCount(call.record_id)} open coordination</em></div>}):<span className="coord-berth-empty">No active call</span>}</div></div>})}

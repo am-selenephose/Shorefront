@@ -1,6 +1,7 @@
 import {lazy,Suspense,useEffect,useState} from 'react'
 import {dateLabel,productRequest,recordName,type Fact,type Workspace} from './productClient'
 import ProductOperationsDeck from './ProductOperationsDeck'
+import {CoordinationMapLoading} from './CoordinationMapLoading'
 const ProductHarborMap=lazy(()=>import('./ProductHarborMap'))
 
 type Actions={
@@ -63,7 +64,7 @@ export default function ProductAdvancedPulse({workspace,simulated=false,...actio
       <section className="ops-decision-cockpit" role="region" aria-label="Operational decision cockpit">
         <div className="ops-command-map ops-panel">
           <header><div><span className="product-index">GEOSPATIAL OPERATING PICTURE</span><h2>{records.find(record=>record.kind==='port')?recordName(records.find(record=>record.kind==='port')!):'Port geography'}</h2></div><div className="ops-map-metrics"><span>{mapped}/{berths.length} BERTHS MAPPED</span><b>{calls.length} ACTIVE CALLS</b></div></header>
-          <Suspense fallback={<div className="coord-map-loading" role="status">Loading operational map…</div>}><ProductHarborMap facts={records} focusedCallId={selected?.record_id??''} writable={actions.writable} onCreate={actions.onCreate} onEdit={actions.onEdit}/></Suspense>
+          <Suspense fallback={<CoordinationMapLoading facts={records} focusedCallId={selected?.record_id??''}/>}><ProductHarborMap facts={records} focusedCallId={selected?.record_id??''} writable={actions.writable} onCreate={actions.onCreate} onEdit={actions.onEdit}/></Suspense>
           <section className="ops-operating-horizon" role="region" aria-label="Port operating horizon">
             <header><div><span className="product-index">BERTH HORIZON / RECORDED WINDOWS</span><h3>Operating horizon</h3></div><div className="ops-horizon-switch" aria-label="Operating horizon range">{[6,12,24,48].map(value=><button type="button" key={value} className={horizonHours===value?'active':''} aria-pressed={horizonHours===value} onClick={()=>setHorizonHours(value)}>{value}H</button>)}</div></header>
             <div className="ops-horizon-scroll" role="group" aria-label="Scrollable berth timeline" tabIndex={0}>

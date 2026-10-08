@@ -4,6 +4,7 @@ import type {Map, Marker} from 'maplibre-gl'
 import mapWorkerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import {recordName, type Fact} from './productClient'
+import {CoordinationMapLoading} from './CoordinationMapLoading'
 
 maplibregl.setWorkerUrl(mapWorkerUrl)
 
@@ -28,6 +29,7 @@ export default function ProductHarborMap({facts,focusedCallId,writable,onCreate,
   const [showCalls,setShowCalls]=useState(true)
   const [exceptionsOnly,setExceptionsOnly]=useState(false)
   const [mapUnavailable,setMapUnavailable]=useState<string|null>(null)
+  const [mapReady,setMapReady]=useState(false)
   const ports = useMemo(()=>facts.filter(f=>f.kind==='port'),[facts])
   const berths = useMemo(()=>facts.filter(f=>f.kind==='berth'),[facts])
   const calls = useMemo(()=>facts.filter(f=>f.kind==='call' && !['departed','cancelled'].includes(String(f.payload.status))),[facts])
@@ -58,6 +60,8 @@ export default function ProductHarborMap({facts,focusedCallId,writable,onCreate,
         style:'https://tiles.openfreemap.org/styles/liberty',
       })
       map.addControl(new maplibregl.NavigationControl({showCompass:false}), 'bottom-right')
+      map.on('load',()=>setMapReady(true))
+      if(map.loaded()) setMapReady(true)
       mapRef.current=map
       return()=>{markers.current.forEach(marker=>marker.remove());markers.current=[];map.remove();mapRef.current=null}
     } catch(error) {
@@ -165,6 +169,7 @@ export default function ProductHarborMap({facts,focusedCallId,writable,onCreate,
         <small>No geographic position is being inferred or substituted.</small>
       </div>}
     </div>
+    {!mapReady&&!mapUnavailable&&<div className="product-map-pending-overlay"><CoordinationMapLoading facts={facts} focusedCallId={focusedCallId}/></div>}
     {schematic}
     <div className="product-map-layers" role="group" aria-label="Map layers">
       <span>LAYERS</span>

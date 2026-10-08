@@ -671,3 +671,18 @@
 .ops-operations-deck .ops-decision-lane>footer span,
 .ops-operations-deck .ops-decision-lane>footer b,
 .ops-operations-deck .ops-decision-lane>footer small{font-size:13px!important}
+
+/* Always-visible, record-derived visual while geographic resources initialize. */
+.coord-map-preview{min-height:390px;padding:16px 18px;display:flex;flex-direction:column;gap:12px;background:linear-gradient(135deg,color-mix(in srgb,var(--teal) 10%,var(--surface-inset)),var(--surface-inset));color:var(--foreground)}
+.coord-map-preview-head{display:grid;gap:4px}.coord-map-preview-head b{font-size:17px;font-weight:600}.coord-map-preview-head small{font-size:12px;line-height:1.45;color:var(--muted-foreground)}
+.coord-map-preview-list{display:grid;gap:7px;overflow-y:auto;min-height:0;max-height:295px}.coord-map-preview-row{display:grid;grid-template-columns:minmax(90px,34%) minmax(0,1fr);gap:10px;align-items:center;padding:9px 10px;border:1px solid var(--border-strong);background:color-mix(in srgb,var(--surface) 85%,transparent);border-radius:5px}
+.coord-map-preview-row>div:first-child>b{display:block;font-size:13px;margin-top:3px}.coord-map-preview-vessels{display:flex;gap:6px;flex-wrap:wrap}.coord-map-preview-vessels>span{display:grid;gap:3px;padding:7px 9px;font-weight:650;font-size:12px;border:1px solid var(--teal);border-radius:4px;background:var(--surface)}.coord-map-preview-vessels>span.is-focused{outline:2px solid var(--teal)}.coord-map-preview-vessels small{font-size:10px;font-weight:400;color:var(--muted-foreground)}.coord-map-preview-vessels em{font-style:normal;font-size:12px;color:var(--muted-foreground)}.coord-map-preview-empty{font-size:13px;padding:12px}.coord-map-preview-foot{display:flex;justify-content:space-between;gap:12px;margin-top:auto;font:11px/1.45 var(--font-mono);color:var(--muted-foreground)}
+.product-map-pending-overlay{position:absolute;inset:0;z-index:3;height:100%;overflow:hidden}.product-map-pending-overlay .coord-map-preview{min-height:100%;height:100%}.product-map-pending-overlay+.product-map-schematic{position:relative}
+@media(max-width:760px){.coord-map-preview{min-height:340px;padding:12px;gap:8px}.product-map-pending-overlay,.product-map-pending-overlay .coord-map-preview{height:340px;min-height:340px}.coord-map-preview-list{max-height:200px}.coord-map-preview-row{grid-template-columns:80px minmax(0,1fr)}.coord-map-preview-foot{font-size:10px}}
+.product-showcase-entry{display:inline-flex;align-items:center;min-height:36px;padding:7px 11px;border:1px solid var(--teal);border-radius:4px;background:color-mix(in srgb,var(--teal) 11%,var(--surface));font-size:12px;font-weight:650;color:var(--foreground);text-decoration:none;white-space:nowrap}
+.product-showcase-entry:hover,.product-showcase-entry:focus-visible{outline:2px solid var(--teal);outline-offset:1px}
+@media(max-width:760px){.product-showcase-entry{font-size:11px;min-height:34px;padding:6px 8px}}
+/* Operator-grade legibility applies even during lazy map startup. */
+.coord-map-preview :is(span,small,em),.coord-map-preview .product-index{font-size:13px}
+.coord-map-preview-foot{font-size:13px;line-height:1.4}
+@media(max-width:760px){.coord-map-preview-foot{font-size:13px}}

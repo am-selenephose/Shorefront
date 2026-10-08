@@ -14,6 +14,7 @@ test('customer onboarding, durable record editing, evidence and logout', async (
   await expect(page.getByRole('heading', {name: 'Your port. Your operational record.'})).toBeVisible()
   await expect(page.getByRole('region', {name:'Port operations command center'})).toBeVisible()
   await expect(page.getByRole('searchbox', {name:'Global workspace search'})).toBeVisible()
+  await expect(page.getByRole('link', {name:'Explore simulated demo'})).toBeVisible()
   await expect(page.getByRole('region',{name:'Port operations command center'}).getByRole('heading',{name:'Arrival runway',exact:true})).toBeVisible()
   await expect(page.getByRole('region', {name:'Operational geographic harbor map'})).toBeVisible()
   await expect(page.getByRole('heading', {name: 'Bring your first call into view'})).toBeVisible()
