@@ -25,9 +25,21 @@ function recordNameSafe(record:Fact){return String(record.payload.name??record.p
 
 function GlobalSearch({facts,onEdit}:{facts:Fact[];onEdit:(record:Fact)=>void}) {
   const [query,setQuery]=useState('')
+  const searchInput=useRef<HTMLInputElement>(null)
+  useEffect(()=>{
+    function onKeyboard(event:KeyboardEvent){
+      if((event.ctrlKey||event.metaKey)&&event.key.toLowerCase()==='k'){
+        event.preventDefault();searchInput.current?.focus();searchInput.current?.select()
+      }else if(event.key==='Escape'&&document.activeElement===searchInput.current){
+        setQuery('');searchInput.current?.blur()
+      }
+    }
+    window.addEventListener('keydown',onKeyboard)
+    return()=>window.removeEventListener('keydown',onKeyboard)
+  },[])
   const normalized=query.trim().toLowerCase()
   const results=normalized?facts.filter(record=>`${record.kind} ${recordNameSafe(record)} ${record.source} ${record.record_id}`.toLowerCase().includes(normalized)).slice(0,7):[]
-  return <div className="product-global-search"><input aria-label="Global workspace search" type="search" placeholder="Search vessel, call, incident, source..." value={query} onChange={event=>setQuery(event.target.value)}/>{normalized&&<div className="product-search-popover" role="listbox" aria-label="Workspace search results">{results.length?results.map(record=><button type="button" key={`${record.kind}:${record.record_id}`} onClick={()=>{onEdit(record);setQuery('')}}><span>{record.kind}</span><b>{recordNameSafe(record)}</b><small>{record.source}</small></button>):<p>No loaded record matches this search.</p>}</div>}</div>
+  return <div className="product-global-search"><input ref={searchInput} aria-keyshortcuts="Control+K Meta+K" aria-label="Global workspace search" type="search" placeholder="Search vessel, call, incident, source..." value={query} onChange={event=>setQuery(event.target.value)}/><kbd aria-hidden="true" className="product-search-shortcut">Ctrl K</kbd>{normalized&&<div className="product-search-popover" role="listbox" aria-label="Workspace search results">{results.length?results.map(record=><button type="button" key={`${record.kind}:${record.record_id}`} onClick={()=>{onEdit(record);setQuery('')}}><span>{record.kind}</span><b>{recordNameSafe(record)}</b><small>{record.source}</small></button>):<p>No loaded record matches this search.</p>}</div>}</div>
 }
 
 function ThemeButton() {

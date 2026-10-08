@@ -43,4 +43,10 @@ test('operational plan compares recorded berth scenarios without modifying the c
   const horizontalOverflow=await page.evaluate(()=>document.documentElement.scrollWidth-window.innerWidth)
   expect(horizontalOverflow,'Mobile page must not overflow horizontally').toBeLessThanOrEqual(2)
   await page.screenshot({path:testInfo.outputPath('scenario-mobile.png'),fullPage:true})
+  await page.getByRole('button',{name:'Switch to dark mode'}).click()
+  await expect(page.locator('html')).toHaveAttribute('data-theme','dark')
+  const highlightedPlan=await lab.locator('.whatif-variant').nth(1).evaluate(node=>getComputedStyle(node).borderColor)
+  expect(highlightedPlan).toBe('rgb(254, 175, 119)')
+  await page.screenshot({path:testInfo.outputPath('scenario-night-mobile.png'),fullPage:true})
+
 })
