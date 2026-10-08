@@ -60,3 +60,13 @@ The vessel runtime remains a separate system. Shorefront accepts
 privacy-minimized normalized events and produces advisory coordination. Do not
 introduce physical actuation, crew-private records or a competing semantic
 contract here.
+
+## Optional US water-level context (new local implementation)
+
+The local branch adds operator-selected NOAA CO-OPS station data as a separate read-only
+context panel, disabled by default unless `SHOREFRONT_NOAA_ENABLED=1` is configured.
+The 7-digit station is recorded on a Port; provider data is time-labeled,
+source-attributed, and can become stale/unavailable. This is not navigational
+clearance and cannot authorize a berth movement. The workspace now also offers
+an explicit Refresh control for out-of-band record changes. These additions
+are local development work until release verification and an approved cutover.

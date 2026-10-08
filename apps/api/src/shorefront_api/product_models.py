@@ -26,6 +26,7 @@ class Port(StrictModel):
     timezone: str = Field(max_length=80)
     latitude: float | None = Field(default=None, ge=-90, le=90, allow_inf_nan=False)
     longitude: float | None = Field(default=None, ge=-180, le=180, allow_inf_nan=False)
+    noaa_station_id: str | None = Field(default=None, pattern=r'^[0-9]{7}$')
 
     @field_validator('timezone')
     @classmethod

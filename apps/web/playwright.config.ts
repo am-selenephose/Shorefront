@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto'
-import { mkdtempSync } from 'node:fs'
+import { existsSync, mkdtempSync } from 'node:fs'
+const systemChromium = process.env.SHOREFRONT_CHROMIUM_EXECUTABLE ?? (existsSync('/usr/bin/chromium') ? '/usr/bin/chromium' : undefined)
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { defineConfig } from '@playwright/test'
@@ -46,7 +47,7 @@ export default defineConfig({
     screenshot: 'only-on-failure',
     video: 'off',
     launchOptions: {
-      executablePath: '/usr/bin/chromium',
+      ...(systemChromium ? {executablePath:systemChromium} : {}),
       args: ['--no-sandbox'],
     },
   },
@@ -74,7 +75,7 @@ export default defineConfig({
     },
     {
       command: process.env.SHOREFRONT_E2E_BUILT === '1'
-        ? './node_modules/.bin/vite preview --config vite.config.ts --host 127.0.0.1 --port 5175 --strictPort'
+        ? './node_modules/.bin/vite preview --config vite.config.ts --outDir '+(process.env.SHOREFRONT_E2E_DIST_DIR ?? 'dist')+' --host 127.0.0.1 --port 5175 --strictPort'
         : 'npm run dev -- --host 127.0.0.1 --port 5175 --strictPort',
       url: 'http://127.0.0.1:5175',
       timeout: 60_000,

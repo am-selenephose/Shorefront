@@ -116,6 +116,9 @@ jobs:
       - name: Training and simulator regressions
         if: matrix.browser == 'chromium'
         run: npm run test:e2e
+      - name: Intelligence and NOAA boundary regressions
+        if: matrix.browser == 'chromium'
+        run: npm run test:intelligence
 
   delivery:
     runs-on: ubuntu-latest

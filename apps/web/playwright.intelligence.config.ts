@@ -1,4 +1,5 @@
-import {mkdtempSync} from 'node:fs'
+import {existsSync,mkdtempSync} from 'node:fs'
+const systemChromium = process.env.SHOREFRONT_CHROMIUM_EXECUTABLE ?? (existsSync('/usr/bin/chromium') ? '/usr/bin/chromium' : undefined)
 import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 import {defineConfig} from '@playwright/test'
@@ -12,7 +13,7 @@ export default defineConfig({
   use:{
     baseURL:'http://127.0.0.1:5177',timezoneId:'UTC',trace:'retain-on-failure',
     screenshot:'only-on-failure',browserName:'chromium',
-    launchOptions:{executablePath:'/usr/bin/chromium',args:['--no-sandbox']},
+    launchOptions:{...(systemChromium ? {executablePath:systemChromium} : {}),args:['--no-sandbox']},
   },
   webServer:[
     {

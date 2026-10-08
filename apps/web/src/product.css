@@ -1462,3 +1462,26 @@
 .decision-observation-metrics b{display:block;font-size:21px;overflow-wrap:anywhere}
 .decision-observation-report p,.decision-observation-report summary{font-size:13px;line-height:1.6}
 @media(max-width:760px){.decision-observation-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}}
+
+/* Optional, externally attributed CO-OPS observation; never a clearance. */
+.noaa-context-panel{margin:16px 0}
+.noaa-source-pill{font:700 13px var(--font-mono);letter-spacing:.04em;padding:7px 10px;border:1px solid var(--border);border-radius:8px}
+.noaa-context-body{padding:16px 20px}
+.noaa-context-body>p{line-height:1.55;max-width:95ch}
+.noaa-controls{display:flex;align-items:end;flex-wrap:wrap;gap:12px;margin:14px 0}
+.noaa-controls>label{display:grid;gap:7px;flex:1 1 260px;max-width:540px}
+.noaa-controls select{min-height:42px}
+.noaa-controls button{min-height:42px}
+.noaa-observation{border:1px solid var(--border);border-radius:12px;padding:14px;background:var(--surface-inset)}
+.noaa-observation-top{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.noaa-observation-status{font-size:13px;letter-spacing:.08em}
+.noaa-observation-status.is-current{color:var(--teal)}
+.noaa-observation-status.is-stale,.noaa-observation-status.is-unavailable{color:var(--danger)}
+.noaa-reading{display:flex;align-items:center;gap:18px;flex-wrap:wrap;margin:14px 0}
+.noaa-reading strong{font-size:clamp(28px,3vw,44px);font-weight:800;letter-spacing:-.03em;font-variant-numeric:tabular-nums}
+.noaa-reading>div{display:grid;gap:5px}
+.noaa-reading small,.noaa-observation>small{font-size:13px}
+.noaa-observation ul{padding-left:20px;line-height:1.5}
+@media(max-width:760px){.noaa-context-body{padding:12px}.noaa-context-panel>header{flex-wrap:wrap}}
+.product-shell .commandbar-refresh{min-height:36px;border:1px solid var(--border-strong);background:var(--surface);color:var(--foreground);font-weight:650;white-space:nowrap}
+.product-shell .commandbar-refresh:hover,.product-shell .commandbar-refresh:focus-visible{border-color:var(--teal);background:var(--surface-inset)}

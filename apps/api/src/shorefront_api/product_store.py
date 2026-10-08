@@ -221,6 +221,8 @@ class ProductStore:
             payload = model.model_validate(command.payload).model_dump(mode='json')
         except ValidationError as exc:
             raise HTTPException(422, [{'loc': list(e['loc']), 'msg': e['msg']} for e in exc.errors()]) from exc
+        if kind == 'port' and payload.get('noaa_station_id') is None:
+            payload.pop('noaa_station_id', None)
         latest = connection.execute(select(versions).where(versions.c.kind == kind, versions.c.record_id == command.record_id).order_by(versions.c.revision.desc()).limit(1)).mappings().first()
         revision = latest['revision'] if latest else 0
         if revision != command.expected_revision:

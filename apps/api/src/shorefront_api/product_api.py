@@ -5,6 +5,7 @@ import hmac
 import json
 import os
 import secrets
+from math import isfinite
 from urllib.parse import urlsplit
 from typing import Literal
 
@@ -35,13 +36,15 @@ from .product_standards import (DCSA_PROFILE, ingest_dcsa_port_call, list_standa
                                 list_standard_profiles)
 from .product_store import ProductStore, canonical, digest, fact_conflicts, graph, installation, invitations, public_record, sessions, users, versions
 from .storage import default_database_url
+from .noaa_coops import NoaaCoopsClient
 
 
-def create_product_app(database_url=None, installation_id=None, origin=None, bootstrap_token=None):
+def create_product_app(database_url=None, installation_id=None, origin=None, bootstrap_token=None, noaa_reader=None):
     owner = installation_id or setting('INSTALLATION_ID', '')
     site = (origin or setting('ORIGIN', '')).rstrip('/')
     bootstrap_secret = bootstrap_token if bootstrap_token is not None else setting('BOOTSTRAP_TOKEN', '')
     store = ProductStore(database_url or default_database_url(), owner)
+    noaa_reader = noaa_reader or NoaaCoopsClient().read
     parsed = urlsplit(site)
     secure = parsed.scheme == 'https'
 
@@ -248,6 +251,60 @@ def create_product_app(database_url=None, installation_id=None, origin=None, boo
             identify(connection, request)
             snapshot = store.snapshot(connection)
         return build_readiness(snapshot, stamp(now()))
+
+    @app.get('/api/v1/environment/noaa')
+    def noaa_water_level(request: Request, port_id: str = Query(min_length=1, max_length=96)):
+        with store.transaction() as connection:
+            identify(connection, request)
+            recorded = store.snapshot(connection)
+        port = next((r for r in recorded if r['kind']=='port' and r['record_id']==port_id), None)
+        if port is None:
+            raise HTTPException(404, 'Recorded port not found')
+        station = port['payload'].get('noaa_station_id')
+        status = ('not_configured' if not station else
+                  'disabled' if os.getenv('SHOREFRONT_NOAA_ENABLED', '').strip().lower() not in {'true','1','yes','on'} else
+                  None)
+        if status:
+            return {'provider':'NOAA CO-OPS', 'status':status, 'station_id':station,
+                    'observation':None, 'port_id':port_id, 'scope':'operator_configured_station',
+                    'physical_execution_authorized':False,
+                    'limitations':['No live external observation is available for this port in the selected installation.']}
+        response = noaa_reader(station)
+        safe = (
+            isinstance(response, dict)
+            and response.get('station_id') == station
+            and response.get('provider') == 'NOAA CO-OPS'
+            and response.get('physical_execution_authorized') is not True
+            and response.get('status') in {'current', 'stale', 'unavailable'}
+        )
+        if safe and response['status'] in {'current', 'stale'}:
+            sample = response.get('observation')
+            safe = (
+                isinstance(sample, dict)
+                and isinstance(sample.get('level_m'), (int, float))
+                and not isinstance(sample.get('level_m'), bool)
+                and isfinite(sample['level_m'])
+                and isinstance(sample.get('observed_at'), str)
+                and sample.get('datum') == 'MLLW'
+                and sample.get('units') == 'm'
+                and sample.get('quality') in {'preliminary', 'unverified'}
+            )
+        if not safe:
+            return {'provider':'NOAA CO-OPS','status':'unavailable','station_id':station,
+                    'observation':None, 'port_id':port_id, 'scope':'operator_configured_station',
+                    'physical_execution_authorized':False,
+                    'limitations':['External provider returned an untrusted response; no observation was accepted.']}
+        return {
+            'provider':'NOAA CO-OPS', 'station_id':station, 'status':response['status'],
+            'observation':response.get('observation') if response['status'] != 'unavailable' else None,
+            'source_url':'https://api.tidesandcurrents.noaa.gov/api/prod/datagetter',
+            'retrieved_at':response.get('retrieved_at'),
+            'port_id':port_id, 'scope':'operator_configured_station',
+            'physical_execution_authorized':False,
+            'limitations':[item for item in response.get('limitations', []) if isinstance(item, str) and item.strip()][:12]
+                          if isinstance(response.get('limitations'), list)
+                          else ['No navigational clearance can be inferred from this source.'],
+        }
 
     @app.post('/api/v1/plan/what-if')
     def what_if(body: WhatIf, request: Request):

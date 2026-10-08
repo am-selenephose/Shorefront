@@ -1,4 +1,5 @@
-import {mkdtempSync} from 'node:fs'
+import {existsSync,mkdtempSync} from 'node:fs'
+const systemChromium = process.env.SHOREFRONT_CHROMIUM_EXECUTABLE ?? (existsSync('/usr/bin/chromium') ? '/usr/bin/chromium' : undefined)
 import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 import {defineConfig} from '@playwright/test'
@@ -12,7 +13,7 @@ export default defineConfig({
  workers:1,fullyParallel:false,timeout:30000,expect:{timeout:8000},
  use:{baseURL:'http://127.0.0.1:'+port,timezoneId:'UTC',trace:'retain-on-failure',
  screenshot:'only-on-failure',browserName:'chromium',
- launchOptions:{executablePath:'/usr/bin/chromium',args:['--no-sandbox']}},
+ launchOptions:{...(systemChromium ? {executablePath:systemChromium} : {}),args:['--no-sandbox']}},
  webServer:[
   {command:'cd ../api && PYTHONPATH=src uv run --no-sync uvicorn shorefront_api.main:app --host 127.0.0.1 --port '+api,
    url:'http://127.0.0.1:'+api+'/readyz',reuseExistingServer:false,
