@@ -7,6 +7,7 @@ const dataDir = mkdtempSync(join(tmpdir(), 'shorefront-product-e2e-'))
 const requestedBrowser=process.env.SHOREFRONT_E2E_BROWSER ?? 'chromium'
 if(!['chromium','firefox','webkit'].includes(requestedBrowser)) throw new Error('SHOREFRONT_E2E_BROWSER must be chromium, firefox or webkit')
 const browserName=requestedBrowser as 'chromium'|'firefox'|'webkit'
+const buildDir=process.env.SHOREFRONT_E2E_DIST_DIR ?? 'dist'
 
 export default defineConfig({
   testDir: './e2e-product', workers: 1, fullyParallel: false, timeout: 30000,
@@ -21,7 +22,7 @@ export default defineConfig({
         SHOREFRONT_INSTALLATION_ID: 'product-browser-test', SHOREFRONT_ORIGIN: 'http://127.0.0.1:5176',
         SHOREFRONT_BOOTSTRAP_TOKEN: 'test-only-bootstrap-for-local-product-browser-suite',
         SHOREFRONT_STATIC_DIR: '', SHOREFRONT_DATA_DIR: dataDir } },
-    { command: './node_modules/.bin/vite preview --config vite.config.ts --host 127.0.0.1 --port 5176 --strictPort',
+    { command: `./node_modules/.bin/vite preview --config vite.config.ts --outDir ${buildDir} --host 127.0.0.1 --port 5176 --strictPort`,
       url: 'http://127.0.0.1:5176', reuseExistingServer: false,
       env: { SHOREFRONT_API_TARGET: 'http://127.0.0.1:8151' } },
   ],

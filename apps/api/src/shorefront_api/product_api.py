@@ -16,6 +16,8 @@ from sqlalchemy import JSON, cast, delete, func, insert, or_, select, type_coerc
 from .config import setting
 from .observability import metrics, observe_http
 from .product_coordination import schedule_conflicts, coordination_actions
+from .product_readiness import build_readiness
+from .product_scenarios import WhatIf, compare_plan
 from .product_auth import (COOKIE, create_user, identify, login_attempt, public_user,
                            password_hash, password_valid, require_admin, require_origin, start_session)
 from .product_models import (AcceptInvite, ApprovalRequest, Bootstrap, ConflictResolution, DecisionRequest, ImportBatch,
@@ -238,6 +240,21 @@ def create_product_app(database_url=None, installation_id=None, origin=None, boo
         return {'runtime_mode': 'operational', 'installation_id': owner, 'records': records,
                 'attention': sorted(attention, key=lambda r: r['payload']['due_at']),
                 'read_at': stamp(now()), 'user': public_user(user)}
+
+    @app.get('/api/v1/readiness')
+    def readiness(request: Request):
+        with store.transaction() as connection:
+            identify(connection, request)
+            snapshot = store.snapshot(connection)
+        return build_readiness(snapshot, stamp(now()))
+
+    @app.post('/api/v1/plan/what-if')
+    def what_if(body: WhatIf, request: Request):
+        require_origin(request, site)
+        with store.transaction() as connection:
+            identify(connection, request, mutation=True)
+            snapshot = store.snapshot(connection)
+        return compare_plan(snapshot, body, stamp(now()))
 
     @app.get('/api/v1/coordination')
     def coordination(request: Request):

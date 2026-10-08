@@ -7,10 +7,12 @@ import ProductAccount from './ProductAccount'
 import ProductCommandRail from './ProductCommandRail'
 import ProductConnections from './ProductConnections'
 import {OperationalCalls, OperationalExceptions, OperationalPlan, OperationalPulse} from './ProductWorkspaces'
+import ProductReadiness from './ProductReadiness'
+import ProductWhatIf from './ProductWhatIf'
 import {ProductError, productRequest, setSession, validateWorkspace, type Fact, type Session, type User, type Workspace} from './productClient'
 import './product.css'
 
-const views = ['Pulse', 'Plan', 'Calls', 'Exceptions', 'Coordination', 'Recovery', 'Connections', 'Records', 'Evidence', 'Team'] as const
+const views = ['Pulse', 'Readiness', 'Plan', 'Calls', 'Exceptions', 'Coordination', 'Recovery', 'Connections', 'Records', 'Evidence', 'Team'] as const
 type View = typeof views[number]
 function readView(): View {return views.find(v => `#${v.toLowerCase()}` === location.hash) ?? 'Pulse'}
 function OperationalClock() {
@@ -161,6 +163,7 @@ export default function ProductApp({needsSetup}: {needsSetup: boolean}) {
   const sessionEpoch = epoch.current
   const navCounts:Record<View,number> = {
     Pulse:workspace?.records.length??0,
+    Readiness:workspace?.records.filter(record=>record.kind==='call'&&!['departed','cancelled'].includes(String(record.payload.status))).length??0,
     Plan:workspace?.records.filter(record=>record.kind==='call'&&!['departed','cancelled'].includes(String(record.payload.status))).length??0,
     Calls:workspace?.records.filter(record=>record.kind==='call').length??0,
     Exceptions:workspace?.attention.length??0,
@@ -176,7 +179,8 @@ export default function ProductApp({needsSetup}: {needsSetup: boolean}) {
       {error && <div className="product-error" role="alert">{error} <button onClick={() => void refresh().catch(() => {})}>Retry connection</button></div>}
       {!workspace ? <section className="product-empty product-workspace-stage" role="status"><h1>Loading your operational records…</h1><button onClick={() => void refresh().catch(() => {})}>Retry</button></section> : <section className="product-workspace-stage">
         {view === 'Pulse' && <OperationalPulse workspace={workspace} team={team} {...actions}/>}
-        {view === 'Plan' && <><OperationalPlan workspace={workspace} {...actions}/><div className="ops-decision-review"><ProductDecisions facts={workspace.records} user={session.user} writable={writable} onRefresh={refresh}/></div></>}
+        {view === 'Readiness' && <ProductReadiness workspace={workspace} {...actions}/>}
+        {view === 'Plan' && <><OperationalPlan workspace={workspace} {...actions}/><ProductWhatIf facts={workspace.records} writable={writable} onEdit={actions.onEdit}/><div className="ops-decision-review"><ProductDecisions facts={workspace.records} user={session.user} writable={writable} onRefresh={refresh}/></div></>}
         {view === 'Calls' && <OperationalCalls workspace={workspace} {...actions}/>}
         {view === 'Exceptions' && <OperationalExceptions workspace={workspace} team={team} {...actions}/>}
         {view === 'Coordination' && <ProductCoordination facts={workspace.records} team={team} writable={writable} onRefresh={refresh} onCreate={actions.onCreate} onEdit={actions.onEdit}/>}

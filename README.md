@@ -26,12 +26,21 @@ authority.
 - Evidence-bound decision packets, supervisor approval and recorded outcomes without invented savings.
 - SQLite/PostgreSQL persistence, transactional commands, idempotency and stale-revision rejection.
 - Effective-time and knowledge-time history with inspectable audit evidence.
+- Per-call operational readiness review with source-aware missing/attention/conflict checks.
+- Read-only what-if berth and UTC window comparison, without mutating the recorded plan.
 - A separately selected training simulator with harbor maps, schedules, modeled disruptions,
   synthetic/recorded fixtures, recovery proposals and advisory integration experiments.
 
 Coordination is **advisory-only**. No helm, propulsion, machinery or other vessel
 actuation is permitted. Integration credentials are not human approval credentials.
 Synthetic information is not evidence of a real port operation or commercial deployment.
+
+Operational users can open Readiness to inspect recorded-information coverage
+for every active port call. The Plan workspace includes What-if planning,
+which compares a proposed berth and time window against the existing schedule
+without saving changes. Neither surface is a navigational clearance or external
+data prediction. API routes are GET /api/v1/readiness and authenticated,
+origin/CSRF-protected POST /api/v1/plan/what-if.
 
 The browser selects the server-declared runtime. Operational mode begins with
 setup or sign-in, followed by Pulse, Records, Plan, Evidence and Team.
@@ -147,7 +156,10 @@ npm run test:config
 npm run build
 npm run test:e2e
 npm run test:product
+npm run test:intelligence
 ```
+
+The intelligence browser tests use their own disposable operational database and independent API/web ports. This isolates their customer-record fixtures from the other product tests.
 
 Browser tests use local API/web servers, test-only credentials and `/usr/bin/chromium`.
 They do not use a live port service. Test data is created under temporary directories.
@@ -183,6 +195,7 @@ The training runtime retains its narrower single-process coordination boundary.
 
 - [Architecture](docs/ARCHITECTURE.md)
 - [Operational installation, accounts and recovery](docs/OPERATIONAL_RUNBOOK.md)
+- [2026-10-08 competitor capability and product-gap audit](docs/COMPETITOR_CAPABILITY_AUDIT_2026_10_08.md)
 - [Operational product design](docs/superpowers/specs/2026-10-04-operational-product-design.md)
 - [Decision-workspace verification](docs/DECISION_WORKSPACE_VERIFICATION.md)
 - [Atomic-command verification](docs/ATOMIC_COMMAND_VERIFICATION.md)

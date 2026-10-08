@@ -48,6 +48,7 @@ changes or a passing local release gate.
 - typed records, two-clock history, evidence export and offline verification;
 - decision packets with explicit human approval and bounded recorded-input checks;
 - geographic map, berth horizon, coordination and source reconciliation;
+- authenticated call readiness coverage analysis and read-only berth/time what-if planning;
 - scoped inbound sources, partner projections/deliveries and DCSA subset gateway;
 - full operational/training browser regression jobs and disposable PostgreSQL CI;
 - real Nginx HTTP/TLS delivery regression tests;
