@@ -74,6 +74,28 @@ class Resource(StrictModel):
     available: bool
 
 
+class ResourceAssignment(StrictModel):
+    # An explicit time-bounded connection between a *specific* port call and
+    # a resource. Port-wide availability by itself never implies assignment.
+    call_id: Identifier
+    resource_id: Identifier
+    starts_at: AwareDatetime
+    ends_at: AwareDatetime
+    status: Literal['proposed', 'confirmed', 'released'] = 'proposed'
+    confirmation_note: str = Field(default='', max_length=2000)
+    release_note: str = Field(default='', max_length=2000)
+
+    @model_validator(mode='after')
+    def verify_assignment(self):
+        if self.ends_at <= self.starts_at:
+            raise ValueError('Resource assignment ends_at must follow starts_at')
+        if self.status == 'confirmed' and not self.confirmation_note.strip():
+            raise ValueError('Confirmed resource assignment requires a named confirmation note')
+        if self.status == 'released' and not self.release_note.strip():
+            raise ValueError('Released resource assignment requires a release note')
+        return self
+
+
 class Incident(StrictModel):
     title: Label
     call_id: Identifier | None = None
@@ -162,10 +184,12 @@ class Outcome(StrictModel):
 
 
 RECORD_MODELS = {'port': Port, 'berth': Berth, 'vessel': Vessel, 'call': Call,
-                 'resource': Resource, 'incident': Incident, 'task': Task,
+                 'resource': Resource, 'resource_assignment': ResourceAssignment,
+                 'incident': Incident, 'task': Task,
                  'handoff': Handoff, 'commitment': Commitment, 'obligation': Obligation, 'outcome': Outcome}
 REFERENCES = {'port_id': 'port', 'berth_id': 'berth', 'vessel_id': 'vessel',
-              'call_id': 'call', 'incident_id': 'incident'}
+              'call_id': 'call', 'resource_id': 'resource',
+              'incident_id': 'incident'}
 
 
 class RecordCommand(StrictModel):
@@ -256,7 +280,7 @@ class ApprovalRequest(StrictModel):
     reason: str = Field(min_length=1, max_length=2000)
 
 
-INGESTIBLE_KINDS = {'port', 'berth', 'vessel', 'call', 'resource', 'incident', 'task', 'outcome'}
+INGESTIBLE_KINDS = {'port', 'berth', 'vessel', 'call', 'resource', 'resource_assignment', 'incident', 'task', 'outcome'}
 PROJECTABLE_KINDS = set(RECORD_MODELS)
 SUPPORTED_STANDARD_PROFILES = {'dcsa-port-call-2.0.0'}
 

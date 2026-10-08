@@ -3,7 +3,7 @@ import {dateLabel,productRequest,recordName,type Fact} from './productClient'
 
 type Conflict={kind:string;record_ids:string[];explanation:string}
 type Alternative={berth_id:string|null;berth_name:string|null;eta:string;etd:string;conflicts:Conflict[]}
-type Impact={source_disagreements:{id:string;kind:string;record_id:string;fields:string[]}[];verification:string;introduced_conflicts:Conflict[];cleared_conflicts:Conflict[];related_calls:{call_id:string;vessel_name:string;reasons:string[]}[];open_work:{record_id:string;kind:string;call_id:string;source:string}[];unavailable_port_resources:{name:string;resource_type:string}[];missing_checks:string[]}
+type Impact={assigned_resources?:{assignment_id:string;resource_name:string;status:string;source:string}[];allocation_conflicts?:{explanation:string}[];source_disagreements:{id:string;kind:string;record_id:string;fields:string[]}[];verification:string;introduced_conflicts:Conflict[];cleared_conflicts:Conflict[];related_calls:{call_id:string;vessel_name:string;reasons:string[]}[];open_work:{record_id:string;kind:string;call_id:string;source:string}[];unavailable_port_resources:{name:string;resource_type:string}[];missing_checks:string[]}
 type Result={call_id:string;vessel_name:string;source:string;known_at:string;read_at:string;read_only:true;baseline:Alternative;candidate:Alternative;impact:Impact;change:{berth_changed:boolean;eta_minutes:number;etd_minutes:number};boundary:string}
 type Props={facts:Fact[];writable:boolean;onEdit:(record:Fact)=>void}
 const clock=(date:unknown)=>{
@@ -110,6 +110,8 @@ export default function ProductWhatIf({facts,writable,onEdit}:Props){
               <a href="#evidence">Inspect disagreements in Evidence →</a>
             </div>}
             <p>Assessment: {result.impact.verification.replaceAll('_',' ')}. No external movement or resource assignment is inferred.</p>
+            {(result.impact.assigned_resources?.length??0)>0&&<p>Explicit allocations: {result.impact.assigned_resources?.map(item=>item.resource_name+' ('+item.status+')').join(', ')}. A changed window requires reconfirmation.</p>}
+            {(result.impact.allocation_conflicts?.length??0)>0&&<p role="alert">Assigned resource conflicts: {result.impact.allocation_conflicts?.map(item=>item.explanation).join('; ')}</p>}
             {result.impact.related_calls.length>0&&<p>Related calls: {result.impact.related_calls.map(item=>item.vessel_name).join(', ')}</p>}
             {result.impact.unavailable_port_resources.length>0&&<p>Port-wide unavailable resources: {result.impact.unavailable_port_resources.map(item=>item.name).join(', ')}. Allocation to this call is unverified.</p>}
             {result.impact.missing_checks.length>0&&<details><summary>Unverified operational inputs ({result.impact.missing_checks.length})</summary><ul>{result.impact.missing_checks.map(item=><li key={item}>{item}</li>)}</ul></details>}

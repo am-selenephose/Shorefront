@@ -57,9 +57,10 @@ def create_packet(store, connection, actor, request, key):
         intelligence = analyze(inputs, request.call_id, body, baseline_conflicts, unresolved)
         disputes = intelligence['source_disagreements']
         options.append({'id': f'option-{len(options)}', 'label': label, 'call_payload': body,
-                        'eligible': not conflicts and not disputes,
+                        'eligible': not conflicts and not disputes and not intelligence['allocation_conflicts'],
                         'rejected_reasons': [c['explanation'] for c in conflicts] +
-                            [f"Unresolved source disagreement for {c['kind']}/{c['record_id']}: {', '.join(c['fields'])}" for c in disputes],
+                            [f"Unresolved source disagreement for {c['kind']}/{c['record_id']}: {', '.join(c['fields'])}" for c in disputes] +
+                            [c['explanation'] for c in intelligence['allocation_conflicts']],
                         'shift_minutes': (datetime.fromisoformat(body['eta']) - datetime.fromisoformat(current['eta'])).total_seconds() / 60,
                         'intelligence': intelligence})
 
@@ -90,7 +91,8 @@ def create_packet(store, connection, actor, request, key):
             option(f"Earliest recorded slot · {berth['payload']['name']}", body)
     # Evidence-priority ordering, not a forecast, global optimum or approval.
     ranked = sorted((item for item in options if item['eligible']),
-                    key=lambda item: (len(item['intelligence']['introduced_conflicts']),
+                    key=lambda item: (len(item['intelligence']['allocation_conflicts']),
+                                      len(item['intelligence']['introduced_conflicts']),
                                       len(item['intelligence']['unavailable_port_resources']),
                                       abs(item['shift_minutes']),
                                       item['call_payload']['berth_id'] != current['berth_id'],
@@ -151,6 +153,8 @@ def approve_packet(store, connection, actor, packet_id, request):
     current_assessment = analyze(inputs, packet['call_id'], option['call_payload'], unresolved=unresolved)
     if current_assessment['source_disagreements']:
         raise HTTPException(409, 'Relevant source facts disagree; reconcile them before creating a new decision packet')
+    if current_assessment['allocation_conflicts']:
+        raise HTTPException(409, 'Confirmed call resources are unavailable or overbooked; resolve allocations before approval')
     result = store.write_record(connection, actor, 'call', RecordCommand(record_id=packet['call_id'],
         expected_revision=packet['call_revision'], source=f"Approved decision {packet_id}", payload=option['call_payload']), f'decision-{packet_id}')
     receipt = {'decision_id': packet_id, 'option_id': request.option_id, 'reason': request.reason,

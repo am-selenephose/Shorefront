@@ -4,8 +4,9 @@ import ProductOutcome from './ProductOutcome'
 
 type ImpactConflict={kind:string;record_ids:string[];explanation:string}
 type SourceDisagreement={id:string;kind:string;record_id:string;fields:string[];detected_at:string}
-type Impact={source_disagreements?:SourceDisagreement[];verification:string;confidence:string;review_rank:number|null;introduced_conflicts:ImpactConflict[];cleared_conflicts:ImpactConflict[];related_calls:{call_id:string;vessel_name:string;reasons:string[];source:string;known_at:string}[];open_work:{kind:string;record_id:string;call_id:string;status:string;source:string}[];unavailable_port_resources:{name:string;resource_type:string;source:string}[];missing_checks:string[];limitations:string[]}
+type Impact={assigned_resources?:{assignment_id:string;resource_name:string;status:string;starts_at:string;ends_at:string;source:string}[];allocation_conflicts?:{kind:string;assignment_id:string;explanation:string}[];source_disagreements?:SourceDisagreement[];verification:string;confidence:string;review_rank:number|null;introduced_conflicts:ImpactConflict[];cleared_conflicts:ImpactConflict[];related_calls:{call_id:string;vessel_name:string;reasons:string[];source:string;known_at:string}[];open_work:{kind:string;record_id:string;call_id:string;status:string;source:string}[];unavailable_port_resources:{name:string;resource_type:string;source:string}[];missing_checks:string[];limitations:string[]}
 type Option = {id:string; label:string; eligible:boolean; rejected_reasons:string[]; shift_minutes:number; call_payload:Record<string,string>;intelligence?:Impact}
+type OutcomeMeasurements={read_at:string;summary:{approved_decisions:number;outcomes_recorded:number;outcomes_missing:number;observation_coverage_pct:number|null;mean_absolute_arrival_deviation_minutes:number|null;mean_absolute_departure_deviation_minutes:number|null};limitations:string[];measurements:{decision_id:string;call_id:string;arrival_deviation_minutes:number;departure_deviation_minutes:number;occupancy_deviation_minutes:number;source:string;known_at:string}[]}
 type Packet = {id:string; created_at:string; question:string; call_id:string; input_digest:string; inputs:Fact[]; options:Option[]; trust:{confidence:string; warnings:string[]}; receipt:{approved_by:string; approved_at:string; reason:string; option_id:string; effect:string}|null}
 type HistoryQuery = {q:string; state:'all'|'pending'|'approved'; after:string; trail:string[]}
 const firstPage:HistoryQuery = {q:'',state:'all',after:'',trail:[]}
@@ -19,6 +20,12 @@ export default function ProductDecisions({facts, user, writable, onRefresh}: {fa
   const [loaded, setLoaded] = useState(false)
   const [listError, setListError] = useState('')
   const [notice, setNotice] = useState('')
+  const [measurements,setMeasurements]=useState<OutcomeMeasurements|null>(null)
+  const [measurementError,setMeasurementError]=useState('')
+  async function loadMeasurements(){
+    try{setMeasurements(await productRequest<OutcomeMeasurements>('/decision-intelligence/outcomes'));setMeasurementError('')}
+    catch(reason){setMeasurementError(String(reason))}
+  }
   const [search, setSearch] = useState('')
   const [status, setStatus] = useState<HistoryQuery['state']>('all')
   const [viewQuery, setViewQuery] = useState<HistoryQuery>(firstPage)
@@ -46,6 +53,7 @@ export default function ProductDecisions({facts, user, writable, onRefresh}: {fa
     try{target=sessionStorage.getItem('shorefront.pendingDecisionReview')??'';sessionStorage.removeItem('shorefront.pendingDecisionReview')}catch{}
     if(target)void load({...firstPage,q:target}).then(ok=>{if(ok){setSearch(target);setSelected(target)}})
     else void load()
+    void loadMeasurements()
     return()=>{generation.current++}
   }, [])
   async function propose(event:FormEvent<HTMLFormElement>) {
@@ -66,6 +74,22 @@ export default function ProductDecisions({facts, user, writable, onRefresh}: {fa
   const pendingPackets=packets.filter(packet=>!packet.receipt).length
   const warnings=packets.reduce((count,packet)=>count+packet.trust.warnings.length,0)
   return <div className="decision-workspace-advanced"><div className="ops-heading"><p className="eyebrow">PLAN / EVIDENCE-BOUND REVIEW</p><h1>A decision with its context intact.</h1><p>Compare recorded berth windows. A supervisor approves the plan; Shorefront never treats that as vessel clearance or a financial return.</p></div>
+    <section className="ops-panel decision-observation-report" aria-label="Measured decision outcome coverage">
+      <header><div><span className="product-index">MEASURED OUTCOMES / OBSERVATIONS ONLY</span><h2>Did reality match the approved plan?</h2></div>
+        <button type="button" onClick={()=>void loadMeasurements()}>Refresh measurements</button></header>
+      {measurementError&&<p role="alert">{measurementError}</p>}
+      {measurements?<><div className="decision-observation-metrics">
+        <div><span>APPROVED DECISIONS</span><b>{measurements.summary.approved_decisions}</b></div>
+        <div><span>OBSERVED OUTCOMES</span><b>{measurements.summary.outcomes_recorded}</b><small>{measurements.summary.outcomes_missing} outcomes missing</small></div>
+        <div><span>OBSERVATION COVERAGE</span><b>{measurements.summary.observation_coverage_pct==null?'No approvals':measurements.summary.observation_coverage_pct+'%'}</b></div>
+        <div><span>MEAN ABSOLUTE ARRIVAL DEVIATION</span><b>{measurements.summary.mean_absolute_arrival_deviation_minutes==null?'Unknown':measurements.summary.mean_absolute_arrival_deviation_minutes+' min'}</b></div>
+      </div>
+      <p>Deviations are descriptive comparisons between named observed times and approved plans, not causal savings or predictive accuracy. Missing observations are excluded, never counted as zero.</p>
+      {measurements.measurements.length>0&&<details><summary>Inspect recorded observations ({measurements.measurements.length})</summary>
+        <div className="ops-table-scroll"><table aria-label="Decision outcome measurements"><thead><tr><th>Call</th><th>Arrival ± min</th><th>Departure ± min</th><th>Occupancy ± min</th><th>Observed source</th></tr></thead>
+          <tbody>{measurements.measurements.map(m=><tr key={m.decision_id}><td>{m.call_id}</td><td>{m.arrival_deviation_minutes}</td><td>{m.departure_deviation_minutes}</td><td>{m.occupancy_deviation_minutes}</td><td>{m.source}</td></tr>)}</tbody></table></div>
+      </details>}</>:<p role="status">Loading recorded decision outcomes…</p>}
+    </section>
     <div className="decision-signal-strip" aria-label="Decision review summary"><div><span>PLANNED CALLS</span><b>{planned.length}</b></div><div><span>PACKETS ON PAGE</span><b>{packets.length}</b></div><div><span>PENDING</span><b>{pendingPackets}</b></div><div><span>APPROVED</span><b>{approved}</b></div><div><span>WARNINGS</span><b>{warnings}</b></div></div>
     <section className="product-card decision-create-panel"><h2>Create a decision packet</h2><form onSubmit={propose}><fieldset disabled={!writable || busy}><div className="product-form-grid"><label>Planned call<select name="call_id" required><option value="">Select a planned call</option>{planned.map(c => <option value={c.record_id} key={c.record_id}>{recordName(facts.find(f => f.kind === 'vessel' && f.record_id === c.payload.vessel_id) ?? c)} · {dateLabel(String(c.payload.eta))}</option>)}</select></label><label>Decision question<input name="question" required maxLength={1000} defaultValue="Which recorded berth window should we use?"/></label></div><button className="product-primary">{busy ? 'Working…' : 'Prepare decision packet'}</button></fieldset></form>{!planned.length && <p>Create a planned port call in Records to start a review.</p>}</section>
     {error && <p className="product-error" role="alert">{error}</p>}
@@ -88,6 +112,11 @@ export default function ProductDecisions({facts, user, writable, onRefresh}: {fa
           {option.intelligence && <section className="decision-intelligence" aria-label={'Operational impact review for '+option.label}>
             <header><span className="product-index">RECORDED IMPACT / HUMAN REVIEW</span>
               <b>{option.intelligence.review_rank!=null?'Review order '+option.intelligence.review_rank:'Recorded conflict'}</b></header>
+            {(option.intelligence.assigned_resources?.length??0)>0&&<details><summary>Explicit resource assignments ({(option.intelligence.assigned_resources?.length??0)})</summary><ul>
+              {(option.intelligence.assigned_resources??[]).map(item=><li key={item.assignment_id}>{item.resource_name} · {item.status} · {item.starts_at} → {item.ends_at} · {item.source}</li>)}
+            </ul></details>}
+            {(option.intelligence.allocation_conflicts?.length??0)>0&&<div role="alert" className="decision-source-blocker"><b>Assigned resource conflict: supervisor approval blocked.</b><ul>
+              {(option.intelligence.allocation_conflicts??[]).map(item=><li key={item.assignment_id+item.kind}>{item.explanation}</li>)}</ul></div>}
             <div className="decision-intelligence-metrics">
               <div><span>NEW CONFLICTS</span><strong>{option.intelligence.introduced_conflicts.length}</strong></div>
               <div><span>CONFLICTS CLEARED</span><strong>{option.intelligence.cleared_conflicts.length}</strong></div>

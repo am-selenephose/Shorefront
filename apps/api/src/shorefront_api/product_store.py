@@ -247,6 +247,41 @@ class ProductStore:
                 raise HTTPException(422, 'Coordination transitions use server time; they cannot be backdated or scheduled')
             creator = connection.execute(select(versions.c.actor_id).where(versions.c.kind == kind, versions.c.record_id == command.record_id).order_by(versions.c.revision).limit(1)).scalar_one_or_none()
             authorize_transition(kind, actor, payload, public_record(latest) if latest else None, creator)
+        if kind == 'resource_assignment':
+            if actor['id'].startswith('integration:') and payload['status'] != 'proposed':
+                raise HTTPException(403, 'An external source may propose but never confirm or release a human allocation')
+            # Allocation is a current operational commitment; it must not be
+            # scheduled/backdated via the record-validity clock.
+            if command.valid_at is not None:
+                raise HTTPException(422, 'Resource assignment transitions use server time')
+            call = facts[('call', payload['call_id'])]['payload']
+            resource = facts[('resource', payload['resource_id'])]['payload']
+            berth_id = call.get('berth_id')
+            berth = facts.get(('berth', berth_id)) if berth_id else None
+            if not berth:
+                raise HTTPException(422, 'Resource assignment requires a currently recorded berth')
+            if resource['port_id'] != berth['payload']['port_id']:
+                raise HTTPException(422, 'A resource may only be assigned to a call in the same port')
+            old = json.loads(latest['payload']) if latest else None
+            if old and (old['call_id'] != payload['call_id'] or old['resource_id'] != payload['resource_id']):
+                raise HTTPException(409, 'Assignment identity is immutable; create another assignment')
+            if old and old['status'] == 'released' and payload['status'] != 'released':
+                raise HTTPException(409, 'A released resource assignment cannot be reopened')
+            if payload['status'] == 'confirmed':
+                if call['status'] in {'departed', 'cancelled'}:
+                    raise HTTPException(422, 'Cannot confirm a resource for a closed call')
+                if resource['available'] is False:
+                    raise HTTPException(409, 'This resource is recorded unavailable')
+                start = datetime.fromisoformat(payload['starts_at'])
+                end = datetime.fromisoformat(payload['ends_at'])
+                for other in facts.values():
+                    if other['kind'] != 'resource_assignment' or other['record_id'] == command.record_id:
+                        continue
+                    prior = other['payload']
+                    if (prior['resource_id'] == payload['resource_id'] and prior['status'] == 'confirmed'
+                        and max(start, datetime.fromisoformat(prior['starts_at'])) <
+                            min(end, datetime.fromisoformat(prior['ends_at']))):
+                        raise HTTPException(409, 'Resource already has an overlapping confirmed assignment')
         if kind == 'outcome':
             if command.valid_at is not None:
                 raise HTTPException(422, 'Outcome revisions use server time; record actual event times in the payload')

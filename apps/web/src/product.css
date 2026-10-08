@@ -1451,3 +1451,14 @@
 .decision-source-blocker{border:1px solid var(--danger);border-left:4px solid var(--danger);border-radius:5px;background:var(--danger-surface);padding:12px;margin:12px 0;overflow-wrap:anywhere}
 .decision-source-blocker b{font-size:14px}
 .decision-source-blocker li,.decision-source-blocker a{font-size:13px;line-height:1.6}
+
+/* Source-aware allocation and observational quality dashboard */
+.ops-assignment-board,.decision-observation-report{min-width:0;width:100%}
+.ops-assignment-board>header,.decision-observation-report>header{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
+.decision-observation-report{margin-block:14px;padding:16px;border:1px solid var(--border-strong);border-radius:6px;background:var(--surface)}
+.decision-observation-metrics{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin:14px 0}
+.decision-observation-metrics>div{min-width:0;background:var(--surface-inset);border:1px solid var(--border);padding:10px}
+.decision-observation-metrics span,.decision-observation-metrics small{display:block;font:13px/1.5 var(--font-mono);color:var(--muted-foreground)}
+.decision-observation-metrics b{display:block;font-size:21px;overflow-wrap:anywhere}
+.decision-observation-report p,.decision-observation-report summary{font-size:13px;line-height:1.6}
+@media(max-width:760px){.decision-observation-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}}

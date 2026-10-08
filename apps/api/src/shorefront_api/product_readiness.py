@@ -97,6 +97,22 @@ def build_readiness(records, read_at):
               else 'No port resource availability is recorded; required resources are unknown.',
               'resource' if unavailable else None, unavailable[0]['record_id'] if unavailable else None)
 
+        # Count only explicit resource links, never infer a required tug/pilot.
+        assignments = [r for r in related if r['kind'] == 'resource_assignment'
+                       and r['payload']['status'] in {'proposed','confirmed'}]
+        confirmed = [r for r in assignments if r['payload']['status'] == 'confirmed']
+        resource_lookup = {r['record_id']: r for r in port_resources}
+        unavailable_assigned = [r for r in confirmed
+                                 if not resource_lookup.get(r['payload']['resource_id']) or
+                                 resource_lookup[r['payload']['resource_id']]['payload']['available'] is False]
+        check('specific_resource_allocations', 'Specific resource-to-call allocations',
+              'conflict' if unavailable_assigned else ('recorded' if confirmed else 'missing'),
+              f'{len(unavailable_assigned)} confirmed call allocation(s) have missing/unavailable resources.' if unavailable_assigned
+              else f'{len(confirmed)} confirmed, {len(assignments)-len(confirmed)} proposed allocation(s); recorded commitments, not independent provider acknowledgements.' if confirmed
+              else 'No confirmed allocations for this call. Required resource types are not inferred.',
+              'resource_assignment' if unavailable_assigned else None,
+              unavailable_assigned[0]['record_id'] if unavailable_assigned else None)
+
         states = [item['state'] for item in checks]
         assessment = ('conflict' if 'conflict' in states else
                       'attention' if 'attention' in states else

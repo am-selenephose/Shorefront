@@ -81,16 +81,59 @@ def analyze(records, call_id, candidate, original_conflicts=None, unresolved=Non
     unavailable=[{'record_id':r['record_id'],'name':r['payload']['name'],'resource_type':r['payload']['resource_type'],
                   'source':r['source'],'known_at':r['known_at']} for r in resources if not r['payload']['available']]
     if not resources: missing.append('No port resource availability recorded')
-    else: missing.append('Resource-to-call allocation is unverified')
+    active_allocations=[r for r in records if r['kind']=='resource_assignment'
+                        and r['payload']['status'] in {'proposed','confirmed'}]
+    assigned=[r for r in active_allocations if r['payload']['call_id']==call_id]
+    confirmed=[r for r in assigned if r['payload']['status']=='confirmed']
+    if not confirmed:
+        missing.append('No explicit confirmed resource-to-call allocation recorded')
+    allocation_conflicts=[]
+    allocation_review=[]
+    resource_by_id={r['record_id']:r for r in resources}
+    for item in assigned:
+        allocation=item['payload']
+        linked_resource=resource_by_id.get(allocation['resource_id'])
+        details={'assignment_id':item['record_id'],
+                 'resource_id':allocation['resource_id'],
+                 'resource_name':linked_resource['payload']['name'] if linked_resource else 'Unavailable resource record',
+                 'status':allocation['status'],
+                 'starts_at':allocation['starts_at'],
+                 'ends_at':allocation['ends_at'],
+                 'source':item['source'],'known_at':item['known_at']}
+        allocation_review.append(details)
+        if allocation['status']!='confirmed':
+            continue
+        if not linked_resource or not linked_resource['payload']['available']:
+            allocation_conflicts.append({'kind':'assigned_resource_unavailable',
+                                         'assignment_id':item['record_id'],
+                                         'resource_id':allocation['resource_id'],
+                                         'explanation':'A specifically confirmed resource is now unavailable'})
+        for peer in active_allocations:
+            if peer['record_id']==item['record_id'] or peer['payload']['status']!='confirmed':
+                continue
+            other=peer['payload']
+            if (other['resource_id']==allocation['resource_id']
+                and other['call_id']!=call_id and overlaps(
+                    {'eta':allocation['starts_at'],'etd':allocation['ends_at']},
+                    {'eta':other['starts_at'],'etd':other['ends_at']})):
+                allocation_conflicts.append({'kind':'assigned_resource_double_booked',
+                                             'assignment_id':item['record_id'],
+                                             'resource_id':allocation['resource_id'],
+                                             'explanation':'This confirmed resource overlaps another confirmed call assignment'})
+    allocation_review.sort(key=lambda item:item['assignment_id'])
+    if assigned and (candidate.get('berth_id')!=baseline.get('berth_id') or
+                     candidate['eta']!=baseline['eta'] or candidate['etd']!=baseline['etd']):
+        missing.append('Changed schedule requires reconfirming the recorded resource windows')
     return {
         'verification':'unresolved_source_disagreement' if disputes else 'recorded_conflict' if new else 'recorded_checks_clear_with_unknowns' if missing else 'recorded_checks_clear',
         'confidence':'uncalibrated',
         'introduced_conflicts':[new[k] for k in sorted(new.keys()-old.keys())],
         'cleared_conflicts':[old[k] for k in sorted(old.keys()-new.keys())],
         'related_calls':related,'open_work':open_work,'source_disagreements':disputes,'unavailable_port_resources':unavailable,
+        'assigned_resources':allocation_review,'allocation_conflicts':allocation_conflicts,
         'missing_checks':missing,'review_rank':None,
         'limitations':['No external AIS, weather, tide or navigational clearance is inferred.',
                        'Other calls are not rescheduled and no delay or monetary saving is predicted.',
-                       'Port-wide resource availability does not establish allocation to this call.',
+                       'Only a confirmed explicit resource-to-call record establishes allocation; no provider acknowledgement is inferred.',
                        'Source completeness, freshness and conflicting external records require verification.'],
     }

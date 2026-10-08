@@ -24,6 +24,7 @@ from .product_models import (AcceptInvite, ApprovalRequest, Bootstrap, ConflictR
                              IntegrationBatch, Invitation, Login, PartnerDeliveryAck, PartnerGrantCreate,
                              PasswordChange, RecordCommand, SourceCreate, now, stamp)
 from .product_decisions import approve_packet, create_packet, get_packet, packets, recall, remember
+from .product_measurements import summarize_outcomes
 from .product_connections import (acknowledge_partner_delivery, create_partner_delivery,
                                   create_partner_grant, create_source, ingest_records,
                                   list_partner_deliveries, list_partner_grants, list_sources,
@@ -445,6 +446,12 @@ def create_product_app(database_url=None, installation_id=None, origin=None, boo
         with store.transaction() as connection:
             actor, _ = identify(connection, request, mutation=True)
             return create_packet(store, connection, actor, body, key)
+
+    @app.get('/api/v1/decision-intelligence/outcomes')
+    def decision_outcome_measurements(request: Request):
+        with store.transaction() as connection:
+            identify(connection, request)
+            return summarize_outcomes(connection, store.snapshot(connection), stamp(now()))
 
     @app.get('/api/v1/decisions')
     def decision_list(request: Request, limit: int = Query(100, ge=1, le=500),

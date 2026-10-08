@@ -106,13 +106,13 @@ export default function ProductReadiness({workspace,writable,onCreate,onEdit}:Pr
               <span className="readiness-check-icon" aria-hidden="true">{check.state==='recorded'?'✓':check.state==='missing'?'?':'!'}</span>
               <div><header><b>{check.label}</b><StateLabel state={check.state}/></header><p>{check.explanation}</p>
                 {related(check)?<button type="button" disabled={!writable} onClick={()=>onEdit(related(check)!)}>Inspect recorded {check.record_kind} ↗</button>:
-                  check.code==='port_resources'?<a href="#plan">Review resource planning →</a>:
+                  ['port_resources','specific_resource_allocations'].includes(check.code)?<a href="#plan">Review resource planning →</a>:
                   check.code==='coordination'?<a href="#coordination">Open coordination →</a>:
                   check.code==='berth_assignment'?<button type="button" disabled={!writable} onClick={()=>onEdit(workspace.records.find(r=>r.kind==='call'&&r.record_id===selected.call_id)!)}>Review berth assignment ↗</button>:null}
               </div>
             </article>):<div className="readiness-all-covered">No missing or open recorded checks in this review. This does not establish operational safety.</div>}
           </div>
-          <footer className="readiness-inspector-foot"><span>VERIFICATION BOUNDARY</span><p>Shorefront analyzes only information explicitly recorded or ingested into this installation. Weather, vessel movements, navigation clearance, resource dependencies and external acknowledgements are not inferred.</p><a href="#evidence">Full provenance and history →</a></footer>
+          <footer className="readiness-inspector-foot"><span>VERIFICATION BOUNDARY</span><p>Shorefront analyzes only information explicitly recorded or ingested into this installation. Weather, vessel movements, navigation clearance and external acknowledgements are not inferred. Only explicitly confirmed resource-to-call records establish allocation.</p><a href="#evidence">Full provenance and history →</a></footer>
         </section>}
       </div>}
     </section>

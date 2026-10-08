@@ -151,7 +151,7 @@ test('real invitation, call setup, decision review and supervisor approval', asy
   await expect(other.getByText('Occupancy deviation: 10 minutes')).toBeVisible()
   await other.reload()
   await other.getByRole('button',{name:'Review packet'}).click()
-  await expect(other.getByText('Customer terminal log',{exact:true})).toBeVisible()
+  await expect(other.locator('.product-outcome').getByText('Customer terminal log',{exact:true})).toBeVisible()
   await otherContext.close()
 })
 
