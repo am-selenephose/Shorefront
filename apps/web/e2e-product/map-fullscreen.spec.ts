@@ -14,8 +14,15 @@ test('harbor geographic and schematic views can fill the screen and exit without
   await expect(map.getByText('Berth-linked calls, not live AIS positions.')).toBeVisible()
   const bounds=await map.boundingBox()
   expect(bounds).not.toBeNull()
-  expect(bounds!.width).toBeGreaterThanOrEqual(1435)
-  expect(bounds!.height).toBeGreaterThanOrEqual(895)
+  // Native fullscreen can resize the viewport to the runner's actual display.
+  // Verify complete viewport coverage instead of assuming a 1440px monitor.
+  const viewport=await page.evaluate(()=>({width:window.innerWidth,height:window.innerHeight}))
+  expect(bounds!.x).toBeGreaterThanOrEqual(-1)
+  expect(bounds!.x).toBeLessThanOrEqual(1)
+  expect(bounds!.y).toBeGreaterThanOrEqual(-1)
+  expect(bounds!.y).toBeLessThanOrEqual(1)
+  expect(bounds!.width).toBeGreaterThanOrEqual(viewport.width-2)
+  expect(bounds!.height).toBeGreaterThanOrEqual(viewport.height-2)
   await page.screenshot({path:testInfo.outputPath('fullscreen-map-desktop.png')})
   await page.keyboard.press('Escape')
   await expect(map).toHaveAttribute('data-map-expanded','false')

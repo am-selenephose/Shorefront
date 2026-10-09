@@ -31,8 +31,22 @@ jobs:
       - uses: astral-sh/setup-uv@v5
         with:
           enable-cache: true
-      - name: Install PostgreSQL client
-        run: sudo apt-get update && sudo apt-get install -y postgresql-client-17
+      - name: Match PostgreSQL 17 client to disposable server
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/pg-client"
+          cat > "$RUNNER_TEMP/pg-client/pg_dump" <<'SH'
+          #!/usr/bin/env bash
+          set -euo pipefail
+          exec docker run --rm -i --network none \
+            --user "$(id -u):$(id -g)" \
+            --mount type=bind,src=/tmp,dst=/tmp \
+            -e PGHOST -e PGPORT -e PGUSER -e PGDATABASE \
+            postgres:17-alpine "$(basename "$0")" "$@"
+          SH
+          chmod +x "$RUNNER_TEMP/pg-client/pg_dump"
+          ln -s pg_dump "$RUNNER_TEMP/pg-client/psql"
+          echo "$RUNNER_TEMP/pg-client" >> "$GITHUB_PATH"
       - name: Install API dependencies
         working-directory: apps/api
         run: uv sync --extra dev

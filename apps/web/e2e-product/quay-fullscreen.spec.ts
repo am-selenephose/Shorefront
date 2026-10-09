@@ -9,8 +9,15 @@ test('Quay berth planning board opens full screen with exit and shows recorded c
   await quay.getByRole('button',{name:'Full screen quay'}).click()
   await expect(quay).toHaveAttribute('data-quay-expanded','true')
   const bounds=await quay.boundingBox()
-  expect(bounds!.width).toBeGreaterThan(1435)
-  expect(bounds!.height).toBeGreaterThan(895)
+  // Native fullscreen can resize the viewport to the runner's actual display.
+  // Verify complete viewport coverage instead of assuming a 1440px monitor.
+  const viewport=await page.evaluate(()=>({width:window.innerWidth,height:window.innerHeight}))
+  expect(bounds!.x).toBeGreaterThanOrEqual(-1)
+  expect(bounds!.x).toBeLessThanOrEqual(1)
+  expect(bounds!.y).toBeGreaterThanOrEqual(-1)
+  expect(bounds!.y).toBeLessThanOrEqual(1)
+  expect(bounds!.width).toBeGreaterThanOrEqual(viewport.width-2)
+  expect(bounds!.height).toBeGreaterThanOrEqual(viewport.height-2)
   await expect(quay.getByRole('button',{name:'Exit full screen quay'})).toBeVisible()
   await expect(quay.getByText('MV Aurora')).toBeVisible()
   await page.screenshot({path:testInfo.outputPath('quay-plan-desktop.png')})
