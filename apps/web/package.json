@@ -1,13 +1,19 @@
 {
-  "name": "portflow-web",
+  "name": "shorefront-web",
   "private": true,
   "version": "0.17.0",
   "type": "module",
   "scripts": {
-    "dev": "vite",
-    "build": "tsc -b && vite build",
+    "dev": "vite --config vite.config.ts",
+    "build": "tsc -b && vite build --config vite.config.ts",
     "typecheck": "tsc -b",
-    "test:e2e": "playwright test"
+    "test:config": "node --experimental-strip-types --test tests/runtime-config.test.mjs tests/typography.test.mjs",
+    "test:delivery": "node --test tests/delivery-cache.test.mjs",
+    "test:e2e": "playwright test",
+    "test:product": "playwright test --config playwright.product.config.ts",
+    "test:readability": "playwright test --config playwright.quality.config.ts",
+    "test:intelligence": "playwright test --config playwright.intelligence.config.ts",
+    "test:quay": "playwright test --config playwright.quay.config.ts"
   },
   "dependencies": {
     "maplibre-gl": "^6.10.0",

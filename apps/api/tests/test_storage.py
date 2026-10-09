@@ -3,11 +3,11 @@ from pathlib import Path
 
 from sqlalchemy import text
 
-from portflow_api.adapters import HttpJsonAdapter, configured_live_adapters, get_adapter_snapshot
-from portflow_api.domain import detect_berth_conflicts
-from portflow_api.models import AdapterHealth, DataDomain, DataSourceMode, DataSourceProvenance, IncidentType, LinkMode, OperatorRole, ResourceUnavailableWindow, ServiceDurationCalibration, ServiceKind
-from portflow_api.simulator import HarborSimulator, RecoveryProposalStaleError
-from portflow_api.storage import OperationsStore, normalize_database_url
+from shorefront_api.adapters import HttpJsonAdapter, configured_live_adapters, get_adapter_snapshot
+from shorefront_api.domain import detect_berth_conflicts
+from shorefront_api.models import AdapterHealth, DataDomain, DataSourceMode, DataSourceProvenance, IncidentType, LinkMode, OperatorRole, ResourceUnavailableWindow, ServiceDurationCalibration, ServiceKind
+from shorefront_api.simulator import HarborSimulator, RecoveryProposalStaleError
+from shorefront_api.storage import OperationsStore, normalize_database_url
 
 
 def make_store(tmp_path: Path) -> OperationsStore:
@@ -393,7 +393,7 @@ def test_recorded_ais_ingest_updates_source_and_survives_restart(tmp_path):
 
     source = next(item for item in sim.data_sources if item.source_id == "recorded-ais")
     assert source.mode.value == "recorded"
-    assert source.provider == "PortFlow recorded AIS fixture"
+    assert source.provider == "Shorefront recorded AIS fixture"
     assert source.stale is False
 
     restored = HarborSimulator(initial=store.load_snapshot())
@@ -415,7 +415,13 @@ def test_recorded_weather_ingest_replaces_weather_provenance(tmp_path):
     assert sim.weather.wind_knots == 23.0
     assert sim.weather.gust_knots == 31.0
     source = next(item for item in sim.data_sources if item.domain.value == "weather_tide")
-    assert source.freshness_seconds == 42
+    # The simulator refreshes freshness against wall-clock time. A second can
+    # elapse between fixture creation and the subsequent provenance read;
+    # assert the observed age stays bounded by the actual observation clock.
+    assert snapshot.provenance.freshness_seconds <= source.freshness_seconds <= max(
+        snapshot.provenance.freshness_seconds,
+        int((datetime.now(timezone.utc) - source.observed_at).total_seconds()),
+    )
     assert source.health.value == "healthy"
 
 
@@ -961,14 +967,14 @@ def test_degraded_cached_snapshot_cannot_mutate_harbor_truth():
 
 
 def test_configured_live_adapter_instance_is_reused_while_config_is_unchanged(monkeypatch):
-    monkeypatch.setenv("PORTFLOW_AIS_URL", "https://example.invalid/ais")
-    monkeypatch.setenv("PORTFLOW_AIS_PROVIDER", "Persistent AIS")
+    monkeypatch.setenv("SHOREFRONT_AIS_URL", "https://example.invalid/ais")
+    monkeypatch.setenv("SHOREFRONT_AIS_PROVIDER", "Persistent AIS")
 
     first = configured_live_adapters()["live-ais"]
     second = configured_live_adapters()["live-ais"]
     assert first is second
 
-    monkeypatch.setenv("PORTFLOW_AIS_PROVIDER", "Changed AIS")
+    monkeypatch.setenv("SHOREFRONT_AIS_PROVIDER", "Changed AIS")
     third = configured_live_adapters()["live-ais"]
     assert third is not first
 

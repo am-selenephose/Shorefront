@@ -1,0 +1,18 @@
+# Apply after docker-compose.prod.yml for a dedicated customer installation.
+# Keep existing physical DB/volume identity explicit for any upgrade.
+services:
+  migrate:
+    environment:
+      SHOREFRONT_RUNTIME_MODE: operational
+      SHOREFRONT_INSTALLATION_ID: ${SHOREFRONT_INSTALLATION_ID:?Set an immutable customer installation ID}
+      SHOREFRONT_ORIGIN: ${SHOREFRONT_ORIGIN:?Set the exact customer HTTPS origin}
+  api:
+    environment:
+      SHOREFRONT_RUNTIME_MODE: operational
+      SHOREFRONT_INSTALLATION_ID: ${SHOREFRONT_INSTALLATION_ID:?Set an immutable customer installation ID}
+      SHOREFRONT_ORIGIN: ${SHOREFRONT_ORIGIN:?Set the exact customer HTTPS origin}
+      SHOREFRONT_BOOTSTRAP_TOKEN: ${SHOREFRONT_BOOTSTRAP_TOKEN:-}
+      SHOREFRONT_SCHEMA_MODE: verify
+      SHOREFRONT_DEMO_CONTROLS: "0"
+      SHOREFRONT_PUBLIC_MODE: "0"
+      SHOREFRONT_NOAA_ENABLED: ${SHOREFRONT_NOAA_ENABLED:-0}

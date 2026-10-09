@@ -1,7 +1,7 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 
-const apiTarget = process.env.PORTFLOW_API_TARGET || 'http://127.0.0.1:8100'
+const apiTarget = process.env.SHOREFRONT_API_TARGET ?? process.env.PORTFLOW_API_TARGET ?? 'http://127.0.0.1:8100'
 const wsTarget = apiTarget.replace(/^http/, 'ws')
 
 export default defineConfig({

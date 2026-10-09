@@ -14,4 +14,4 @@ COPY src ./src
 
 EXPOSE 8100
 
-CMD ["uv", "run", "--no-sync", "uvicorn", "portflow_api.main:app", "--host", "0.0.0.0", "--port", "8100"]
+CMD ["uv", "run", "--no-sync", "uvicorn", "shorefront_api.main:app", "--host", "0.0.0.0", "--port", "8100"]

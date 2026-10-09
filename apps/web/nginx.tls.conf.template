@@ -1,8 +1,15 @@
+# Keep unversioned entry points fresh without changing upstream API cache policy.
+map $uri $shorefront_entry_cache_control {
+    default "";
+    /index.html "no-cache";
+    /theme-init.js "no-cache";
+}
+
 server {
     listen 80;
     server_name _;
 
-    return 308 ${PORTFLOW_PUBLIC_HTTPS_ORIGIN}$request_uri;
+    return 308 ${SHOREFRONT_PUBLIC_HTTPS_ORIGIN}$request_uri;
 }
 
 server {
@@ -13,7 +20,7 @@ server {
     ssl_certificate /etc/nginx/tls/tls.crt;
     ssl_certificate_key /etc/nginx/tls/tls.key;
     ssl_protocols TLSv1.2 TLSv1.3;
-    ssl_session_cache shared:PORTFLOW_TLS:10m;
+    ssl_session_cache shared:SHOREFRONT_TLS:10m;
     ssl_session_timeout 1d;
     ssl_session_tickets off;
 
@@ -26,6 +33,7 @@ server {
     add_header Referrer-Policy "no-referrer" always;
     add_header Permissions-Policy "camera=(), microphone=(), geolocation=()" always;
     add_header Cross-Origin-Opener-Policy "same-origin" always;
+    add_header Cache-Control $shorefront_entry_cache_control always;
 
     location = /healthz {
         proxy_pass http://api:8100/healthz;

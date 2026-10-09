@@ -1,0 +1,3291 @@
+{
+  "baseline_commit": "603398fa4cc3360ee3ff53ad89c0437292a5b1c8",
+  "note": "Synthetic baseline model fixture; not an executed scenario or customer data",
+  "snapshot": {
+    "generated_at": "2026-10-02T12:00:00Z",
+    "port_name": "PortFlow Demo Harbor",
+    "center": {
+      "lat": 51.948,
+      "lon": 4.142
+    },
+    "vessels": [
+      {
+        "id": "v-aurora",
+        "source_id": "synthetic-ais",
+        "name": "MSC Aurora",
+        "imo": "9991001",
+        "vessel_type": "Container",
+        "status": "inbound",
+        "position": {
+          "lat": 51.989,
+          "lon": 3.97
+        },
+        "speed_knots": 11.8,
+        "heading_deg": 92.0,
+        "eta": "2026-10-02T12:54:00Z",
+        "assigned_berth_id": "b-12",
+        "cargo_summary": "8,420 TEU mixed container"
+      },
+      {
+        "id": "v-lima",
+        "source_id": "synthetic-ais",
+        "name": "Maersk Lima",
+        "imo": "9991002",
+        "vessel_type": "Container",
+        "status": "at_anchor",
+        "position": {
+          "lat": 52.01,
+          "lon": 3.91
+        },
+        "speed_knots": 0.2,
+        "heading_deg": 180.0,
+        "eta": "2026-10-02T13:28:00Z",
+        "assigned_berth_id": "b-09",
+        "cargo_summary": "6,100 TEU mixed container"
+      },
+      {
+        "id": "v-glory",
+        "source_id": "synthetic-ais",
+        "name": "Ever Glory",
+        "imo": "9991003",
+        "vessel_type": "Container",
+        "status": "maneuvering",
+        "position": {
+          "lat": 51.963,
+          "lon": 4.045
+        },
+        "speed_knots": 6.4,
+        "heading_deg": 104.0,
+        "eta": "2026-10-02T12:22:00Z",
+        "assigned_berth_id": "b-07",
+        "cargo_summary": "4,780 TEU"
+      },
+      {
+        "id": "v-nordic",
+        "source_id": "synthetic-ais",
+        "name": "Nordic Atlas",
+        "imo": "9991004",
+        "vessel_type": "Product tanker",
+        "status": "berthed",
+        "position": {
+          "lat": 51.934,
+          "lon": 4.155
+        },
+        "speed_knots": 0.0,
+        "heading_deg": 0.0,
+        "eta": null,
+        "assigned_berth_id": "b-03",
+        "cargo_summary": "Refined products"
+      },
+      {
+        "id": "v-seaway",
+        "source_id": "synthetic-ais",
+        "name": "Seaway Polaris",
+        "imo": "9991005",
+        "vessel_type": "Ro-Ro",
+        "status": "outbound",
+        "position": {
+          "lat": 51.968,
+          "lon": 4.01
+        },
+        "speed_knots": 9.2,
+        "heading_deg": 274.0,
+        "eta": null,
+        "assigned_berth_id": null,
+        "cargo_summary": "Vehicles / project cargo"
+      },
+      {
+        "id": "v-nova",
+        "source_id": "synthetic-ais",
+        "name": "Ocean Nova",
+        "imo": "9991006",
+        "vessel_type": "Container",
+        "status": "at_anchor",
+        "position": {
+          "lat": 52.018,
+          "lon": 3.885
+        },
+        "speed_knots": 0.1,
+        "heading_deg": 180.0,
+        "eta": "2026-10-02T19:35:00Z",
+        "assigned_berth_id": "b-07",
+        "cargo_summary": "3,960 TEU"
+      }
+    ],
+    "berths": [
+      {
+        "id": "b-03",
+        "source_id": "synthetic-berth-plan",
+        "name": "Berth 03",
+        "terminal": "Liquid Bulk",
+        "status": "occupied",
+        "max_length_m": 310,
+        "position": {
+          "lat": 51.934,
+          "lon": 4.155
+        },
+        "vessel_id": "v-nordic"
+      },
+      {
+        "id": "b-07",
+        "source_id": "synthetic-berth-plan",
+        "name": "Berth 07",
+        "terminal": "Delta Container",
+        "status": "reserved",
+        "max_length_m": 400,
+        "position": {
+          "lat": 51.951,
+          "lon": 4.133
+        },
+        "vessel_id": "v-glory"
+      },
+      {
+        "id": "b-09",
+        "source_id": "synthetic-berth-plan",
+        "name": "Berth 09",
+        "terminal": "Delta Container",
+        "status": "reserved",
+        "max_length_m": 400,
+        "position": {
+          "lat": 51.947,
+          "lon": 4.119
+        },
+        "vessel_id": "v-lima"
+      },
+      {
+        "id": "b-12",
+        "source_id": "synthetic-berth-plan",
+        "name": "Berth 12",
+        "terminal": "Maas Container",
+        "status": "reserved",
+        "max_length_m": 420,
+        "position": {
+          "lat": 51.942,
+          "lon": 4.101
+        },
+        "vessel_id": "v-aurora"
+      },
+      {
+        "id": "b-15",
+        "source_id": "synthetic-berth-plan",
+        "name": "Berth 15",
+        "terminal": "Maas Container",
+        "status": "available",
+        "max_length_m": 420,
+        "position": {
+          "lat": 51.938,
+          "lon": 4.083
+        },
+        "vessel_id": null
+      }
+    ],
+    "port_calls": [
+      {
+        "id": "pc-aurora",
+        "source_id": "synthetic-berth-plan",
+        "vessel_id": "v-aurora",
+        "berth_id": "b-12",
+        "arrival_eta": "2026-10-02T12:54:00Z",
+        "departure_eta": "2026-10-02T21:00:00Z",
+        "stages": [
+          {
+            "code": "notice",
+            "label": "Arrival notice accepted",
+            "planned_at": "2026-10-02T11:24:00Z",
+            "actual_at": null,
+            "state": "pending",
+            "dependency_codes": []
+          },
+          {
+            "code": "pilot",
+            "label": "Pilot ordered",
+            "planned_at": "2026-10-02T11:59:00Z",
+            "actual_at": null,
+            "state": "pending",
+            "dependency_codes": [
+              "notice"
+            ]
+          },
+          {
+            "code": "pilot_board",
+            "label": "Pilot aboard",
+            "planned_at": "2026-10-02T12:19:00Z",
+            "actual_at": null,
+            "state": "pending",
+            "dependency_codes": [
+              "pilot"
+            ]
+          },
+          {
+            "code": "tug",
+            "label": "Tug rendezvous",
+            "planned_at": "2026-10-02T12:32:00Z",
+            "actual_at": null,
+            "state": "pending",
+            "dependency_codes": [
+              "pilot_board"
+            ]
+          },
+          {
+            "code": "berth",
+            "label": "All fast at berth",
+            "planned_at": "2026-10-02T12:54:00Z",
+            "actual_at": null,
+            "state": "pending",
+            "dependency_codes": [
+              "tug"
+            ]
+          },
+          {
+            "code": "cargo",
+            "label": "Cargo operations",
+            "planned_at": "2026-10-02T13:29:00Z",
+            "actual_at": null,
+            "state": "pending",
+            "dependency_codes": [
+              "berth"
+            ]
+          },
+          {
+            "code": "services",
+            "label": "Bunkers / stores / services",
+            "planned_at": "2026-10-02T14:04:00Z",
+            "actual_at": null,
+            "state": "pending",
+            "dependency_codes": [
+              "berth"
+            ]
+          },
+          {
+            "code": "departure",
+            "label": "Departure clearance",
+            "planned_at": "2026-10-02T18:54:00Z",
+            "actual_at": null,
+            "state": "pending",
+            "dependency_codes": [
+              "cargo",
+              "services"
+            ]
+          }
+        ],
+        "delay_minutes": 0,
+        "risk": "low",
+        "estimated_cost_exposure_usd": 0.0
+      },
+      {
+        "id": "pc-lima",
+        "source_id": "synthetic-berth-plan",
+        "vessel_id": "v-lima",
+        "berth_id": "b-09",
+        "arrival_eta": "2026-10-02T13:28:00Z",
+        "departure_eta": "2026-10-02T23:00:00Z",
+        "stages": [
+          {
+            "code": "notice",
+            "label": "Arrival notice accepted",
+            "planned_at": "2026-10-02T11:58:00Z",
+            "actual_at": null,
+            "state": "pending",
+            "dependency_codes": []
+          },
+          {
+            "code": "pilot",
+            "label": "Pilot ordered",
+            "planned_at": "2026-10-02T12:33:00Z",
+            "actual_at": null,
+            "state": "pending",
+            "dependency_codes": [
+              "notice"
+            ]
+          },
+          {
+            "code": "pilot_board",
+            "label": "Pilot aboard",
+            "planned_at": "2026-10-02T12:53:00Z",
+            "actual_at": null,
+            "state": "pending",
+            "dependency_codes": [
+              "pilot"
+            ]
+          },
+          {
+            "code": "tug",
+            "label": "Tug rendezvous",
+            "planned_at": "2026-10-02T13:06:00Z",
+            "actual_at": null,
+            "state": "pending",
+            "dependency_codes": [
+              "pilot_board"
+            ]
+          },
+          {
+            "code": "berth",
+            "label": "All fast at berth",
+            "planned_at": "2026-10-02T13:28:00Z",
+            "actual_at": null,
+            "state": "pending",
+            "dependency_codes": [
+              "tug"
+            ]
+          },
+          {
+            "code": "cargo",
+            "label": "Cargo operations",
+            "planned_at": "2026-10-02T14:03:00Z",
+            "actual_at": null,
+            "state": "pending",
+            "dependency_codes": [
+              "berth"
+            ]
+          },
+          {
+            "code": "services",
+            "label": "Bunkers / stores / services",
+            "planned_at": "2026-10-02T14:38:00Z",
+            "actual_at": null,
+            "state": "pending",
+            "dependency_codes": [
+              "berth"
+            ]
+          },
+          {
+            "code": "departure",
+            "label": "Departure clearance",
+            "planned_at": "2026-10-02T19:28:00Z",
+            "actual_at": null,
+            "state": "pending",
+            "dependency_codes": [
+              "cargo",
+              "services"
+            ]
+          }
+        ],
+        "delay_minutes": 0,
+        "risk": "low",
+        "estimated_cost_exposure_usd": 0.0
+      },
+      {
+        "id": "pc-glory",
+        "source_id": "synthetic-berth-plan",
+        "vessel_id": "v-glory",
+        "berth_id": "b-07",
+        "arrival_eta": "2026-10-02T12:22:00Z",
+        "departure_eta": "2026-10-02T19:00:00Z",
+        "stages": [
+          {
+            "code": "notice",
+            "label": "Arrival notice accepted",
+            "planned_at": "2026-10-02T10:52:00Z",
+            "actual_at": null,
+            "state": "pending",
+            "dependency_codes": []
+          },
+          {
+            "code": "pilot",
+            "label": "Pilot ordered",
+            "planned_at": "2026-10-02T11:27:00Z",
+            "actual_at": null,
+            "state": "pending",
+            "dependency_codes": [
+              "notice"
+            ]
+          },
+          {
+            "code": "pilot_board",
+            "label": "Pilot aboard",
+            "planned_at": "2026-10-02T11:47:00Z",
+            "actual_at": null,
+            "state": "pending",
+            "dependency_codes": [
+              "pilot"
+            ]
+          },
+          {
+            "code": "tug",
+            "label": "Tug rendezvous",
+            "planned_at": "2026-10-02T12:00:00Z",
+            "actual_at": null,
+            "state": "pending",
+            "dependency_codes": [
+              "pilot_board"
+            ]
+          },
+          {
+            "code": "berth",
+            "label": "All fast at berth",
+            "planned_at": "2026-10-02T12:22:00Z",
+            "actual_at": null,
+            "state": "pending",
+            "dependency_codes": [
+              "tug"
+            ]
+          },
+          {
+            "code": "cargo",
+            "label": "Cargo operations",
+            "planned_at": "2026-10-02T12:57:00Z",
+            "actual_at": null,
+            "state": "pending",
+            "dependency_codes": [
+              "berth"
+            ]
+          },
+          {
+            "code": "services",
+            "label": "Bunkers / stores / services",
+            "planned_at": "2026-10-02T13:32:00Z",
+            "actual_at": null,
+            "state": "pending",
+            "dependency_codes": [
+              "berth"
+            ]
+          },
+          {
+            "code": "departure",
+            "label": "Departure clearance",
+            "planned_at": "2026-10-02T18:22:00Z",
+            "actual_at": null,
+            "state": "pending",
+            "dependency_codes": [
+              "cargo",
+              "services"
+            ]
+          }
+        ],
+        "delay_minutes": 0,
+        "risk": "low",
+        "estimated_cost_exposure_usd": 0.0
+      },
+      {
+        "id": "pc-nova",
+        "source_id": "synthetic-berth-plan",
+        "vessel_id": "v-nova",
+        "berth_id": "b-07",
+        "arrival_eta": "2026-10-02T19:35:00Z",
+        "departure_eta": "2026-10-03T02:00:00Z",
+        "stages": [
+          {
+            "code": "notice",
+            "label": "Arrival notice accepted",
+            "planned_at": "2026-10-02T18:05:00Z",
+            "actual_at": null,
+            "state": "pending",
+            "dependency_codes": []
+          },
+          {
+            "code": "pilot",
+            "label": "Pilot ordered",
+            "planned_at": "2026-10-02T18:40:00Z",
+            "actual_at": null,
+            "state": "pending",
+            "dependency_codes": [
+              "notice"
+            ]
+          },
+          {
+            "code": "pilot_board",
+            "label": "Pilot aboard",
+            "planned_at": "2026-10-02T19:00:00Z",
+            "actual_at": null,
+            "state": "pending",
+            "dependency_codes": [
+              "pilot"
+            ]
+          },
+          {
+            "code": "tug",
+            "label": "Tug rendezvous",
+            "planned_at": "2026-10-02T19:13:00Z",
+            "actual_at": null,
+            "state": "pending",
+            "dependency_codes": [
+              "pilot_board"
+            ]
+          },
+          {
+            "code": "berth",
+            "label": "All fast at berth",
+            "planned_at": "2026-10-02T19:35:00Z",
+            "actual_at": null,
+            "state": "pending",
+            "dependency_codes": [
+              "tug"
+            ]
+          },
+          {
+            "code": "cargo",
+            "label": "Cargo operations",
+            "planned_at": "2026-10-02T20:10:00Z",
+            "actual_at": null,
+            "state": "pending",
+            "dependency_codes": [
+              "berth"
+            ]
+          },
+          {
+            "code": "services",
+            "label": "Bunkers / stores / services",
+            "planned_at": "2026-10-02T20:45:00Z",
+            "actual_at": null,
+            "state": "pending",
+            "dependency_codes": [
+              "berth"
+            ]
+          },
+          {
+            "code": "departure",
+            "label": "Departure clearance",
+            "planned_at": "2026-10-03T01:35:00Z",
+            "actual_at": null,
+            "state": "pending",
+            "dependency_codes": [
+              "cargo",
+              "services"
+            ]
+          }
+        ],
+        "delay_minutes": 0,
+        "risk": "low",
+        "estimated_cost_exposure_usd": 0.0
+      }
+    ],
+    "weather": {
+      "source_id": "synthetic-weather",
+      "observed_at": "2026-10-02T12:00:00Z",
+      "wind_knots": 19.0,
+      "gust_knots": 26.0,
+      "visibility_km": 9.4,
+      "wave_height_m": 1.2,
+      "tide_m": 0.8,
+      "restriction_active": false,
+      "restriction_reason": null
+    },
+    "connectivity": {
+      "mode": "full",
+      "primary_link": "Fiber / LTE",
+      "fallback_link": "Satellite",
+      "bandwidth_kbps": 50000,
+      "queued_events": 0,
+      "last_transition_at": "2026-10-02T12:00:00Z"
+    },
+    "incidents": [],
+    "service_resources": [
+      {
+        "id": "pilot-alpha",
+        "kind": "pilot",
+        "name": "Pilot Alpha",
+        "status": "assigned",
+        "capacity": 2,
+        "assigned_port_call_ids": [
+          "pc-aurora",
+          "pc-glory"
+        ],
+        "available_from": null,
+        "unavailable_windows": []
+      },
+      {
+        "id": "pilot-bravo",
+        "kind": "pilot",
+        "name": "Pilot Bravo",
+        "status": "assigned",
+        "capacity": 2,
+        "assigned_port_call_ids": [
+          "pc-lima",
+          "pc-nova"
+        ],
+        "available_from": null,
+        "unavailable_windows": []
+      },
+      {
+        "id": "tug-14",
+        "kind": "tug",
+        "name": "Tug 14",
+        "status": "assigned",
+        "capacity": 1,
+        "assigned_port_call_ids": [
+          "pc-aurora",
+          "pc-glory"
+        ],
+        "available_from": null,
+        "unavailable_windows": []
+      },
+      {
+        "id": "tug-22",
+        "kind": "tug",
+        "name": "Tug 22",
+        "status": "assigned",
+        "capacity": 1,
+        "assigned_port_call_ids": [
+          "pc-lima",
+          "pc-nova"
+        ],
+        "available_from": null,
+        "unavailable_windows": []
+      },
+      {
+        "id": "tug-31",
+        "kind": "tug",
+        "name": "Tug 31",
+        "status": "available",
+        "capacity": 1,
+        "assigned_port_call_ids": [],
+        "available_from": "2026-10-02T12:20:00Z",
+        "unavailable_windows": []
+      },
+      {
+        "id": "b-07",
+        "kind": "berth",
+        "name": "Berth 07",
+        "status": "assigned",
+        "capacity": 1,
+        "assigned_port_call_ids": [
+          "pc-glory",
+          "pc-nova"
+        ],
+        "available_from": null,
+        "unavailable_windows": []
+      },
+      {
+        "id": "b-09",
+        "kind": "berth",
+        "name": "Berth 09",
+        "status": "assigned",
+        "capacity": 1,
+        "assigned_port_call_ids": [
+          "pc-lima"
+        ],
+        "available_from": null,
+        "unavailable_windows": []
+      },
+      {
+        "id": "b-12",
+        "kind": "berth",
+        "name": "Berth 12",
+        "status": "assigned",
+        "capacity": 1,
+        "assigned_port_call_ids": [
+          "pc-aurora"
+        ],
+        "available_from": null,
+        "unavailable_windows": []
+      },
+      {
+        "id": "b-15",
+        "kind": "berth",
+        "name": "Berth 15",
+        "status": "available",
+        "capacity": 1,
+        "assigned_port_call_ids": [],
+        "available_from": null,
+        "unavailable_windows": []
+      },
+      {
+        "id": "crane-b07-a",
+        "kind": "crane",
+        "name": "B07 Crane A",
+        "status": "assigned",
+        "capacity": 1,
+        "assigned_port_call_ids": [
+          "pc-glory",
+          "pc-nova"
+        ],
+        "available_from": null,
+        "unavailable_windows": []
+      },
+      {
+        "id": "crane-b09-a",
+        "kind": "crane",
+        "name": "B09 Crane A",
+        "status": "assigned",
+        "capacity": 1,
+        "assigned_port_call_ids": [
+          "pc-lima"
+        ],
+        "available_from": null,
+        "unavailable_windows": []
+      },
+      {
+        "id": "crane-b12-a",
+        "kind": "crane",
+        "name": "B12 Crane A",
+        "status": "assigned",
+        "capacity": 1,
+        "assigned_port_call_ids": [
+          "pc-aurora"
+        ],
+        "available_from": null,
+        "unavailable_windows": []
+      },
+      {
+        "id": "crane-b15-a",
+        "kind": "crane",
+        "name": "B15 Crane A",
+        "status": "available",
+        "capacity": 1,
+        "assigned_port_call_ids": [],
+        "available_from": null,
+        "unavailable_windows": []
+      },
+      {
+        "id": "bunker-barge-4",
+        "kind": "bunker",
+        "name": "Bunker Barge 4",
+        "status": "assigned",
+        "capacity": 1,
+        "assigned_port_call_ids": [
+          "pc-aurora",
+          "pc-glory"
+        ],
+        "available_from": null,
+        "unavailable_windows": []
+      },
+      {
+        "id": "bunker-barge-9",
+        "kind": "bunker",
+        "name": "Bunker Barge 9",
+        "status": "assigned",
+        "capacity": 1,
+        "assigned_port_call_ids": [
+          "pc-lima",
+          "pc-nova"
+        ],
+        "available_from": null,
+        "unavailable_windows": []
+      },
+      {
+        "id": "bunker-barge-12",
+        "kind": "bunker",
+        "name": "Bunker Barge 12",
+        "status": "available",
+        "capacity": 1,
+        "assigned_port_call_ids": [],
+        "available_from": "2026-10-02T13:40:00Z",
+        "unavailable_windows": [
+          {
+            "start_at": "2026-10-02T16:00:00Z",
+            "end_at": "2026-10-02T17:00:00Z",
+            "reason": "planned maintenance"
+          }
+        ]
+      },
+      {
+        "id": "stores-team-1",
+        "kind": "stores",
+        "name": "Stores Team 1",
+        "status": "assigned",
+        "capacity": 4,
+        "assigned_port_call_ids": [
+          "pc-aurora",
+          "pc-lima",
+          "pc-glory",
+          "pc-nova"
+        ],
+        "available_from": null,
+        "unavailable_windows": []
+      },
+      {
+        "id": "docs-desk-1",
+        "kind": "documents",
+        "name": "Docs Desk 1",
+        "status": "assigned",
+        "capacity": 4,
+        "assigned_port_call_ids": [
+          "pc-aurora",
+          "pc-lima",
+          "pc-glory",
+          "pc-nova"
+        ],
+        "available_from": null,
+        "unavailable_windows": []
+      },
+      {
+        "id": "gate-team-1",
+        "kind": "gate",
+        "name": "Gate Team 1",
+        "status": "assigned",
+        "capacity": 4,
+        "assigned_port_call_ids": [
+          "pc-aurora",
+          "pc-lima",
+          "pc-glory",
+          "pc-nova"
+        ],
+        "available_from": null,
+        "unavailable_windows": []
+      },
+      {
+        "id": "customs-team-1",
+        "kind": "customs",
+        "name": "Customs Team 1",
+        "status": "assigned",
+        "capacity": 4,
+        "assigned_port_call_ids": [
+          "pc-aurora",
+          "pc-lima",
+          "pc-glory",
+          "pc-nova"
+        ],
+        "available_from": null,
+        "unavailable_windows": []
+      }
+    ],
+    "service_steps": [
+      {
+        "id": "svc-pc-aurora-pilot",
+        "port_call_id": "pc-aurora",
+        "kind": "pilot",
+        "label": "Pilot boarding",
+        "planned_at": "2026-10-02T11:59:00Z",
+        "duration_minutes": 30,
+        "state": "assigned",
+        "resource_id": "pilot-alpha",
+        "dependency_step_ids": []
+      },
+      {
+        "id": "svc-pc-aurora-tug",
+        "port_call_id": "pc-aurora",
+        "kind": "tug",
+        "label": "Tug rendezvous",
+        "planned_at": "2026-10-02T12:32:00Z",
+        "duration_minutes": 45,
+        "state": "assigned",
+        "resource_id": "tug-14",
+        "dependency_step_ids": [
+          "svc-pc-aurora-pilot"
+        ]
+      },
+      {
+        "id": "svc-pc-aurora-berth",
+        "port_call_id": "pc-aurora",
+        "kind": "berth",
+        "label": "Berth access",
+        "planned_at": "2026-10-02T12:54:00Z",
+        "duration_minutes": 15,
+        "state": "assigned",
+        "resource_id": "b-12",
+        "dependency_step_ids": [
+          "svc-pc-aurora-tug"
+        ]
+      },
+      {
+        "id": "svc-pc-aurora-crane",
+        "port_call_id": "pc-aurora",
+        "kind": "crane",
+        "label": "Crane allocation",
+        "planned_at": "2026-10-02T13:29:00Z",
+        "duration_minutes": 30,
+        "state": "assigned",
+        "resource_id": "crane-b12-a",
+        "dependency_step_ids": [
+          "svc-pc-aurora-berth"
+        ]
+      },
+      {
+        "id": "svc-pc-aurora-cargo",
+        "port_call_id": "pc-aurora",
+        "kind": "cargo",
+        "label": "Cargo operation",
+        "planned_at": "2026-10-02T13:39:00Z",
+        "duration_minutes": 180,
+        "state": "ready",
+        "resource_id": null,
+        "dependency_step_ids": [
+          "svc-pc-aurora-crane"
+        ]
+      },
+      {
+        "id": "svc-pc-aurora-bunker",
+        "port_call_id": "pc-aurora",
+        "kind": "bunker",
+        "label": "Bunker service",
+        "planned_at": "2026-10-02T14:09:00Z",
+        "duration_minutes": 60,
+        "state": "assigned",
+        "resource_id": "bunker-barge-4",
+        "dependency_step_ids": [
+          "svc-pc-aurora-berth"
+        ]
+      },
+      {
+        "id": "svc-pc-aurora-stores",
+        "port_call_id": "pc-aurora",
+        "kind": "stores",
+        "label": "Stores delivery",
+        "planned_at": "2026-10-02T14:19:00Z",
+        "duration_minutes": 30,
+        "state": "assigned",
+        "resource_id": "stores-team-1",
+        "dependency_step_ids": [
+          "svc-pc-aurora-berth"
+        ]
+      },
+      {
+        "id": "svc-pc-aurora-documents",
+        "port_call_id": "pc-aurora",
+        "kind": "documents",
+        "label": "Port-call documents",
+        "planned_at": "2026-10-02T19:00:00Z",
+        "duration_minutes": 30,
+        "state": "assigned",
+        "resource_id": "docs-desk-1",
+        "dependency_step_ids": [
+          "svc-pc-aurora-berth"
+        ]
+      },
+      {
+        "id": "svc-pc-aurora-customs",
+        "port_call_id": "pc-aurora",
+        "kind": "customs",
+        "label": "Customs release",
+        "planned_at": "2026-10-02T20:00:00Z",
+        "duration_minutes": 30,
+        "state": "assigned",
+        "resource_id": "customs-team-1",
+        "dependency_step_ids": [
+          "svc-pc-aurora-cargo",
+          "svc-pc-aurora-documents"
+        ]
+      },
+      {
+        "id": "svc-pc-aurora-gate",
+        "port_call_id": "pc-aurora",
+        "kind": "gate",
+        "label": "Landside gate clearance",
+        "planned_at": "2026-10-02T20:25:00Z",
+        "duration_minutes": 30,
+        "state": "assigned",
+        "resource_id": "gate-team-1",
+        "dependency_step_ids": [
+          "svc-pc-aurora-cargo",
+          "svc-pc-aurora-customs"
+        ]
+      },
+      {
+        "id": "svc-pc-aurora-departure",
+        "port_call_id": "pc-aurora",
+        "kind": "departure",
+        "label": "Departure clearance",
+        "planned_at": "2026-10-02T21:00:00Z",
+        "duration_minutes": 20,
+        "state": "ready",
+        "resource_id": null,
+        "dependency_step_ids": [
+          "svc-pc-aurora-cargo",
+          "svc-pc-aurora-bunker",
+          "svc-pc-aurora-stores",
+          "svc-pc-aurora-customs",
+          "svc-pc-aurora-gate"
+        ]
+      },
+      {
+        "id": "svc-pc-lima-pilot",
+        "port_call_id": "pc-lima",
+        "kind": "pilot",
+        "label": "Pilot boarding",
+        "planned_at": "2026-10-02T12:33:00Z",
+        "duration_minutes": 30,
+        "state": "assigned",
+        "resource_id": "pilot-bravo",
+        "dependency_step_ids": []
+      },
+      {
+        "id": "svc-pc-lima-tug",
+        "port_call_id": "pc-lima",
+        "kind": "tug",
+        "label": "Tug rendezvous",
+        "planned_at": "2026-10-02T13:06:00Z",
+        "duration_minutes": 45,
+        "state": "assigned",
+        "resource_id": "tug-22",
+        "dependency_step_ids": [
+          "svc-pc-lima-pilot"
+        ]
+      },
+      {
+        "id": "svc-pc-lima-berth",
+        "port_call_id": "pc-lima",
+        "kind": "berth",
+        "label": "Berth access",
+        "planned_at": "2026-10-02T13:28:00Z",
+        "duration_minutes": 15,
+        "state": "assigned",
+        "resource_id": "b-09",
+        "dependency_step_ids": [
+          "svc-pc-lima-tug"
+        ]
+      },
+      {
+        "id": "svc-pc-lima-crane",
+        "port_call_id": "pc-lima",
+        "kind": "crane",
+        "label": "Crane allocation",
+        "planned_at": "2026-10-02T14:03:00Z",
+        "duration_minutes": 30,
+        "state": "assigned",
+        "resource_id": "crane-b09-a",
+        "dependency_step_ids": [
+          "svc-pc-lima-berth"
+        ]
+      },
+      {
+        "id": "svc-pc-lima-cargo",
+        "port_call_id": "pc-lima",
+        "kind": "cargo",
+        "label": "Cargo operation",
+        "planned_at": "2026-10-02T14:13:00Z",
+        "duration_minutes": 180,
+        "state": "ready",
+        "resource_id": null,
+        "dependency_step_ids": [
+          "svc-pc-lima-crane"
+        ]
+      },
+      {
+        "id": "svc-pc-lima-bunker",
+        "port_call_id": "pc-lima",
+        "kind": "bunker",
+        "label": "Bunker service",
+        "planned_at": "2026-10-02T14:43:00Z",
+        "duration_minutes": 60,
+        "state": "assigned",
+        "resource_id": "bunker-barge-9",
+        "dependency_step_ids": [
+          "svc-pc-lima-berth"
+        ]
+      },
+      {
+        "id": "svc-pc-lima-stores",
+        "port_call_id": "pc-lima",
+        "kind": "stores",
+        "label": "Stores delivery",
+        "planned_at": "2026-10-02T14:53:00Z",
+        "duration_minutes": 30,
+        "state": "assigned",
+        "resource_id": "stores-team-1",
+        "dependency_step_ids": [
+          "svc-pc-lima-berth"
+        ]
+      },
+      {
+        "id": "svc-pc-lima-documents",
+        "port_call_id": "pc-lima",
+        "kind": "documents",
+        "label": "Port-call documents",
+        "planned_at": "2026-10-02T21:00:00Z",
+        "duration_minutes": 30,
+        "state": "assigned",
+        "resource_id": "docs-desk-1",
+        "dependency_step_ids": [
+          "svc-pc-lima-berth"
+        ]
+      },
+      {
+        "id": "svc-pc-lima-customs",
+        "port_call_id": "pc-lima",
+        "kind": "customs",
+        "label": "Customs release",
+        "planned_at": "2026-10-02T22:00:00Z",
+        "duration_minutes": 30,
+        "state": "assigned",
+        "resource_id": "customs-team-1",
+        "dependency_step_ids": [
+          "svc-pc-lima-cargo",
+          "svc-pc-lima-documents"
+        ]
+      },
+      {
+        "id": "svc-pc-lima-gate",
+        "port_call_id": "pc-lima",
+        "kind": "gate",
+        "label": "Landside gate clearance",
+        "planned_at": "2026-10-02T22:25:00Z",
+        "duration_minutes": 30,
+        "state": "assigned",
+        "resource_id": "gate-team-1",
+        "dependency_step_ids": [
+          "svc-pc-lima-cargo",
+          "svc-pc-lima-customs"
+        ]
+      },
+      {
+        "id": "svc-pc-lima-departure",
+        "port_call_id": "pc-lima",
+        "kind": "departure",
+        "label": "Departure clearance",
+        "planned_at": "2026-10-02T23:00:00Z",
+        "duration_minutes": 20,
+        "state": "ready",
+        "resource_id": null,
+        "dependency_step_ids": [
+          "svc-pc-lima-cargo",
+          "svc-pc-lima-bunker",
+          "svc-pc-lima-stores",
+          "svc-pc-lima-customs",
+          "svc-pc-lima-gate"
+        ]
+      },
+      {
+        "id": "svc-pc-glory-pilot",
+        "port_call_id": "pc-glory",
+        "kind": "pilot",
+        "label": "Pilot boarding",
+        "planned_at": "2026-10-02T11:27:00Z",
+        "duration_minutes": 30,
+        "state": "assigned",
+        "resource_id": "pilot-alpha",
+        "dependency_step_ids": []
+      },
+      {
+        "id": "svc-pc-glory-tug",
+        "port_call_id": "pc-glory",
+        "kind": "tug",
+        "label": "Tug rendezvous",
+        "planned_at": "2026-10-02T12:00:00Z",
+        "duration_minutes": 45,
+        "state": "assigned",
+        "resource_id": "tug-14",
+        "dependency_step_ids": [
+          "svc-pc-glory-pilot"
+        ]
+      },
+      {
+        "id": "svc-pc-glory-berth",
+        "port_call_id": "pc-glory",
+        "kind": "berth",
+        "label": "Berth access",
+        "planned_at": "2026-10-02T12:22:00Z",
+        "duration_minutes": 15,
+        "state": "assigned",
+        "resource_id": "b-07",
+        "dependency_step_ids": [
+          "svc-pc-glory-tug"
+        ]
+      },
+      {
+        "id": "svc-pc-glory-crane",
+        "port_call_id": "pc-glory",
+        "kind": "crane",
+        "label": "Crane allocation",
+        "planned_at": "2026-10-02T12:57:00Z",
+        "duration_minutes": 30,
+        "state": "assigned",
+        "resource_id": "crane-b07-a",
+        "dependency_step_ids": [
+          "svc-pc-glory-berth"
+        ]
+      },
+      {
+        "id": "svc-pc-glory-cargo",
+        "port_call_id": "pc-glory",
+        "kind": "cargo",
+        "label": "Cargo operation",
+        "planned_at": "2026-10-02T13:07:00Z",
+        "duration_minutes": 180,
+        "state": "ready",
+        "resource_id": null,
+        "dependency_step_ids": [
+          "svc-pc-glory-crane"
+        ]
+      },
+      {
+        "id": "svc-pc-glory-bunker",
+        "port_call_id": "pc-glory",
+        "kind": "bunker",
+        "label": "Bunker service",
+        "planned_at": "2026-10-02T13:37:00Z",
+        "duration_minutes": 60,
+        "state": "assigned",
+        "resource_id": "bunker-barge-4",
+        "dependency_step_ids": [
+          "svc-pc-glory-berth"
+        ]
+      },
+      {
+        "id": "svc-pc-glory-stores",
+        "port_call_id": "pc-glory",
+        "kind": "stores",
+        "label": "Stores delivery",
+        "planned_at": "2026-10-02T13:47:00Z",
+        "duration_minutes": 30,
+        "state": "assigned",
+        "resource_id": "stores-team-1",
+        "dependency_step_ids": [
+          "svc-pc-glory-berth"
+        ]
+      },
+      {
+        "id": "svc-pc-glory-documents",
+        "port_call_id": "pc-glory",
+        "kind": "documents",
+        "label": "Port-call documents",
+        "planned_at": "2026-10-02T17:00:00Z",
+        "duration_minutes": 30,
+        "state": "assigned",
+        "resource_id": "docs-desk-1",
+        "dependency_step_ids": [
+          "svc-pc-glory-berth"
+        ]
+      },
+      {
+        "id": "svc-pc-glory-customs",
+        "port_call_id": "pc-glory",
+        "kind": "customs",
+        "label": "Customs release",
+        "planned_at": "2026-10-02T18:00:00Z",
+        "duration_minutes": 30,
+        "state": "assigned",
+        "resource_id": "customs-team-1",
+        "dependency_step_ids": [
+          "svc-pc-glory-cargo",
+          "svc-pc-glory-documents"
+        ]
+      },
+      {
+        "id": "svc-pc-glory-gate",
+        "port_call_id": "pc-glory",
+        "kind": "gate",
+        "label": "Landside gate clearance",
+        "planned_at": "2026-10-02T18:25:00Z",
+        "duration_minutes": 30,
+        "state": "assigned",
+        "resource_id": "gate-team-1",
+        "dependency_step_ids": [
+          "svc-pc-glory-cargo",
+          "svc-pc-glory-customs"
+        ]
+      },
+      {
+        "id": "svc-pc-glory-departure",
+        "port_call_id": "pc-glory",
+        "kind": "departure",
+        "label": "Departure clearance",
+        "planned_at": "2026-10-02T19:00:00Z",
+        "duration_minutes": 20,
+        "state": "ready",
+        "resource_id": null,
+        "dependency_step_ids": [
+          "svc-pc-glory-cargo",
+          "svc-pc-glory-bunker",
+          "svc-pc-glory-stores",
+          "svc-pc-glory-customs",
+          "svc-pc-glory-gate"
+        ]
+      },
+      {
+        "id": "svc-pc-nova-pilot",
+        "port_call_id": "pc-nova",
+        "kind": "pilot",
+        "label": "Pilot boarding",
+        "planned_at": "2026-10-02T18:40:00Z",
+        "duration_minutes": 30,
+        "state": "assigned",
+        "resource_id": "pilot-bravo",
+        "dependency_step_ids": []
+      },
+      {
+        "id": "svc-pc-nova-tug",
+        "port_call_id": "pc-nova",
+        "kind": "tug",
+        "label": "Tug rendezvous",
+        "planned_at": "2026-10-02T19:13:00Z",
+        "duration_minutes": 45,
+        "state": "assigned",
+        "resource_id": "tug-22",
+        "dependency_step_ids": [
+          "svc-pc-nova-pilot"
+        ]
+      },
+      {
+        "id": "svc-pc-nova-berth",
+        "port_call_id": "pc-nova",
+        "kind": "berth",
+        "label": "Berth access",
+        "planned_at": "2026-10-02T19:35:00Z",
+        "duration_minutes": 15,
+        "state": "assigned",
+        "resource_id": "b-07",
+        "dependency_step_ids": [
+          "svc-pc-nova-tug"
+        ]
+      },
+      {
+        "id": "svc-pc-nova-crane",
+        "port_call_id": "pc-nova",
+        "kind": "crane",
+        "label": "Crane allocation",
+        "planned_at": "2026-10-02T20:10:00Z",
+        "duration_minutes": 30,
+        "state": "assigned",
+        "resource_id": "crane-b07-a",
+        "dependency_step_ids": [
+          "svc-pc-nova-berth"
+        ]
+      },
+      {
+        "id": "svc-pc-nova-cargo",
+        "port_call_id": "pc-nova",
+        "kind": "cargo",
+        "label": "Cargo operation",
+        "planned_at": "2026-10-02T20:20:00Z",
+        "duration_minutes": 180,
+        "state": "ready",
+        "resource_id": null,
+        "dependency_step_ids": [
+          "svc-pc-nova-crane"
+        ]
+      },
+      {
+        "id": "svc-pc-nova-bunker",
+        "port_call_id": "pc-nova",
+        "kind": "bunker",
+        "label": "Bunker service",
+        "planned_at": "2026-10-02T20:50:00Z",
+        "duration_minutes": 60,
+        "state": "assigned",
+        "resource_id": "bunker-barge-9",
+        "dependency_step_ids": [
+          "svc-pc-nova-berth"
+        ]
+      },
+      {
+        "id": "svc-pc-nova-stores",
+        "port_call_id": "pc-nova",
+        "kind": "stores",
+        "label": "Stores delivery",
+        "planned_at": "2026-10-02T21:00:00Z",
+        "duration_minutes": 30,
+        "state": "assigned",
+        "resource_id": "stores-team-1",
+        "dependency_step_ids": [
+          "svc-pc-nova-berth"
+        ]
+      },
+      {
+        "id": "svc-pc-nova-documents",
+        "port_call_id": "pc-nova",
+        "kind": "documents",
+        "label": "Port-call documents",
+        "planned_at": "2026-10-03T00:00:00Z",
+        "duration_minutes": 30,
+        "state": "assigned",
+        "resource_id": "docs-desk-1",
+        "dependency_step_ids": [
+          "svc-pc-nova-berth"
+        ]
+      },
+      {
+        "id": "svc-pc-nova-customs",
+        "port_call_id": "pc-nova",
+        "kind": "customs",
+        "label": "Customs release",
+        "planned_at": "2026-10-03T01:00:00Z",
+        "duration_minutes": 30,
+        "state": "assigned",
+        "resource_id": "customs-team-1",
+        "dependency_step_ids": [
+          "svc-pc-nova-cargo",
+          "svc-pc-nova-documents"
+        ]
+      },
+      {
+        "id": "svc-pc-nova-gate",
+        "port_call_id": "pc-nova",
+        "kind": "gate",
+        "label": "Landside gate clearance",
+        "planned_at": "2026-10-03T01:25:00Z",
+        "duration_minutes": 30,
+        "state": "assigned",
+        "resource_id": "gate-team-1",
+        "dependency_step_ids": [
+          "svc-pc-nova-cargo",
+          "svc-pc-nova-customs"
+        ]
+      },
+      {
+        "id": "svc-pc-nova-departure",
+        "port_call_id": "pc-nova",
+        "kind": "departure",
+        "label": "Departure clearance",
+        "planned_at": "2026-10-03T02:00:00Z",
+        "duration_minutes": 20,
+        "state": "ready",
+        "resource_id": null,
+        "dependency_step_ids": [
+          "svc-pc-nova-cargo",
+          "svc-pc-nova-bunker",
+          "svc-pc-nova-stores",
+          "svc-pc-nova-customs",
+          "svc-pc-nova-gate"
+        ]
+      }
+    ],
+    "service_duration_calibrations": [
+      {
+        "service_kind": "pilot",
+        "duration_minutes": 30,
+        "source_id": "synthetic-service-calibration",
+        "mode": "synthetic",
+        "provider": "PortFlow synthetic service-duration calibration",
+        "observed_at": "2026-10-02T12:00:00Z",
+        "detail": "Synthetic duration assumption for the portfolio demo."
+      },
+      {
+        "service_kind": "tug",
+        "duration_minutes": 45,
+        "source_id": "synthetic-service-calibration",
+        "mode": "synthetic",
+        "provider": "PortFlow synthetic service-duration calibration",
+        "observed_at": "2026-10-02T12:00:00Z",
+        "detail": "Synthetic duration assumption for the portfolio demo."
+      },
+      {
+        "service_kind": "berth",
+        "duration_minutes": 15,
+        "source_id": "synthetic-service-calibration",
+        "mode": "synthetic",
+        "provider": "PortFlow synthetic service-duration calibration",
+        "observed_at": "2026-10-02T12:00:00Z",
+        "detail": "Synthetic duration assumption for the portfolio demo."
+      },
+      {
+        "service_kind": "crane",
+        "duration_minutes": 30,
+        "source_id": "synthetic-service-calibration",
+        "mode": "synthetic",
+        "provider": "PortFlow synthetic service-duration calibration",
+        "observed_at": "2026-10-02T12:00:00Z",
+        "detail": "Synthetic duration assumption for the portfolio demo."
+      },
+      {
+        "service_kind": "cargo",
+        "duration_minutes": 180,
+        "source_id": "synthetic-service-calibration",
+        "mode": "synthetic",
+        "provider": "PortFlow synthetic service-duration calibration",
+        "observed_at": "2026-10-02T12:00:00Z",
+        "detail": "Synthetic duration assumption for the portfolio demo."
+      },
+      {
+        "service_kind": "bunker",
+        "duration_minutes": 60,
+        "source_id": "synthetic-service-calibration",
+        "mode": "synthetic",
+        "provider": "PortFlow synthetic service-duration calibration",
+        "observed_at": "2026-10-02T12:00:00Z",
+        "detail": "Synthetic duration assumption for the portfolio demo."
+      },
+      {
+        "service_kind": "stores",
+        "duration_minutes": 30,
+        "source_id": "synthetic-service-calibration",
+        "mode": "synthetic",
+        "provider": "PortFlow synthetic service-duration calibration",
+        "observed_at": "2026-10-02T12:00:00Z",
+        "detail": "Synthetic duration assumption for the portfolio demo."
+      },
+      {
+        "service_kind": "documents",
+        "duration_minutes": 30,
+        "source_id": "synthetic-service-calibration",
+        "mode": "synthetic",
+        "provider": "PortFlow synthetic service-duration calibration",
+        "observed_at": "2026-10-02T12:00:00Z",
+        "detail": "Synthetic duration assumption for the portfolio demo."
+      },
+      {
+        "service_kind": "customs",
+        "duration_minutes": 30,
+        "source_id": "synthetic-service-calibration",
+        "mode": "synthetic",
+        "provider": "PortFlow synthetic service-duration calibration",
+        "observed_at": "2026-10-02T12:00:00Z",
+        "detail": "Synthetic duration assumption for the portfolio demo."
+      },
+      {
+        "service_kind": "gate",
+        "duration_minutes": 30,
+        "source_id": "synthetic-service-calibration",
+        "mode": "synthetic",
+        "provider": "PortFlow synthetic service-duration calibration",
+        "observed_at": "2026-10-02T12:00:00Z",
+        "detail": "Synthetic duration assumption for the portfolio demo."
+      },
+      {
+        "service_kind": "departure",
+        "duration_minutes": 20,
+        "source_id": "synthetic-service-calibration",
+        "mode": "synthetic",
+        "provider": "PortFlow synthetic service-duration calibration",
+        "observed_at": "2026-10-02T12:00:00Z",
+        "detail": "Synthetic duration assumption for the portfolio demo."
+      }
+    ],
+    "events": [
+      {
+        "id": "evt-bf92a092191445",
+        "occurred_at": "2026-10-02T12:00:00Z",
+        "category": "system",
+        "severity": "low",
+        "title": "Operations picture initialized",
+        "message": "Synthetic harbor state is live.",
+        "vessel_id": null,
+        "berth_id": null,
+        "port_call_id": null,
+        "incident_id": null,
+        "actor_id": null,
+        "actor_role": null,
+        "source_id": null
+      }
+    ],
+    "data_sources": [
+      {
+        "source_id": "synthetic-ais",
+        "domain": "ais",
+        "mode": "synthetic",
+        "provider": "PortFlow synthetic harbor generator",
+        "observed_at": "2026-10-02T12:00:00Z",
+        "received_at": "2026-10-02T12:00:00Z",
+        "freshness_seconds": 0,
+        "stale_after_seconds": 10000000,
+        "stale": false,
+        "health": "healthy",
+        "record_count": 6,
+        "detail": "Synthetic vessel positions for the portfolio demo.",
+        "last_success_at": null,
+        "last_attempt_at": null,
+        "next_retry_at": null,
+        "retry_delay_seconds": 0,
+        "consecutive_errors": 0,
+        "using_cached_records": false
+      },
+      {
+        "source_id": "synthetic-weather",
+        "domain": "weather_tide",
+        "mode": "synthetic",
+        "provider": "PortFlow synthetic metocean generator",
+        "observed_at": "2026-10-02T12:00:00Z",
+        "received_at": "2026-10-02T12:00:00Z",
+        "freshness_seconds": 0,
+        "stale_after_seconds": 10000000,
+        "stale": false,
+        "health": "healthy",
+        "record_count": 1,
+        "detail": "Synthetic weather and tide state for the portfolio demo.",
+        "last_success_at": null,
+        "last_attempt_at": null,
+        "next_retry_at": null,
+        "retry_delay_seconds": 0,
+        "consecutive_errors": 0,
+        "using_cached_records": false
+      },
+      {
+        "source_id": "synthetic-berth-plan",
+        "domain": "berth_plan",
+        "mode": "synthetic",
+        "provider": "PortFlow synthetic berth-plan generator",
+        "observed_at": "2026-10-02T12:00:00Z",
+        "received_at": "2026-10-02T12:00:00Z",
+        "freshness_seconds": 0,
+        "stale_after_seconds": 10000000,
+        "stale": false,
+        "health": "healthy",
+        "record_count": 4,
+        "detail": "Synthetic berth allocations and port-call timing.",
+        "last_success_at": null,
+        "last_attempt_at": null,
+        "next_retry_at": null,
+        "retry_delay_seconds": 0,
+        "consecutive_errors": 0,
+        "using_cached_records": false
+      },
+      {
+        "source_id": "synthetic-service-calibration",
+        "domain": "service_calibration",
+        "mode": "synthetic",
+        "provider": "PortFlow synthetic service-duration calibration",
+        "observed_at": "2026-10-02T12:00:00Z",
+        "received_at": "2026-10-02T12:00:00Z",
+        "freshness_seconds": 0,
+        "stale_after_seconds": 10000000,
+        "stale": false,
+        "health": "healthy",
+        "record_count": 11,
+        "detail": "Synthetic service-duration assumptions for the portfolio demo.",
+        "last_success_at": null,
+        "last_attempt_at": null,
+        "next_retry_at": null,
+        "retry_delay_seconds": 0,
+        "consecutive_errors": 0,
+        "using_cached_records": false
+      }
+    ],
+    "metrics": {
+      "vessels_in_port_picture": 6,
+      "berths_occupied": 1,
+      "berths_total": 5,
+      "port_calls_at_risk": 0,
+      "average_delay_minutes": 0.0,
+      "active_incidents": 0,
+      "berth_conflicts": 0,
+      "blocked_services": 0,
+      "delayed_services": 0,
+      "queued_events": 0,
+      "stale_data_sources": 0
+    },
+    "data_disclaimer": "Demonstration only. No live external feeds are active. Vessel, port-call, weather, risk, incident, service, and operational data are synthetic."
+  },
+  "evidence": {
+    "run_id": "identity-baseline-fixture",
+    "ran_at": "2026-10-02T12:00:00Z",
+    "scenario": {
+      "id": "berth-crunch",
+      "title": "B07 Berth Crunch",
+      "description": "Ever Glory overruns B07 by 90 minutes and creates a downstream Ocean Nova berth conflict.",
+      "actions": [
+        {
+          "action_type": "incident",
+          "incident_type": "berth_overrun",
+          "link_mode": null,
+          "target_port_call_id": "pc-glory",
+          "impact_minutes": 90
+        }
+      ]
+    },
+    "harbor": {
+      "generated_at": "2026-10-02T12:00:00Z",
+      "port_name": "PortFlow Demo Harbor",
+      "center": {
+        "lat": 51.948,
+        "lon": 4.142
+      },
+      "vessels": [
+        {
+          "id": "v-aurora",
+          "source_id": "synthetic-ais",
+          "name": "MSC Aurora",
+          "imo": "9991001",
+          "vessel_type": "Container",
+          "status": "inbound",
+          "position": {
+            "lat": 51.989,
+            "lon": 3.97
+          },
+          "speed_knots": 11.8,
+          "heading_deg": 92.0,
+          "eta": "2026-10-02T12:54:00Z",
+          "assigned_berth_id": "b-12",
+          "cargo_summary": "8,420 TEU mixed container"
+        },
+        {
+          "id": "v-lima",
+          "source_id": "synthetic-ais",
+          "name": "Maersk Lima",
+          "imo": "9991002",
+          "vessel_type": "Container",
+          "status": "at_anchor",
+          "position": {
+            "lat": 52.01,
+            "lon": 3.91
+          },
+          "speed_knots": 0.2,
+          "heading_deg": 180.0,
+          "eta": "2026-10-02T13:28:00Z",
+          "assigned_berth_id": "b-09",
+          "cargo_summary": "6,100 TEU mixed container"
+        },
+        {
+          "id": "v-glory",
+          "source_id": "synthetic-ais",
+          "name": "Ever Glory",
+          "imo": "9991003",
+          "vessel_type": "Container",
+          "status": "maneuvering",
+          "position": {
+            "lat": 51.963,
+            "lon": 4.045
+          },
+          "speed_knots": 6.4,
+          "heading_deg": 104.0,
+          "eta": "2026-10-02T12:22:00Z",
+          "assigned_berth_id": "b-07",
+          "cargo_summary": "4,780 TEU"
+        },
+        {
+          "id": "v-nordic",
+          "source_id": "synthetic-ais",
+          "name": "Nordic Atlas",
+          "imo": "9991004",
+          "vessel_type": "Product tanker",
+          "status": "berthed",
+          "position": {
+            "lat": 51.934,
+            "lon": 4.155
+          },
+          "speed_knots": 0.0,
+          "heading_deg": 0.0,
+          "eta": null,
+          "assigned_berth_id": "b-03",
+          "cargo_summary": "Refined products"
+        },
+        {
+          "id": "v-seaway",
+          "source_id": "synthetic-ais",
+          "name": "Seaway Polaris",
+          "imo": "9991005",
+          "vessel_type": "Ro-Ro",
+          "status": "outbound",
+          "position": {
+            "lat": 51.968,
+            "lon": 4.01
+          },
+          "speed_knots": 9.2,
+          "heading_deg": 274.0,
+          "eta": null,
+          "assigned_berth_id": null,
+          "cargo_summary": "Vehicles / project cargo"
+        },
+        {
+          "id": "v-nova",
+          "source_id": "synthetic-ais",
+          "name": "Ocean Nova",
+          "imo": "9991006",
+          "vessel_type": "Container",
+          "status": "at_anchor",
+          "position": {
+            "lat": 52.018,
+            "lon": 3.885
+          },
+          "speed_knots": 0.1,
+          "heading_deg": 180.0,
+          "eta": "2026-10-02T19:35:00Z",
+          "assigned_berth_id": "b-07",
+          "cargo_summary": "3,960 TEU"
+        }
+      ],
+      "berths": [
+        {
+          "id": "b-03",
+          "source_id": "synthetic-berth-plan",
+          "name": "Berth 03",
+          "terminal": "Liquid Bulk",
+          "status": "occupied",
+          "max_length_m": 310,
+          "position": {
+            "lat": 51.934,
+            "lon": 4.155
+          },
+          "vessel_id": "v-nordic"
+        },
+        {
+          "id": "b-07",
+          "source_id": "synthetic-berth-plan",
+          "name": "Berth 07",
+          "terminal": "Delta Container",
+          "status": "reserved",
+          "max_length_m": 400,
+          "position": {
+            "lat": 51.951,
+            "lon": 4.133
+          },
+          "vessel_id": "v-glory"
+        },
+        {
+          "id": "b-09",
+          "source_id": "synthetic-berth-plan",
+          "name": "Berth 09",
+          "terminal": "Delta Container",
+          "status": "reserved",
+          "max_length_m": 400,
+          "position": {
+            "lat": 51.947,
+            "lon": 4.119
+          },
+          "vessel_id": "v-lima"
+        },
+        {
+          "id": "b-12",
+          "source_id": "synthetic-berth-plan",
+          "name": "Berth 12",
+          "terminal": "Maas Container",
+          "status": "reserved",
+          "max_length_m": 420,
+          "position": {
+            "lat": 51.942,
+            "lon": 4.101
+          },
+          "vessel_id": "v-aurora"
+        },
+        {
+          "id": "b-15",
+          "source_id": "synthetic-berth-plan",
+          "name": "Berth 15",
+          "terminal": "Maas Container",
+          "status": "available",
+          "max_length_m": 420,
+          "position": {
+            "lat": 51.938,
+            "lon": 4.083
+          },
+          "vessel_id": null
+        }
+      ],
+      "port_calls": [
+        {
+          "id": "pc-aurora",
+          "source_id": "synthetic-berth-plan",
+          "vessel_id": "v-aurora",
+          "berth_id": "b-12",
+          "arrival_eta": "2026-10-02T12:54:00Z",
+          "departure_eta": "2026-10-02T21:00:00Z",
+          "stages": [
+            {
+              "code": "notice",
+              "label": "Arrival notice accepted",
+              "planned_at": "2026-10-02T11:24:00Z",
+              "actual_at": null,
+              "state": "pending",
+              "dependency_codes": []
+            },
+            {
+              "code": "pilot",
+              "label": "Pilot ordered",
+              "planned_at": "2026-10-02T11:59:00Z",
+              "actual_at": null,
+              "state": "pending",
+              "dependency_codes": [
+                "notice"
+              ]
+            },
+            {
+              "code": "pilot_board",
+              "label": "Pilot aboard",
+              "planned_at": "2026-10-02T12:19:00Z",
+              "actual_at": null,
+              "state": "pending",
+              "dependency_codes": [
+                "pilot"
+              ]
+            },
+            {
+              "code": "tug",
+              "label": "Tug rendezvous",
+              "planned_at": "2026-10-02T12:32:00Z",
+              "actual_at": null,
+              "state": "pending",
+              "dependency_codes": [
+                "pilot_board"
+              ]
+            },
+            {
+              "code": "berth",
+              "label": "All fast at berth",
+              "planned_at": "2026-10-02T12:54:00Z",
+              "actual_at": null,
+              "state": "pending",
+              "dependency_codes": [
+                "tug"
+              ]
+            },
+            {
+              "code": "cargo",
+              "label": "Cargo operations",
+              "planned_at": "2026-10-02T13:29:00Z",
+              "actual_at": null,
+              "state": "pending",
+              "dependency_codes": [
+                "berth"
+              ]
+            },
+            {
+              "code": "services",
+              "label": "Bunkers / stores / services",
+              "planned_at": "2026-10-02T14:04:00Z",
+              "actual_at": null,
+              "state": "pending",
+              "dependency_codes": [
+                "berth"
+              ]
+            },
+            {
+              "code": "departure",
+              "label": "Departure clearance",
+              "planned_at": "2026-10-02T18:54:00Z",
+              "actual_at": null,
+              "state": "pending",
+              "dependency_codes": [
+                "cargo",
+                "services"
+              ]
+            }
+          ],
+          "delay_minutes": 0,
+          "risk": "low",
+          "estimated_cost_exposure_usd": 0.0
+        },
+        {
+          "id": "pc-lima",
+          "source_id": "synthetic-berth-plan",
+          "vessel_id": "v-lima",
+          "berth_id": "b-09",
+          "arrival_eta": "2026-10-02T13:28:00Z",
+          "departure_eta": "2026-10-02T23:00:00Z",
+          "stages": [
+            {
+              "code": "notice",
+              "label": "Arrival notice accepted",
+              "planned_at": "2026-10-02T11:58:00Z",
+              "actual_at": null,
+              "state": "pending",
+              "dependency_codes": []
+            },
+            {
+              "code": "pilot",
+              "label": "Pilot ordered",
+              "planned_at": "2026-10-02T12:33:00Z",
+              "actual_at": null,
+              "state": "pending",
+              "dependency_codes": [
+                "notice"
+              ]
+            },
+            {
+              "code": "pilot_board",
+              "label": "Pilot aboard",
+              "planned_at": "2026-10-02T12:53:00Z",
+              "actual_at": null,
+              "state": "pending",
+              "dependency_codes": [
+                "pilot"
+              ]
+            },
+            {
+              "code": "tug",
+              "label": "Tug rendezvous",
+              "planned_at": "2026-10-02T13:06:00Z",
+              "actual_at": null,
+              "state": "pending",
+              "dependency_codes": [
+                "pilot_board"
+              ]
+            },
+            {
+              "code": "berth",
+              "label": "All fast at berth",
+              "planned_at": "2026-10-02T13:28:00Z",
+              "actual_at": null,
+              "state": "pending",
+              "dependency_codes": [
+                "tug"
+              ]
+            },
+            {
+              "code": "cargo",
+              "label": "Cargo operations",
+              "planned_at": "2026-10-02T14:03:00Z",
+              "actual_at": null,
+              "state": "pending",
+              "dependency_codes": [
+                "berth"
+              ]
+            },
+            {
+              "code": "services",
+              "label": "Bunkers / stores / services",
+              "planned_at": "2026-10-02T14:38:00Z",
+              "actual_at": null,
+              "state": "pending",
+              "dependency_codes": [
+                "berth"
+              ]
+            },
+            {
+              "code": "departure",
+              "label": "Departure clearance",
+              "planned_at": "2026-10-02T19:28:00Z",
+              "actual_at": null,
+              "state": "pending",
+              "dependency_codes": [
+                "cargo",
+                "services"
+              ]
+            }
+          ],
+          "delay_minutes": 0,
+          "risk": "low",
+          "estimated_cost_exposure_usd": 0.0
+        },
+        {
+          "id": "pc-glory",
+          "source_id": "synthetic-berth-plan",
+          "vessel_id": "v-glory",
+          "berth_id": "b-07",
+          "arrival_eta": "2026-10-02T12:22:00Z",
+          "departure_eta": "2026-10-02T19:00:00Z",
+          "stages": [
+            {
+              "code": "notice",
+              "label": "Arrival notice accepted",
+              "planned_at": "2026-10-02T10:52:00Z",
+              "actual_at": null,
+              "state": "pending",
+              "dependency_codes": []
+            },
+            {
+              "code": "pilot",
+              "label": "Pilot ordered",
+              "planned_at": "2026-10-02T11:27:00Z",
+              "actual_at": null,
+              "state": "pending",
+              "dependency_codes": [
+                "notice"
+              ]
+            },
+            {
+              "code": "pilot_board",
+              "label": "Pilot aboard",
+              "planned_at": "2026-10-02T11:47:00Z",
+              "actual_at": null,
+              "state": "pending",
+              "dependency_codes": [
+                "pilot"
+              ]
+            },
+            {
+              "code": "tug",
+              "label": "Tug rendezvous",
+              "planned_at": "2026-10-02T12:00:00Z",
+              "actual_at": null,
+              "state": "pending",
+              "dependency_codes": [
+                "pilot_board"
+              ]
+            },
+            {
+              "code": "berth",
+              "label": "All fast at berth",
+              "planned_at": "2026-10-02T12:22:00Z",
+              "actual_at": null,
+              "state": "pending",
+              "dependency_codes": [
+                "tug"
+              ]
+            },
+            {
+              "code": "cargo",
+              "label": "Cargo operations",
+              "planned_at": "2026-10-02T12:57:00Z",
+              "actual_at": null,
+              "state": "pending",
+              "dependency_codes": [
+                "berth"
+              ]
+            },
+            {
+              "code": "services",
+              "label": "Bunkers / stores / services",
+              "planned_at": "2026-10-02T13:32:00Z",
+              "actual_at": null,
+              "state": "pending",
+              "dependency_codes": [
+                "berth"
+              ]
+            },
+            {
+              "code": "departure",
+              "label": "Departure clearance",
+              "planned_at": "2026-10-02T18:22:00Z",
+              "actual_at": null,
+              "state": "pending",
+              "dependency_codes": [
+                "cargo",
+                "services"
+              ]
+            }
+          ],
+          "delay_minutes": 0,
+          "risk": "low",
+          "estimated_cost_exposure_usd": 0.0
+        },
+        {
+          "id": "pc-nova",
+          "source_id": "synthetic-berth-plan",
+          "vessel_id": "v-nova",
+          "berth_id": "b-07",
+          "arrival_eta": "2026-10-02T19:35:00Z",
+          "departure_eta": "2026-10-03T02:00:00Z",
+          "stages": [
+            {
+              "code": "notice",
+              "label": "Arrival notice accepted",
+              "planned_at": "2026-10-02T18:05:00Z",
+              "actual_at": null,
+              "state": "pending",
+              "dependency_codes": []
+            },
+            {
+              "code": "pilot",
+              "label": "Pilot ordered",
+              "planned_at": "2026-10-02T18:40:00Z",
+              "actual_at": null,
+              "state": "pending",
+              "dependency_codes": [
+                "notice"
+              ]
+            },
+            {
+              "code": "pilot_board",
+              "label": "Pilot aboard",
+              "planned_at": "2026-10-02T19:00:00Z",
+              "actual_at": null,
+              "state": "pending",
+              "dependency_codes": [
+                "pilot"
+              ]
+            },
+            {
+              "code": "tug",
+              "label": "Tug rendezvous",
+              "planned_at": "2026-10-02T19:13:00Z",
+              "actual_at": null,
+              "state": "pending",
+              "dependency_codes": [
+                "pilot_board"
+              ]
+            },
+            {
+              "code": "berth",
+              "label": "All fast at berth",
+              "planned_at": "2026-10-02T19:35:00Z",
+              "actual_at": null,
+              "state": "pending",
+              "dependency_codes": [
+                "tug"
+              ]
+            },
+            {
+              "code": "cargo",
+              "label": "Cargo operations",
+              "planned_at": "2026-10-02T20:10:00Z",
+              "actual_at": null,
+              "state": "pending",
+              "dependency_codes": [
+                "berth"
+              ]
+            },
+            {
+              "code": "services",
+              "label": "Bunkers / stores / services",
+              "planned_at": "2026-10-02T20:45:00Z",
+              "actual_at": null,
+              "state": "pending",
+              "dependency_codes": [
+                "berth"
+              ]
+            },
+            {
+              "code": "departure",
+              "label": "Departure clearance",
+              "planned_at": "2026-10-03T01:35:00Z",
+              "actual_at": null,
+              "state": "pending",
+              "dependency_codes": [
+                "cargo",
+                "services"
+              ]
+            }
+          ],
+          "delay_minutes": 0,
+          "risk": "low",
+          "estimated_cost_exposure_usd": 0.0
+        }
+      ],
+      "weather": {
+        "source_id": "synthetic-weather",
+        "observed_at": "2026-10-02T12:00:00Z",
+        "wind_knots": 19.0,
+        "gust_knots": 26.0,
+        "visibility_km": 9.4,
+        "wave_height_m": 1.2,
+        "tide_m": 0.8,
+        "restriction_active": false,
+        "restriction_reason": null
+      },
+      "connectivity": {
+        "mode": "full",
+        "primary_link": "Fiber / LTE",
+        "fallback_link": "Satellite",
+        "bandwidth_kbps": 50000,
+        "queued_events": 0,
+        "last_transition_at": "2026-10-02T12:00:00Z"
+      },
+      "incidents": [],
+      "service_resources": [
+        {
+          "id": "pilot-alpha",
+          "kind": "pilot",
+          "name": "Pilot Alpha",
+          "status": "assigned",
+          "capacity": 2,
+          "assigned_port_call_ids": [
+            "pc-aurora",
+            "pc-glory"
+          ],
+          "available_from": null,
+          "unavailable_windows": []
+        },
+        {
+          "id": "pilot-bravo",
+          "kind": "pilot",
+          "name": "Pilot Bravo",
+          "status": "assigned",
+          "capacity": 2,
+          "assigned_port_call_ids": [
+            "pc-lima",
+            "pc-nova"
+          ],
+          "available_from": null,
+          "unavailable_windows": []
+        },
+        {
+          "id": "tug-14",
+          "kind": "tug",
+          "name": "Tug 14",
+          "status": "assigned",
+          "capacity": 1,
+          "assigned_port_call_ids": [
+            "pc-aurora",
+            "pc-glory"
+          ],
+          "available_from": null,
+          "unavailable_windows": []
+        },
+        {
+          "id": "tug-22",
+          "kind": "tug",
+          "name": "Tug 22",
+          "status": "assigned",
+          "capacity": 1,
+          "assigned_port_call_ids": [
+            "pc-lima",
+            "pc-nova"
+          ],
+          "available_from": null,
+          "unavailable_windows": []
+        },
+        {
+          "id": "tug-31",
+          "kind": "tug",
+          "name": "Tug 31",
+          "status": "available",
+          "capacity": 1,
+          "assigned_port_call_ids": [],
+          "available_from": "2026-10-02T12:20:00Z",
+          "unavailable_windows": []
+        },
+        {
+          "id": "b-07",
+          "kind": "berth",
+          "name": "Berth 07",
+          "status": "assigned",
+          "capacity": 1,
+          "assigned_port_call_ids": [
+            "pc-glory",
+            "pc-nova"
+          ],
+          "available_from": null,
+          "unavailable_windows": []
+        },
+        {
+          "id": "b-09",
+          "kind": "berth",
+          "name": "Berth 09",
+          "status": "assigned",
+          "capacity": 1,
+          "assigned_port_call_ids": [
+            "pc-lima"
+          ],
+          "available_from": null,
+          "unavailable_windows": []
+        },
+        {
+          "id": "b-12",
+          "kind": "berth",
+          "name": "Berth 12",
+          "status": "assigned",
+          "capacity": 1,
+          "assigned_port_call_ids": [
+            "pc-aurora"
+          ],
+          "available_from": null,
+          "unavailable_windows": []
+        },
+        {
+          "id": "b-15",
+          "kind": "berth",
+          "name": "Berth 15",
+          "status": "available",
+          "capacity": 1,
+          "assigned_port_call_ids": [],
+          "available_from": null,
+          "unavailable_windows": []
+        },
+        {
+          "id": "crane-b07-a",
+          "kind": "crane",
+          "name": "B07 Crane A",
+          "status": "assigned",
+          "capacity": 1,
+          "assigned_port_call_ids": [
+            "pc-glory",
+            "pc-nova"
+          ],
+          "available_from": null,
+          "unavailable_windows": []
+        },
+        {
+          "id": "crane-b09-a",
+          "kind": "crane",
+          "name": "B09 Crane A",
+          "status": "assigned",
+          "capacity": 1,
+          "assigned_port_call_ids": [
+            "pc-lima"
+          ],
+          "available_from": null,
+          "unavailable_windows": []
+        },
+        {
+          "id": "crane-b12-a",
+          "kind": "crane",
+          "name": "B12 Crane A",
+          "status": "assigned",
+          "capacity": 1,
+          "assigned_port_call_ids": [
+            "pc-aurora"
+          ],
+          "available_from": null,
+          "unavailable_windows": []
+        },
+        {
+          "id": "crane-b15-a",
+          "kind": "crane",
+          "name": "B15 Crane A",
+          "status": "available",
+          "capacity": 1,
+          "assigned_port_call_ids": [],
+          "available_from": null,
+          "unavailable_windows": []
+        },
+        {
+          "id": "bunker-barge-4",
+          "kind": "bunker",
+          "name": "Bunker Barge 4",
+          "status": "assigned",
+          "capacity": 1,
+          "assigned_port_call_ids": [
+            "pc-aurora",
+            "pc-glory"
+          ],
+          "available_from": null,
+          "unavailable_windows": []
+        },
+        {
+          "id": "bunker-barge-9",
+          "kind": "bunker",
+          "name": "Bunker Barge 9",
+          "status": "assigned",
+          "capacity": 1,
+          "assigned_port_call_ids": [
+            "pc-lima",
+            "pc-nova"
+          ],
+          "available_from": null,
+          "unavailable_windows": []
+        },
+        {
+          "id": "bunker-barge-12",
+          "kind": "bunker",
+          "name": "Bunker Barge 12",
+          "status": "available",
+          "capacity": 1,
+          "assigned_port_call_ids": [],
+          "available_from": "2026-10-02T13:40:00Z",
+          "unavailable_windows": [
+            {
+              "start_at": "2026-10-02T16:00:00Z",
+              "end_at": "2026-10-02T17:00:00Z",
+              "reason": "planned maintenance"
+            }
+          ]
+        },
+        {
+          "id": "stores-team-1",
+          "kind": "stores",
+          "name": "Stores Team 1",
+          "status": "assigned",
+          "capacity": 4,
+          "assigned_port_call_ids": [
+            "pc-aurora",
+            "pc-lima",
+            "pc-glory",
+            "pc-nova"
+          ],
+          "available_from": null,
+          "unavailable_windows": []
+        },
+        {
+          "id": "docs-desk-1",
+          "kind": "documents",
+          "name": "Docs Desk 1",
+          "status": "assigned",
+          "capacity": 4,
+          "assigned_port_call_ids": [
+            "pc-aurora",
+            "pc-lima",
+            "pc-glory",
+            "pc-nova"
+          ],
+          "available_from": null,
+          "unavailable_windows": []
+        },
+        {
+          "id": "gate-team-1",
+          "kind": "gate",
+          "name": "Gate Team 1",
+          "status": "assigned",
+          "capacity": 4,
+          "assigned_port_call_ids": [
+            "pc-aurora",
+            "pc-lima",
+            "pc-glory",
+            "pc-nova"
+          ],
+          "available_from": null,
+          "unavailable_windows": []
+        },
+        {
+          "id": "customs-team-1",
+          "kind": "customs",
+          "name": "Customs Team 1",
+          "status": "assigned",
+          "capacity": 4,
+          "assigned_port_call_ids": [
+            "pc-aurora",
+            "pc-lima",
+            "pc-glory",
+            "pc-nova"
+          ],
+          "available_from": null,
+          "unavailable_windows": []
+        }
+      ],
+      "service_steps": [
+        {
+          "id": "svc-pc-aurora-pilot",
+          "port_call_id": "pc-aurora",
+          "kind": "pilot",
+          "label": "Pilot boarding",
+          "planned_at": "2026-10-02T11:59:00Z",
+          "duration_minutes": 30,
+          "state": "assigned",
+          "resource_id": "pilot-alpha",
+          "dependency_step_ids": []
+        },
+        {
+          "id": "svc-pc-aurora-tug",
+          "port_call_id": "pc-aurora",
+          "kind": "tug",
+          "label": "Tug rendezvous",
+          "planned_at": "2026-10-02T12:32:00Z",
+          "duration_minutes": 45,
+          "state": "assigned",
+          "resource_id": "tug-14",
+          "dependency_step_ids": [
+            "svc-pc-aurora-pilot"
+          ]
+        },
+        {
+          "id": "svc-pc-aurora-berth",
+          "port_call_id": "pc-aurora",
+          "kind": "berth",
+          "label": "Berth access",
+          "planned_at": "2026-10-02T12:54:00Z",
+          "duration_minutes": 15,
+          "state": "assigned",
+          "resource_id": "b-12",
+          "dependency_step_ids": [
+            "svc-pc-aurora-tug"
+          ]
+        },
+        {
+          "id": "svc-pc-aurora-crane",
+          "port_call_id": "pc-aurora",
+          "kind": "crane",
+          "label": "Crane allocation",
+          "planned_at": "2026-10-02T13:29:00Z",
+          "duration_minutes": 30,
+          "state": "assigned",
+          "resource_id": "crane-b12-a",
+          "dependency_step_ids": [
+            "svc-pc-aurora-berth"
+          ]
+        },
+        {
+          "id": "svc-pc-aurora-cargo",
+          "port_call_id": "pc-aurora",
+          "kind": "cargo",
+          "label": "Cargo operation",
+          "planned_at": "2026-10-02T13:39:00Z",
+          "duration_minutes": 180,
+          "state": "ready",
+          "resource_id": null,
+          "dependency_step_ids": [
+            "svc-pc-aurora-crane"
+          ]
+        },
+        {
+          "id": "svc-pc-aurora-bunker",
+          "port_call_id": "pc-aurora",
+          "kind": "bunker",
+          "label": "Bunker service",
+          "planned_at": "2026-10-02T14:09:00Z",
+          "duration_minutes": 60,
+          "state": "assigned",
+          "resource_id": "bunker-barge-4",
+          "dependency_step_ids": [
+            "svc-pc-aurora-berth"
+          ]
+        },
+        {
+          "id": "svc-pc-aurora-stores",
+          "port_call_id": "pc-aurora",
+          "kind": "stores",
+          "label": "Stores delivery",
+          "planned_at": "2026-10-02T14:19:00Z",
+          "duration_minutes": 30,
+          "state": "assigned",
+          "resource_id": "stores-team-1",
+          "dependency_step_ids": [
+            "svc-pc-aurora-berth"
+          ]
+        },
+        {
+          "id": "svc-pc-aurora-documents",
+          "port_call_id": "pc-aurora",
+          "kind": "documents",
+          "label": "Port-call documents",
+          "planned_at": "2026-10-02T19:00:00Z",
+          "duration_minutes": 30,
+          "state": "assigned",
+          "resource_id": "docs-desk-1",
+          "dependency_step_ids": [
+            "svc-pc-aurora-berth"
+          ]
+        },
+        {
+          "id": "svc-pc-aurora-customs",
+          "port_call_id": "pc-aurora",
+          "kind": "customs",
+          "label": "Customs release",
+          "planned_at": "2026-10-02T20:00:00Z",
+          "duration_minutes": 30,
+          "state": "assigned",
+          "resource_id": "customs-team-1",
+          "dependency_step_ids": [
+            "svc-pc-aurora-cargo",
+            "svc-pc-aurora-documents"
+          ]
+        },
+        {
+          "id": "svc-pc-aurora-gate",
+          "port_call_id": "pc-aurora",
+          "kind": "gate",
+          "label": "Landside gate clearance",
+          "planned_at": "2026-10-02T20:25:00Z",
+          "duration_minutes": 30,
+          "state": "assigned",
+          "resource_id": "gate-team-1",
+          "dependency_step_ids": [
+            "svc-pc-aurora-cargo",
+            "svc-pc-aurora-customs"
+          ]
+        },
+        {
+          "id": "svc-pc-aurora-departure",
+          "port_call_id": "pc-aurora",
+          "kind": "departure",
+          "label": "Departure clearance",
+          "planned_at": "2026-10-02T21:00:00Z",
+          "duration_minutes": 20,
+          "state": "ready",
+          "resource_id": null,
+          "dependency_step_ids": [
+            "svc-pc-aurora-cargo",
+            "svc-pc-aurora-bunker",
+            "svc-pc-aurora-stores",
+            "svc-pc-aurora-customs",
+            "svc-pc-aurora-gate"
+          ]
+        },
+        {
+          "id": "svc-pc-lima-pilot",
+          "port_call_id": "pc-lima",
+          "kind": "pilot",
+          "label": "Pilot boarding",
+          "planned_at": "2026-10-02T12:33:00Z",
+          "duration_minutes": 30,
+          "state": "assigned",
+          "resource_id": "pilot-bravo",
+          "dependency_step_ids": []
+        },
+        {
+          "id": "svc-pc-lima-tug",
+          "port_call_id": "pc-lima",
+          "kind": "tug",
+          "label": "Tug rendezvous",
+          "planned_at": "2026-10-02T13:06:00Z",
+          "duration_minutes": 45,
+          "state": "assigned",
+          "resource_id": "tug-22",
+          "dependency_step_ids": [
+            "svc-pc-lima-pilot"
+          ]
+        },
+        {
+          "id": "svc-pc-lima-berth",
+          "port_call_id": "pc-lima",
+          "kind": "berth",
+          "label": "Berth access",
+          "planned_at": "2026-10-02T13:28:00Z",
+          "duration_minutes": 15,
+          "state": "assigned",
+          "resource_id": "b-09",
+          "dependency_step_ids": [
+            "svc-pc-lima-tug"
+          ]
+        },
+        {
+          "id": "svc-pc-lima-crane",
+          "port_call_id": "pc-lima",
+          "kind": "crane",
+          "label": "Crane allocation",
+          "planned_at": "2026-10-02T14:03:00Z",
+          "duration_minutes": 30,
+          "state": "assigned",
+          "resource_id": "crane-b09-a",
+          "dependency_step_ids": [
+            "svc-pc-lima-berth"
+          ]
+        },
+        {
+          "id": "svc-pc-lima-cargo",
+          "port_call_id": "pc-lima",
+          "kind": "cargo",
+          "label": "Cargo operation",
+          "planned_at": "2026-10-02T14:13:00Z",
+          "duration_minutes": 180,
+          "state": "ready",
+          "resource_id": null,
+          "dependency_step_ids": [
+            "svc-pc-lima-crane"
+          ]
+        },
+        {
+          "id": "svc-pc-lima-bunker",
+          "port_call_id": "pc-lima",
+          "kind": "bunker",
+          "label": "Bunker service",
+          "planned_at": "2026-10-02T14:43:00Z",
+          "duration_minutes": 60,
+          "state": "assigned",
+          "resource_id": "bunker-barge-9",
+          "dependency_step_ids": [
+            "svc-pc-lima-berth"
+          ]
+        },
+        {
+          "id": "svc-pc-lima-stores",
+          "port_call_id": "pc-lima",
+          "kind": "stores",
+          "label": "Stores delivery",
+          "planned_at": "2026-10-02T14:53:00Z",
+          "duration_minutes": 30,
+          "state": "assigned",
+          "resource_id": "stores-team-1",
+          "dependency_step_ids": [
+            "svc-pc-lima-berth"
+          ]
+        },
+        {
+          "id": "svc-pc-lima-documents",
+          "port_call_id": "pc-lima",
+          "kind": "documents",
+          "label": "Port-call documents",
+          "planned_at": "2026-10-02T21:00:00Z",
+          "duration_minutes": 30,
+          "state": "assigned",
+          "resource_id": "docs-desk-1",
+          "dependency_step_ids": [
+            "svc-pc-lima-berth"
+          ]
+        },
+        {
+          "id": "svc-pc-lima-customs",
+          "port_call_id": "pc-lima",
+          "kind": "customs",
+          "label": "Customs release",
+          "planned_at": "2026-10-02T22:00:00Z",
+          "duration_minutes": 30,
+          "state": "assigned",
+          "resource_id": "customs-team-1",
+          "dependency_step_ids": [
+            "svc-pc-lima-cargo",
+            "svc-pc-lima-documents"
+          ]
+        },
+        {
+          "id": "svc-pc-lima-gate",
+          "port_call_id": "pc-lima",
+          "kind": "gate",
+          "label": "Landside gate clearance",
+          "planned_at": "2026-10-02T22:25:00Z",
+          "duration_minutes": 30,
+          "state": "assigned",
+          "resource_id": "gate-team-1",
+          "dependency_step_ids": [
+            "svc-pc-lima-cargo",
+            "svc-pc-lima-customs"
+          ]
+        },
+        {
+          "id": "svc-pc-lima-departure",
+          "port_call_id": "pc-lima",
+          "kind": "departure",
+          "label": "Departure clearance",
+          "planned_at": "2026-10-02T23:00:00Z",
+          "duration_minutes": 20,
+          "state": "ready",
+          "resource_id": null,
+          "dependency_step_ids": [
+            "svc-pc-lima-cargo",
+            "svc-pc-lima-bunker",
+            "svc-pc-lima-stores",
+            "svc-pc-lima-customs",
+            "svc-pc-lima-gate"
+          ]
+        },
+        {
+          "id": "svc-pc-glory-pilot",
+          "port_call_id": "pc-glory",
+          "kind": "pilot",
+          "label": "Pilot boarding",
+          "planned_at": "2026-10-02T11:27:00Z",
+          "duration_minutes": 30,
+          "state": "assigned",
+          "resource_id": "pilot-alpha",
+          "dependency_step_ids": []
+        },
+        {
+          "id": "svc-pc-glory-tug",
+          "port_call_id": "pc-glory",
+          "kind": "tug",
+          "label": "Tug rendezvous",
+          "planned_at": "2026-10-02T12:00:00Z",
+          "duration_minutes": 45,
+          "state": "assigned",
+          "resource_id": "tug-14",
+          "dependency_step_ids": [
+            "svc-pc-glory-pilot"
+          ]
+        },
+        {
+          "id": "svc-pc-glory-berth",
+          "port_call_id": "pc-glory",
+          "kind": "berth",
+          "label": "Berth access",
+          "planned_at": "2026-10-02T12:22:00Z",
+          "duration_minutes": 15,
+          "state": "assigned",
+          "resource_id": "b-07",
+          "dependency_step_ids": [
+            "svc-pc-glory-tug"
+          ]
+        },
+        {
+          "id": "svc-pc-glory-crane",
+          "port_call_id": "pc-glory",
+          "kind": "crane",
+          "label": "Crane allocation",
+          "planned_at": "2026-10-02T12:57:00Z",
+          "duration_minutes": 30,
+          "state": "assigned",
+          "resource_id": "crane-b07-a",
+          "dependency_step_ids": [
+            "svc-pc-glory-berth"
+          ]
+        },
+        {
+          "id": "svc-pc-glory-cargo",
+          "port_call_id": "pc-glory",
+          "kind": "cargo",
+          "label": "Cargo operation",
+          "planned_at": "2026-10-02T13:07:00Z",
+          "duration_minutes": 180,
+          "state": "ready",
+          "resource_id": null,
+          "dependency_step_ids": [
+            "svc-pc-glory-crane"
+          ]
+        },
+        {
+          "id": "svc-pc-glory-bunker",
+          "port_call_id": "pc-glory",
+          "kind": "bunker",
+          "label": "Bunker service",
+          "planned_at": "2026-10-02T13:37:00Z",
+          "duration_minutes": 60,
+          "state": "assigned",
+          "resource_id": "bunker-barge-4",
+          "dependency_step_ids": [
+            "svc-pc-glory-berth"
+          ]
+        },
+        {
+          "id": "svc-pc-glory-stores",
+          "port_call_id": "pc-glory",
+          "kind": "stores",
+          "label": "Stores delivery",
+          "planned_at": "2026-10-02T13:47:00Z",
+          "duration_minutes": 30,
+          "state": "assigned",
+          "resource_id": "stores-team-1",
+          "dependency_step_ids": [
+            "svc-pc-glory-berth"
+          ]
+        },
+        {
+          "id": "svc-pc-glory-documents",
+          "port_call_id": "pc-glory",
+          "kind": "documents",
+          "label": "Port-call documents",
+          "planned_at": "2026-10-02T17:00:00Z",
+          "duration_minutes": 30,
+          "state": "assigned",
+          "resource_id": "docs-desk-1",
+          "dependency_step_ids": [
+            "svc-pc-glory-berth"
+          ]
+        },
+        {
+          "id": "svc-pc-glory-customs",
+          "port_call_id": "pc-glory",
+          "kind": "customs",
+          "label": "Customs release",
+          "planned_at": "2026-10-02T18:00:00Z",
+          "duration_minutes": 30,
+          "state": "assigned",
+          "resource_id": "customs-team-1",
+          "dependency_step_ids": [
+            "svc-pc-glory-cargo",
+            "svc-pc-glory-documents"
+          ]
+        },
+        {
+          "id": "svc-pc-glory-gate",
+          "port_call_id": "pc-glory",
+          "kind": "gate",
+          "label": "Landside gate clearance",
+          "planned_at": "2026-10-02T18:25:00Z",
+          "duration_minutes": 30,
+          "state": "assigned",
+          "resource_id": "gate-team-1",
+          "dependency_step_ids": [
+            "svc-pc-glory-cargo",
+            "svc-pc-glory-customs"
+          ]
+        },
+        {
+          "id": "svc-pc-glory-departure",
+          "port_call_id": "pc-glory",
+          "kind": "departure",
+          "label": "Departure clearance",
+          "planned_at": "2026-10-02T19:00:00Z",
+          "duration_minutes": 20,
+          "state": "ready",
+          "resource_id": null,
+          "dependency_step_ids": [
+            "svc-pc-glory-cargo",
+            "svc-pc-glory-bunker",
+            "svc-pc-glory-stores",
+            "svc-pc-glory-customs",
+            "svc-pc-glory-gate"
+          ]
+        },
+        {
+          "id": "svc-pc-nova-pilot",
+          "port_call_id": "pc-nova",
+          "kind": "pilot",
+          "label": "Pilot boarding",
+          "planned_at": "2026-10-02T18:40:00Z",
+          "duration_minutes": 30,
+          "state": "assigned",
+          "resource_id": "pilot-bravo",
+          "dependency_step_ids": []
+        },
+        {
+          "id": "svc-pc-nova-tug",
+          "port_call_id": "pc-nova",
+          "kind": "tug",
+          "label": "Tug rendezvous",
+          "planned_at": "2026-10-02T19:13:00Z",
+          "duration_minutes": 45,
+          "state": "assigned",
+          "resource_id": "tug-22",
+          "dependency_step_ids": [
+            "svc-pc-nova-pilot"
+          ]
+        },
+        {
+          "id": "svc-pc-nova-berth",
+          "port_call_id": "pc-nova",
+          "kind": "berth",
+          "label": "Berth access",
+          "planned_at": "2026-10-02T19:35:00Z",
+          "duration_minutes": 15,
+          "state": "assigned",
+          "resource_id": "b-07",
+          "dependency_step_ids": [
+            "svc-pc-nova-tug"
+          ]
+        },
+        {
+          "id": "svc-pc-nova-crane",
+          "port_call_id": "pc-nova",
+          "kind": "crane",
+          "label": "Crane allocation",
+          "planned_at": "2026-10-02T20:10:00Z",
+          "duration_minutes": 30,
+          "state": "assigned",
+          "resource_id": "crane-b07-a",
+          "dependency_step_ids": [
+            "svc-pc-nova-berth"
+          ]
+        },
+        {
+          "id": "svc-pc-nova-cargo",
+          "port_call_id": "pc-nova",
+          "kind": "cargo",
+          "label": "Cargo operation",
+          "planned_at": "2026-10-02T20:20:00Z",
+          "duration_minutes": 180,
+          "state": "ready",
+          "resource_id": null,
+          "dependency_step_ids": [
+            "svc-pc-nova-crane"
+          ]
+        },
+        {
+          "id": "svc-pc-nova-bunker",
+          "port_call_id": "pc-nova",
+          "kind": "bunker",
+          "label": "Bunker service",
+          "planned_at": "2026-10-02T20:50:00Z",
+          "duration_minutes": 60,
+          "state": "assigned",
+          "resource_id": "bunker-barge-9",
+          "dependency_step_ids": [
+            "svc-pc-nova-berth"
+          ]
+        },
+        {
+          "id": "svc-pc-nova-stores",
+          "port_call_id": "pc-nova",
+          "kind": "stores",
+          "label": "Stores delivery",
+          "planned_at": "2026-10-02T21:00:00Z",
+          "duration_minutes": 30,
+          "state": "assigned",
+          "resource_id": "stores-team-1",
+          "dependency_step_ids": [
+            "svc-pc-nova-berth"
+          ]
+        },
+        {
+          "id": "svc-pc-nova-documents",
+          "port_call_id": "pc-nova",
+          "kind": "documents",
+          "label": "Port-call documents",
+          "planned_at": "2026-10-03T00:00:00Z",
+          "duration_minutes": 30,
+          "state": "assigned",
+          "resource_id": "docs-desk-1",
+          "dependency_step_ids": [
+            "svc-pc-nova-berth"
+          ]
+        },
+        {
+          "id": "svc-pc-nova-customs",
+          "port_call_id": "pc-nova",
+          "kind": "customs",
+          "label": "Customs release",
+          "planned_at": "2026-10-03T01:00:00Z",
+          "duration_minutes": 30,
+          "state": "assigned",
+          "resource_id": "customs-team-1",
+          "dependency_step_ids": [
+            "svc-pc-nova-cargo",
+            "svc-pc-nova-documents"
+          ]
+        },
+        {
+          "id": "svc-pc-nova-gate",
+          "port_call_id": "pc-nova",
+          "kind": "gate",
+          "label": "Landside gate clearance",
+          "planned_at": "2026-10-03T01:25:00Z",
+          "duration_minutes": 30,
+          "state": "assigned",
+          "resource_id": "gate-team-1",
+          "dependency_step_ids": [
+            "svc-pc-nova-cargo",
+            "svc-pc-nova-customs"
+          ]
+        },
+        {
+          "id": "svc-pc-nova-departure",
+          "port_call_id": "pc-nova",
+          "kind": "departure",
+          "label": "Departure clearance",
+          "planned_at": "2026-10-03T02:00:00Z",
+          "duration_minutes": 20,
+          "state": "ready",
+          "resource_id": null,
+          "dependency_step_ids": [
+            "svc-pc-nova-cargo",
+            "svc-pc-nova-bunker",
+            "svc-pc-nova-stores",
+            "svc-pc-nova-customs",
+            "svc-pc-nova-gate"
+          ]
+        }
+      ],
+      "service_duration_calibrations": [
+        {
+          "service_kind": "pilot",
+          "duration_minutes": 30,
+          "source_id": "synthetic-service-calibration",
+          "mode": "synthetic",
+          "provider": "PortFlow synthetic service-duration calibration",
+          "observed_at": "2026-10-02T12:00:00Z",
+          "detail": "Synthetic duration assumption for the portfolio demo."
+        },
+        {
+          "service_kind": "tug",
+          "duration_minutes": 45,
+          "source_id": "synthetic-service-calibration",
+          "mode": "synthetic",
+          "provider": "PortFlow synthetic service-duration calibration",
+          "observed_at": "2026-10-02T12:00:00Z",
+          "detail": "Synthetic duration assumption for the portfolio demo."
+        },
+        {
+          "service_kind": "berth",
+          "duration_minutes": 15,
+          "source_id": "synthetic-service-calibration",
+          "mode": "synthetic",
+          "provider": "PortFlow synthetic service-duration calibration",
+          "observed_at": "2026-10-02T12:00:00Z",
+          "detail": "Synthetic duration assumption for the portfolio demo."
+        },
+        {
+          "service_kind": "crane",
+          "duration_minutes": 30,
+          "source_id": "synthetic-service-calibration",
+          "mode": "synthetic",
+          "provider": "PortFlow synthetic service-duration calibration",
+          "observed_at": "2026-10-02T12:00:00Z",
+          "detail": "Synthetic duration assumption for the portfolio demo."
+        },
+        {
+          "service_kind": "cargo",
+          "duration_minutes": 180,
+          "source_id": "synthetic-service-calibration",
+          "mode": "synthetic",
+          "provider": "PortFlow synthetic service-duration calibration",
+          "observed_at": "2026-10-02T12:00:00Z",
+          "detail": "Synthetic duration assumption for the portfolio demo."
+        },
+        {
+          "service_kind": "bunker",
+          "duration_minutes": 60,
+          "source_id": "synthetic-service-calibration",
+          "mode": "synthetic",
+          "provider": "PortFlow synthetic service-duration calibration",
+          "observed_at": "2026-10-02T12:00:00Z",
+          "detail": "Synthetic duration assumption for the portfolio demo."
+        },
+        {
+          "service_kind": "stores",
+          "duration_minutes": 30,
+          "source_id": "synthetic-service-calibration",
+          "mode": "synthetic",
+          "provider": "PortFlow synthetic service-duration calibration",
+          "observed_at": "2026-10-02T12:00:00Z",
+          "detail": "Synthetic duration assumption for the portfolio demo."
+        },
+        {
+          "service_kind": "documents",
+          "duration_minutes": 30,
+          "source_id": "synthetic-service-calibration",
+          "mode": "synthetic",
+          "provider": "PortFlow synthetic service-duration calibration",
+          "observed_at": "2026-10-02T12:00:00Z",
+          "detail": "Synthetic duration assumption for the portfolio demo."
+        },
+        {
+          "service_kind": "customs",
+          "duration_minutes": 30,
+          "source_id": "synthetic-service-calibration",
+          "mode": "synthetic",
+          "provider": "PortFlow synthetic service-duration calibration",
+          "observed_at": "2026-10-02T12:00:00Z",
+          "detail": "Synthetic duration assumption for the portfolio demo."
+        },
+        {
+          "service_kind": "gate",
+          "duration_minutes": 30,
+          "source_id": "synthetic-service-calibration",
+          "mode": "synthetic",
+          "provider": "PortFlow synthetic service-duration calibration",
+          "observed_at": "2026-10-02T12:00:00Z",
+          "detail": "Synthetic duration assumption for the portfolio demo."
+        },
+        {
+          "service_kind": "departure",
+          "duration_minutes": 20,
+          "source_id": "synthetic-service-calibration",
+          "mode": "synthetic",
+          "provider": "PortFlow synthetic service-duration calibration",
+          "observed_at": "2026-10-02T12:00:00Z",
+          "detail": "Synthetic duration assumption for the portfolio demo."
+        }
+      ],
+      "events": [
+        {
+          "id": "evt-bf92a092191445",
+          "occurred_at": "2026-10-02T12:00:00Z",
+          "category": "system",
+          "severity": "low",
+          "title": "Operations picture initialized",
+          "message": "Synthetic harbor state is live.",
+          "vessel_id": null,
+          "berth_id": null,
+          "port_call_id": null,
+          "incident_id": null,
+          "actor_id": null,
+          "actor_role": null,
+          "source_id": null
+        }
+      ],
+      "data_sources": [
+        {
+          "source_id": "synthetic-ais",
+          "domain": "ais",
+          "mode": "synthetic",
+          "provider": "PortFlow synthetic harbor generator",
+          "observed_at": "2026-10-02T12:00:00Z",
+          "received_at": "2026-10-02T12:00:00Z",
+          "freshness_seconds": 0,
+          "stale_after_seconds": 10000000,
+          "stale": false,
+          "health": "healthy",
+          "record_count": 6,
+          "detail": "Synthetic vessel positions for the portfolio demo.",
+          "last_success_at": null,
+          "last_attempt_at": null,
+          "next_retry_at": null,
+          "retry_delay_seconds": 0,
+          "consecutive_errors": 0,
+          "using_cached_records": false
+        },
+        {
+          "source_id": "synthetic-weather",
+          "domain": "weather_tide",
+          "mode": "synthetic",
+          "provider": "PortFlow synthetic metocean generator",
+          "observed_at": "2026-10-02T12:00:00Z",
+          "received_at": "2026-10-02T12:00:00Z",
+          "freshness_seconds": 0,
+          "stale_after_seconds": 10000000,
+          "stale": false,
+          "health": "healthy",
+          "record_count": 1,
+          "detail": "Synthetic weather and tide state for the portfolio demo.",
+          "last_success_at": null,
+          "last_attempt_at": null,
+          "next_retry_at": null,
+          "retry_delay_seconds": 0,
+          "consecutive_errors": 0,
+          "using_cached_records": false
+        },
+        {
+          "source_id": "synthetic-berth-plan",
+          "domain": "berth_plan",
+          "mode": "synthetic",
+          "provider": "PortFlow synthetic berth-plan generator",
+          "observed_at": "2026-10-02T12:00:00Z",
+          "received_at": "2026-10-02T12:00:00Z",
+          "freshness_seconds": 0,
+          "stale_after_seconds": 10000000,
+          "stale": false,
+          "health": "healthy",
+          "record_count": 4,
+          "detail": "Synthetic berth allocations and port-call timing.",
+          "last_success_at": null,
+          "last_attempt_at": null,
+          "next_retry_at": null,
+          "retry_delay_seconds": 0,
+          "consecutive_errors": 0,
+          "using_cached_records": false
+        },
+        {
+          "source_id": "synthetic-service-calibration",
+          "domain": "service_calibration",
+          "mode": "synthetic",
+          "provider": "PortFlow synthetic service-duration calibration",
+          "observed_at": "2026-10-02T12:00:00Z",
+          "received_at": "2026-10-02T12:00:00Z",
+          "freshness_seconds": 0,
+          "stale_after_seconds": 10000000,
+          "stale": false,
+          "health": "healthy",
+          "record_count": 11,
+          "detail": "Synthetic service-duration assumptions for the portfolio demo.",
+          "last_success_at": null,
+          "last_attempt_at": null,
+          "next_retry_at": null,
+          "retry_delay_seconds": 0,
+          "consecutive_errors": 0,
+          "using_cached_records": false
+        }
+      ],
+      "metrics": {
+        "vessels_in_port_picture": 6,
+        "berths_occupied": 1,
+        "berths_total": 5,
+        "port_calls_at_risk": 0,
+        "average_delay_minutes": 0.0,
+        "active_incidents": 0,
+        "berth_conflicts": 0,
+        "blocked_services": 0,
+        "delayed_services": 0,
+        "queued_events": 0,
+        "stale_data_sources": 0
+      },
+      "data_disclaimer": "Demonstration only. No live external feeds are active. Vessel, port-call, weather, risk, incident, service, and operational data are synthetic."
+    },
+    "recovery_proposals": []
+  },
+  "evidence_sha256": "661f963051076354821730959278fc84f719f73c1c2da115b761efaf3ea879d2",
+  "restored_recovery_fingerprint": "4de1bbc296e56f03"
+}

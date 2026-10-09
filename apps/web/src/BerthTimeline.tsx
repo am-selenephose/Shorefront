@@ -76,7 +76,7 @@ export function BerthTimeline({ state }: { state: HarborState }) {
                     style={{
                       left: String(left) + '%',
                       width: String(width) + '%',
-                      top: String(6 + (index % 2) * 22) + 'px',
+                      top: String(8 + (index % 2) * 42) + 'px',
                     }}
                     title={(vessel?.name || call.id) + ' · ' + call.delay_minutes + ' min delay'}
                   >

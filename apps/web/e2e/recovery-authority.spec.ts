@@ -1,13 +1,13 @@
 import { expect, test } from '@playwright/test'
 
-const operatorToken = process.env.PORTFLOW_E2E_OPERATOR_TOKEN || 'portflow-e2e-test-only'
-const integrationToken = process.env.PORTFLOW_E2E_INTEGRATION_TOKEN || 'portflow-e2e-integration-test-only'
+const operatorToken = process.env.SHOREFRONT_E2E_OPERATOR_TOKEN || 'shorefront-e2e-test-only'
+const integrationToken = process.env.SHOREFRONT_E2E_INTEGRATION_TOKEN || 'shorefront-e2e-integration-test-only'
 
 test('incident to authenticated recovery receipt survives reload', async ({ page, request }) => {
   const reset = await request.post('/api/v1/demo/reset')
   expect(reset.ok()).toBeTruthy()
 
-  await page.goto('/')
+  await page.goto('/#control-tower')
 
   const incidentButton = page.getByRole('button', { name: /B07 Berth Crunch/i })
   await expect(incidentButton).toBeVisible()
@@ -37,13 +37,18 @@ test('incident to authenticated recovery receipt survives reload', async ({ page
   expect(await conflicts.json()).toEqual([])
 
   const storedToken = await page.evaluate(() =>
-    sessionStorage.getItem('portflow.operator_token'),
+    sessionStorage.getItem('shorefront.operator_token'),
   )
   expect(storedToken).toBe(operatorToken)
 
   await page.reload()
   await expect(page.getByText('E2E Operator').first()).toBeVisible()
   await expect(page.getByText(/RECENT OPERATOR RECEIPTS · 1/)).toBeVisible()
+  await page.getByRole('button', { name: 'End session' }).click()
+  await expect(page.getByText('Not authenticated', { exact: true })).toBeVisible()
+  expect(await page.evaluate(() => sessionStorage.getItem('shorefront.operator_token'))).toBeNull()
+  await page.reload()
+  await expect(page.getByText('Not authenticated', { exact: true })).toBeVisible()
 })
 
 
@@ -51,7 +56,7 @@ test('operator ingests healthy recorded AIS while stale adapter stays blocked', 
   const reset = await request.post('/api/v1/demo/reset')
   expect(reset.ok()).toBeTruthy()
 
-  await page.goto('/')
+  await page.goto('/#control-tower')
 
   const initialSource = page.locator('[data-source-id="synthetic-ais"]')
   const calibrationSource = page.locator('[data-source-id="synthetic-service-calibration"]')
@@ -86,7 +91,7 @@ test('operator ingests healthy recorded AIS while stale adapter stays blocked', 
   const recordedSource = page.locator('[data-source-id="recorded-ais"]')
   await expect(recordedSource).toBeVisible()
   await expect(recordedSource.locator('.source-mode.recorded')).toHaveText('recorded')
-  await expect(recordedSource.getByText('PortFlow recorded AIS fixture')).toBeVisible()
+  await expect(recordedSource.getByText('Shorefront recorded AIS fixture')).toBeVisible()
 
   const harbor = await request.get('/api/v1/harbor')
   expect(harbor.ok()).toBeTruthy()
@@ -115,7 +120,7 @@ test('bunker loss renders the branched DAG and operator recovery clears shared b
   const reset = await request.post('/api/v1/demo/reset')
   expect(reset.ok()).toBeTruthy()
 
-  await page.goto('/')
+  await page.goto('/#control-tower')
 
   const scenarioButton = page.getByRole('button', { name: /^Bunker Barge 4 Unavailable\b/i })
   await expect(scenarioButton).toBeVisible()
@@ -193,7 +198,7 @@ test('compound dual-resource recovery links both incidents and clears tug/bunker
   const reset = await request.post('/api/v1/demo/reset')
   expect(reset.ok()).toBeTruthy()
 
-  await page.goto('/')
+  await page.goto('/#control-tower')
 
   const scenarioButton = page.getByRole('button', {
     name: 'Tug 14 + Bunker Barge 4 Unavailable',
@@ -248,7 +253,7 @@ test('stale selected recovery resource loads ranked contingency and requires re-
   const reset = await request.post('/api/v1/demo/reset')
   expect(reset.ok()).toBeTruthy()
 
-  await page.goto('/')
+  await page.goto('/#control-tower')
 
   const scenarioButton = page.getByRole('button', {
     name: /^Bunker Barge 4 Unavailable\b/i,
@@ -265,6 +270,32 @@ test('stale selected recovery resource loads ranked contingency and requires re-
   await page.getByLabel('Operator access token').fill(operatorToken)
   await page.getByRole('button', { name: 'Verify' }).click()
   await expect(page.getByText('E2E Operator').first()).toBeVisible()
+
+  // Preserve the proposal the operator actually reviewed while the backend state
+  // changes underneath it. The stale approval POST must still reach the real API
+  // and return 409; only background proposal refresh GETs are frozen until then.
+  const reviewedSnapshotResponse = await request.get('/api/v1/recovery/proposals')
+  expect(reviewedSnapshotResponse.ok()).toBeTruthy()
+  const reviewedSnapshot = await reviewedSnapshotResponse.json()
+  let freezeProposalRefresh = true
+  const proposalRefreshHandler = async (route: import('@playwright/test').Route) => {
+    const request = route.request()
+    if (request.method() === 'POST' && request.url().endsWith('/apply')) {
+      freezeProposalRefresh = false
+      await route.continue()
+      return
+    }
+    if (request.method() === 'GET' && freezeProposalRefresh) {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(reviewedSnapshot),
+      })
+      return
+    }
+    await route.continue()
+  }
+  await page.route('**/api/v1/recovery/proposals**', proposalRefreshHandler)
 
   const failedBackup = await request.post('/api/v1/incidents', {
     data: {
@@ -287,6 +318,8 @@ test('stale selected recovery resource loads ranked contingency and requires re-
   await staleApprove.click()
   const staleApplyResponse = await staleApplyPromise
   expect(staleApplyResponse.status()).toBe(409)
+  freezeProposalRefresh = false
+  await page.unroute('**/api/v1/recovery/proposals**', proposalRefreshHandler)
 
   const contingencyNotice = page.getByText(
     /CONTINGENCY · Previous recovery plan is stale\./,
@@ -395,7 +428,7 @@ test('shore operator sees privacy-minimized vessel exception resolution lifecycl
     expect(response.ok()).toBeTruthy()
   }
 
-  await page.goto('/')
+  await page.goto('/#control-tower')
   const panel = page.locator('#vessel-exceptions')
   await expect(panel.getByText('OPERATOR SESSION REQUIRED')).toBeVisible()
 
@@ -422,11 +455,44 @@ test('shore operator sees privacy-minimized vessel exception resolution lifecycl
   await expect(panel).not.toContainText('producer private summary')
 })
 
-test("KRATIA Shore public product shell keeps advisory authority visible", async ({ page }) => {
+test("Shorefront public product shell keeps advisory authority visible", async ({ page }) => {
   await page.goto("/");
-  await expect(page.getByText("KRATIA", { exact: true })).toBeVisible();
+  await expect(page.getByText("Shorefront", { exact: true })).toBeVisible();
   await expect(page.getByText("MARITIME · SHORE", { exact: true })).toBeVisible();
-  await expect(page.getByText("KRATIA SHORE · OPERATIONS CONTROL TOWER", { exact: true })).toBeVisible();
+  await expect(page.getByText("SHOREFRONT · OPERATIONS CONTROL TOWER", { exact: true })).toBeVisible();
   await expect(page.getByText("NO VESSEL ACTUATION", { exact: true })).toBeVisible();
-  await expect(page).toHaveTitle(/KRATIA Shore/);
+  await expect(page).toHaveTitle(/Shorefront/);
 });
+
+test('retired browser credential is cleared and does not authenticate', async ({ page }) => {
+  await page.addInitScript(token => {
+    sessionStorage.setItem('portflow.operator_token', token)
+  }, operatorToken)
+  await page.goto('/#control-tower')
+  await expect(page.locator('.shell')).toBeVisible()
+  await expect.poll(() => page.evaluate(() => sessionStorage.getItem('portflow.operator_token'))).toBeNull()
+  await expect(page.getByRole('button', { name: 'Verify' })).toBeVisible()
+})
+
+test('Shorefront identity remains visible across viewports', async ({ page }, testInfo) => {
+  for (const [name, width, height] of [['desktop', 1280, 900], ['tablet', 768, 1024], ['mobile', 375, 812]] as const) {
+    await page.setViewportSize({ width, height })
+    await page.goto('/#control-tower')
+    await expect(page.getByText('SHOREFRONT · OPERATIONS CONTROL TOWER', { exact: true })).toBeVisible()
+    await expect(page.getByLabel('Shorefront authority boundary')).toBeVisible()
+    await expect(page).toHaveTitle(/Shorefront/)
+    await page.screenshot({ path: testInfo.outputPath(`shorefront-${name}.png`), fullPage: false })
+  }
+  const token = page.getByLabel('Operator access token')
+  await token.fill(operatorToken)
+  await page.keyboard.press('Tab')
+  await expect(page.getByRole('button', { name: 'Verify' })).toBeFocused()
+})
+
+test('initial loading state uses Shorefront identity', async ({ page }) => {
+  await page.route('**/api/v1/harbor', route => route.abort())
+  await page.routeWebSocket('**/ws/harbor', () => {})
+  await page.goto('/#control-tower')
+  await expect(page.locator('.boot')).toContainText('Shorefront')
+  await expect(page.locator('.boot')).not.toContainText('KRATIA')
+})

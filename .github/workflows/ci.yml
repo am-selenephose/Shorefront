@@ -6,6 +6,10 @@ on:
     branches: [main]
   pull_request:
 
+concurrency:
+  group: shorefront-ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   api:
     runs-on: ubuntu-latest
@@ -20,6 +24,60 @@ jobs:
       - run: uv sync --extra dev
       - run: uv run pytest -q
 
+  postgres:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - name: Match PostgreSQL 17 client to disposable server
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/pg-client"
+          cat > "$RUNNER_TEMP/pg-client/pg_dump" <<'SH'
+          #!/usr/bin/env bash
+          set -euo pipefail
+          exec docker run --rm -i --network none \
+            --user "$(id -u):$(id -g)" \
+            --mount type=bind,src=/tmp,dst=/tmp \
+            -e PGHOST -e PGPORT -e PGUSER -e PGDATABASE \
+            postgres:17-alpine "$(basename "$0")" "$@"
+          SH
+          chmod +x "$RUNNER_TEMP/pg-client/pg_dump"
+          ln -s pg_dump "$RUNNER_TEMP/pg-client/psql"
+          echo "$RUNNER_TEMP/pg-client" >> "$GITHUB_PATH"
+      - name: Install API dependencies
+        working-directory: apps/api
+        run: uv sync --extra dev
+      - name: Start disposable PostgreSQL with private Unix socket
+        run: |
+          set -euo pipefail
+          sock=/tmp/shorefront-product-pg.ci
+          mkdir -p "$sock"
+          chmod 0777 "$sock"
+          docker run -d --rm \
+            --name shorefront-ci-postgres \
+            -e POSTGRES_HOST_AUTH_METHOD=trust \
+            -v "$sock:/var/run/postgresql" \
+            postgres:17-alpine \
+            -c unix_socket_directories=/var/run/postgresql \
+            -c listen_addresses=
+          for attempt in $(seq 1 60); do
+            if test -S "$sock/.s.PGSQL.5432"; then exit 0; fi
+            sleep 0.25
+          done
+          docker logs shorefront-ci-postgres
+          exit 1
+      - name: Verify PostgreSQL concurrency and backup restore
+        working-directory: apps/api
+        env:
+          SF_TEST_POSTGRES_URL: postgresql+psycopg://postgres@/postgres?host=/tmp/shorefront-product-pg.ci
+        run: uv run pytest -q tests/test_product_postgres.py
+      - name: Stop disposable PostgreSQL
+        if: always()
+        run: docker stop shorefront-ci-postgres || true
+
   web:
     runs-on: ubuntu-latest
     defaults:
@@ -33,26 +91,84 @@ jobs:
           cache: npm
           cache-dependency-path: apps/web/package-lock.json
       - run: npm ci
+      - run: npm run test:config
       - run: npm run build
       - run: npm audit --omit=dev --audit-level=high
-      - run: ../../deploy/basicdeploy_bundle.sh /tmp/portflow-public-deploy.tgz
+      - run: ../../deploy/basicdeploy_bundle.sh /tmp/shorefront-public-deploy.tgz
+
+  browser:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        browser: [chromium, firefox, webkit]
+    defaults:
+      run:
+        working-directory: apps/web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: apps/web/package-lock.json
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - name: Install browser and API dependencies
+        run: |
+          npm ci
+          npx playwright install --with-deps ${{ matrix.browser }}
+          cd ../api
+          uv sync --extra dev
+          cd ../web
+          npm run build
+      - name: Operational browser workflows (${{ matrix.browser }})
+        env:
+          SHOREFRONT_E2E_BROWSER: ${{ matrix.browser }}
+        run: npm run test:product
+      - name: Training and simulator regressions
+        if: matrix.browser == 'chromium'
+        run: npm run test:e2e
+      - name: Intelligence and NOAA boundary regressions
+        if: matrix.browser == 'chromium'
+        run: npm run test:intelligence
+
+  delivery:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: apps/web/package-lock.json
+      - run: npm ci
+      - run: docker build -t shorefront-web:local .
+      - run: npm run test:delivery
 
   deployment:
     runs-on: ubuntu-latest
     env:
-      PORTFLOW_DB_PASSWORD: ci-placeholder
+      SHOREFRONT_DB_PASSWORD: ci-placeholder
+      PORTFLOW_DB_PASSWORD: ci-placeholder # Legacy Compose interpolation is evaluated by the runner.
+      SHOREFRONT_APPROVERS_JSON: '[]'
       PORTFLOW_APPROVERS_JSON: '[]'
-      PORTFLOW_IMAGE_TAG: ci
-      PORTFLOW_HTTPS_PORT: 8443
-      PORTFLOW_PUBLIC_HTTPS_ORIGIN: https://localhost:8443
-      PORTFLOW_TLS_CERT_FILE: /tmp/portflow-ci.crt
-      PORTFLOW_TLS_KEY_FILE: /tmp/portflow-ci.key
+      SHOREFRONT_IMAGE_TAG: ci
+      SHOREFRONT_HTTPS_PORT: 8443
+      SHOREFRONT_PUBLIC_HTTPS_ORIGIN: https://localhost:8443
+      SHOREFRONT_TLS_CERT_FILE: /tmp/shorefront-ci.crt
+      SHOREFRONT_TLS_KEY_FILE: /tmp/shorefront-ci.key
     steps:
       - uses: actions/checkout@v4
       - run: sh -n deploy/basicdeploy_boot.sh deploy/basicdeploy_prepare.sh deploy/basicdeploy_bundle.sh
       - run: bash -n ops/backup-postgres.sh
       - run: bash -n ops/restore-postgres.sh
+      - run: bash -n ops/scheduled-backup.sh ops/operational-healthcheck.sh ops/install-user-ops.sh
       - run: docker compose -f docker-compose.prod.yml config >/dev/null
       - run: docker compose -f docker-compose.prod.yml -f docker-compose.tls.yml config >/dev/null
-      - run: docker build -t portflow-api:ci apps/api
-      - run: docker build -t portflow-web:ci apps/web
+      - run: docker build -t shorefront-api:ci apps/api
+      - run: docker build -t shorefront-web:ci apps/web

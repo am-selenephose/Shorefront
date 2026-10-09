@@ -1,15 +1,19 @@
 import { createHash } from 'node:crypto'
+import { existsSync, mkdtempSync } from 'node:fs'
+const systemChromium = process.env.SHOREFRONT_CHROMIUM_EXECUTABLE ?? (existsSync('/usr/bin/chromium') ? '/usr/bin/chromium' : undefined)
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { defineConfig } from '@playwright/test'
 
-const e2eToken = 'portflow-e2e-test-only'
-const e2eIntegrationToken = 'portflow-e2e-integration-test-only'
-const e2eDataDir = '/tmp/portflow-e2e-v016-' + process.pid
+const e2eToken = 'shorefront-e2e-test-only'
+const e2eIntegrationToken = 'shorefront-e2e-integration-test-only'
+const e2eDataDir = mkdtempSync(join(tmpdir(), 'shorefront-e2e-'))
 const tokenDigest = createHash('sha256').update(e2eToken).digest('hex')
 const integrationTokenDigest = createHash('sha256')
   .update(e2eIntegrationToken)
   .digest('hex')
-process.env.PORTFLOW_E2E_OPERATOR_TOKEN = e2eToken
-process.env.PORTFLOW_E2E_INTEGRATION_TOKEN = e2eIntegrationToken
+process.env.SHOREFRONT_E2E_OPERATOR_TOKEN = e2eToken
+process.env.SHOREFRONT_E2E_INTEGRATION_TOKEN = e2eIntegrationToken
 
 const approvers = JSON.stringify([
   {
@@ -43,31 +47,41 @@ export default defineConfig({
     screenshot: 'only-on-failure',
     video: 'off',
     launchOptions: {
-      executablePath: '/usr/bin/chromium',
+      ...(systemChromium ? {executablePath:systemChromium} : {}),
       args: ['--no-sandbox'],
     },
   },
   webServer: [
     {
-      command: 'cd ../api && uv run uvicorn portflow_api.main:app --host 127.0.0.1 --port 8150',
+      command: 'cd ../api && uv run uvicorn shorefront_api.main:app --host 127.0.0.1 --port 8150',
       url: 'http://127.0.0.1:8150/healthz',
       timeout: 60_000,
       reuseExistingServer: false,
       env: {
-        PORTFLOW_APPROVERS_JSON: approvers,
-        PORTFLOW_INTEGRATIONS_JSON: integrations,
-        PORTFLOW_DATA_DIR: e2eDataDir,
-        PORTFLOW_AIS_URL: 'http://127.0.0.1:9/e2e-unavailable',
-        PORTFLOW_AIS_PROVIDER: 'E2E unavailable AIS',
+        DATABASE_URL: `sqlite:///${join(e2eDataDir, 'test.db')}`,
+        SHOREFRONT_SCHEMA_MODE: 'migrate',
+        SHOREFRONT_RUNTIME_MODE: 'training',
+        SHOREFRONT_PUBLIC_MODE: '0',
+        SHOREFRONT_DEMO_CONTROLS: '1',
+        SHOREFRONT_STATIC_DIR: '',
+        SHOREFRONT_APPROVERS_JSON: approvers,
+        SHOREFRONT_INTEGRATIONS_JSON: integrations,
+        SHOREFRONT_DATA_DIR: e2eDataDir,
+        SHOREFRONT_AIS_URL: 'http://127.0.0.1:9/e2e-unavailable',
+        SHOREFRONT_AIS_PROVIDER: 'E2E unavailable AIS',
+        SHOREFRONT_WEATHER_URL: '',
+        SHOREFRONT_BERTH_PLAN_URL: '',
       },
     },
     {
-      command: 'npm run dev -- --host 127.0.0.1 --port 5175 --strictPort',
+      command: process.env.SHOREFRONT_E2E_BUILT === '1'
+        ? './node_modules/.bin/vite preview --config vite.config.ts --outDir '+(process.env.SHOREFRONT_E2E_DIST_DIR ?? 'dist')+' --host 127.0.0.1 --port 5175 --strictPort'
+        : 'npm run dev -- --host 127.0.0.1 --port 5175 --strictPort',
       url: 'http://127.0.0.1:5175',
       timeout: 60_000,
       reuseExistingServer: false,
       env: {
-        PORTFLOW_API_TARGET: 'http://127.0.0.1:8150',
+        SHOREFRONT_API_TARGET: 'http://127.0.0.1:8150',
       },
     },
   ],

@@ -1,0 +1,538 @@
+"""Scoped machine ingestion and partner projections for the operational workspace."""
+from __future__ import annotations
+
+from datetime import datetime, timedelta, timezone
+import json
+import secrets
+
+from fastapi import HTTPException, Request
+from sqlalchemy import insert, select, update
+
+from .product_models import (IntegrationBatch, PartnerDeliveryAck, PartnerGrantCreate, RecordCommand,
+                             SourceCreate, now, stamp)
+from .product_store import (canonical, commands, connection_sources, digest, partner_deliveries,
+                            partner_grants, source_standard_profiles)
+
+
+def _expires(hours: int) -> str:
+    return stamp(now() + timedelta(hours=hours))
+
+
+def _expired(value: str) -> bool:
+    return datetime.fromisoformat(value).astimezone(timezone.utc) <= now()
+
+
+def _bearer(request: Request) -> str:
+    value = request.headers.get('authorization', '')
+    if not value.startswith('Bearer ') or not value[7:].strip() or len(value) > 300:
+        raise HTTPException(401, 'A valid connection bearer token is required')
+    return value[7:].strip()
+
+
+def _source_public(row, standard_profiles=None) -> dict:
+    return {
+        'id': row['id'],
+        'name': row['name'],
+        'allowed_kinds': json.loads(row['allowed_kinds']),
+        'standard_profiles': list(standard_profiles or []),
+        'active': bool(row['active']),
+        'created_by': row['created_by'],
+        'created_at': row['created_at'],
+        'expires_at': row['expires_at'],
+        'expired': _expired(row['expires_at']),
+        'last_used_at': row['last_used_at'],
+        'write_count': row['write_count'],
+    }
+
+
+def _grant_public(row) -> dict:
+    return {
+        'id': row['id'],
+        'name': row['name'],
+        'allowed_kinds': json.loads(row['allowed_kinds']),
+        'fields': json.loads(row['field_rules']),
+        'call_ids': json.loads(row['call_ids']),
+        'active': bool(row['active']),
+        'created_by': row['created_by'],
+        'created_at': row['created_at'],
+        'expires_at': row['expires_at'],
+        'expired': _expired(row['expires_at']),
+        'last_used_at': row['last_used_at'],
+        'access_count': row['access_count'],
+    }
+
+
+def _source_profiles(connection, source_id: str) -> list[str]:
+    return list(connection.execute(
+        select(source_standard_profiles.c.profile_id)
+        .where(source_standard_profiles.c.source_id == source_id)
+        .order_by(source_standard_profiles.c.profile_id)
+    ).scalars())
+
+
+def create_source(store, connection, actor, body: SourceCreate) -> dict:
+    if actor['role'] != 'admin':
+        raise HTTPException(403, 'Administrator authority required')
+    if connection.execute(select(connection_sources.c.id).where(connection_sources.c.id == body.id)).scalar_one_or_none():
+        raise HTTPException(409, 'Connection source already exists')
+    token = secrets.token_urlsafe(32)
+    created = stamp(now())
+    row = {
+        'id': body.id,
+        'name': body.name,
+        'digest': digest(token),
+        'allowed_kinds': canonical(body.allowed_kinds),
+        'active': 1,
+        'created_by': actor['id'],
+        'created_at': created,
+        'expires_at': _expires(body.expires_in_hours),
+        'last_used_at': None,
+        'write_count': 0,
+    }
+    connection.execute(insert(connection_sources).values(**row))
+    for profile_id in body.standard_profiles:
+        connection.execute(insert(source_standard_profiles).values(source_id=body.id, profile_id=profile_id))
+    store.add_audit(connection, actor['id'], 'connection.source.created',
+                    {'id': body.id, 'name': body.name, 'allowed_kinds': body.allowed_kinds,
+                     'standard_profiles': body.standard_profiles, 'expires_at': row['expires_at']})
+    return {'source': _source_public(row, body.standard_profiles), 'token': token}
+
+
+def list_sources(connection, actor) -> list[dict]:
+    if actor['role'] != 'admin':
+        raise HTTPException(403, 'Administrator authority required')
+    rows = connection.execute(select(connection_sources).order_by(connection_sources.c.id)).mappings()
+    return [_source_public(row, _source_profiles(connection, row['id'])) for row in rows]
+
+
+def revoke_source(store, connection, actor, source_id: str) -> dict:
+    if actor['role'] != 'admin':
+        raise HTTPException(403, 'Administrator authority required')
+    row = connection.execute(select(connection_sources).where(connection_sources.c.id == source_id)).mappings().first()
+    if not row:
+        raise HTTPException(404, 'Connection source not found')
+    if row['active']:
+        connection.execute(update(connection_sources).where(connection_sources.c.id == source_id).values(active=0))
+        store.add_audit(connection, actor['id'], 'connection.source.revoked', {'id': source_id})
+    return {**_source_public({**row, 'active': 0}, _source_profiles(connection, source_id)), 'active': False}
+
+
+def rotate_source(store, connection, actor, source_id: str, hours: int) -> dict:
+    if actor['role'] != 'admin':
+        raise HTTPException(403, 'Administrator authority required')
+    row = connection.execute(select(connection_sources).where(connection_sources.c.id == source_id)).mappings().first()
+    if not row:
+        raise HTTPException(404, 'Connection source not found')
+    token = secrets.token_urlsafe(32)
+    expires_at = _expires(hours)
+    connection.execute(update(connection_sources).where(connection_sources.c.id == source_id).values(
+        digest=digest(token), active=1, expires_at=expires_at))
+    refreshed = {**row, 'digest': digest(token), 'active': 1, 'expires_at': expires_at}
+    store.add_audit(connection, actor['id'], 'connection.source.rotated',
+                    {'id': source_id, 'expires_at': expires_at})
+    return {'source': _source_public(refreshed, _source_profiles(connection, source_id)), 'token': token}
+
+
+def _authenticated_source(connection, request: Request, source_id: str):
+    token = _bearer(request)
+    row = connection.execute(select(connection_sources).where(
+        connection_sources.c.id == source_id,
+        connection_sources.c.digest == digest(token),
+    )).mappings().first()
+    if not row or not row['active'] or _expired(row['expires_at']):
+        raise HTTPException(401, 'Connection credential is invalid, expired or revoked')
+    return row
+
+
+def ingest_records(store, connection, request: Request, source_id: str, body: IntegrationBatch, key: str):
+    row = _authenticated_source(connection, request, source_id)
+    allowed = set(json.loads(row['allowed_kinds']))
+    forbidden = sorted({item.kind for item in body.records} - allowed)
+    if forbidden:
+        raise HTTPException(403, f'Connection is not allowed to write: {", ".join(forbidden)}')
+    actor = {'id': f'integration:{source_id}', 'role': 'operator', 'active': 1}
+    intent = digest(canonical({'source_id': source_id, 'records': body.model_dump(mode='json')}))
+    prior = connection.execute(select(commands).where(
+        commands.c.actor_id == actor['id'], commands.c.key == key)).mappings().first()
+    if prior:
+        if prior['digest'] != intent:
+            raise HTTPException(409, 'Idempotency key already belongs to another integration command')
+        return json.loads(prior['response'])
+    results = []
+    for index, item in enumerate(body.records):
+        command = RecordCommand(
+            record_id=item.record_id,
+            expected_revision=item.expected_revision,
+            valid_at=item.valid_at,
+            source=f'integration:{source_id}',
+            payload=item.payload,
+        )
+        results.append(store.write_record(connection, actor, item.kind, command,
+                                          digest(f'integration:{source_id}:{key}:{index}')))
+    response = {'records': results}
+    connection.execute(insert(commands).values(actor_id=actor['id'], key=key,
+                                               digest=intent, response=canonical(response)))
+    connection.execute(update(connection_sources).where(connection_sources.c.id == source_id).values(
+        last_used_at=stamp(now()), write_count=connection_sources.c.write_count + len(results)))
+    return response
+
+
+def create_partner_grant(store, connection, actor, body: PartnerGrantCreate) -> dict:
+    if actor['role'] != 'admin':
+        raise HTTPException(403, 'Administrator authority required')
+    if connection.execute(select(partner_grants.c.id).where(partner_grants.c.id == body.id)).scalar_one_or_none():
+        raise HTTPException(409, 'Partner projection grant already exists')
+    # Call scopes are validated at grant creation so a typo never broadens to an unscoped projection.
+    if body.call_ids:
+        effective = {(record['kind'], record['record_id']) for record in store.snapshot(connection)}
+        missing = [call_id for call_id in body.call_ids if ('call', call_id) not in effective]
+        if missing:
+            raise HTTPException(422, f'Unknown effective call scope: {", ".join(missing)}')
+    token = secrets.token_urlsafe(32)
+    row = {
+        'id': body.id,
+        'name': body.name,
+        'digest': digest(token),
+        'allowed_kinds': canonical(body.allowed_kinds),
+        'field_rules': canonical(body.fields),
+        'call_ids': canonical(body.call_ids),
+        'active': 1,
+        'created_by': actor['id'],
+        'created_at': stamp(now()),
+        'expires_at': _expires(body.expires_in_hours),
+        'last_used_at': None,
+        'access_count': 0,
+    }
+    connection.execute(insert(partner_grants).values(**row))
+    store.add_audit(connection, actor['id'], 'connection.partner_grant.created',
+                    {'id': body.id, 'name': body.name, 'allowed_kinds': body.allowed_kinds,
+                     'call_ids': body.call_ids, 'expires_at': row['expires_at']})
+    return {'grant': _grant_public(row), 'token': token}
+
+
+def list_partner_grants(connection, actor) -> list[dict]:
+    if actor['role'] != 'admin':
+        raise HTTPException(403, 'Administrator authority required')
+    rows = connection.execute(select(partner_grants).order_by(partner_grants.c.id)).mappings()
+    return [_grant_public(row) for row in rows]
+
+
+def revoke_partner_grant(store, connection, actor, grant_id: str) -> dict:
+    if actor['role'] != 'admin':
+        raise HTTPException(403, 'Administrator authority required')
+    row = connection.execute(select(partner_grants).where(partner_grants.c.id == grant_id)).mappings().first()
+    if not row:
+        raise HTTPException(404, 'Partner projection grant not found')
+    if row['active']:
+        connection.execute(update(partner_grants).where(partner_grants.c.id == grant_id).values(active=0))
+        store.add_audit(connection, actor['id'], 'connection.partner_grant.revoked', {'id': grant_id})
+    return {**_grant_public({**row, 'active': 0}), 'active': False}
+
+
+def rotate_partner_grant(store, connection, actor, grant_id: str, hours: int) -> dict:
+    if actor['role'] != 'admin':
+        raise HTTPException(403, 'Administrator authority required')
+    row = connection.execute(select(partner_grants).where(partner_grants.c.id == grant_id)).mappings().first()
+    if not row:
+        raise HTTPException(404, 'Partner projection grant not found')
+    token = secrets.token_urlsafe(32)
+    expires_at = _expires(hours)
+    connection.execute(update(partner_grants).where(partner_grants.c.id == grant_id).values(
+        digest=digest(token), active=1, expires_at=expires_at))
+    refreshed = {**row, 'digest': digest(token), 'active': 1, 'expires_at': expires_at}
+    store.add_audit(connection, actor['id'], 'connection.partner_grant.rotated',
+                    {'id': grant_id, 'expires_at': expires_at})
+    return {'grant': _grant_public(refreshed), 'token': token}
+
+
+def _authenticated_grant(connection, request: Request):
+    token = _bearer(request)
+    row = connection.execute(select(partner_grants).where(partner_grants.c.digest == digest(token))).mappings().first()
+    if not row or not row['active'] or _expired(row['expires_at']):
+        raise HTTPException(401, 'Partner projection credential is invalid, expired or revoked')
+    return row
+
+
+def _call_scope(records: list[dict], call_ids: list[str]) -> set[tuple[str, str]]:
+    if not call_ids:
+        return {(record['kind'], record['record_id']) for record in records}
+    by_key = {(record['kind'], record['record_id']): record for record in records}
+    keep = {('call', call_id) for call_id in call_ids}
+    vessel_ids, berth_ids, incident_ids, port_ids = set(), set(), set(), set()
+    for call_id in call_ids:
+        call = by_key.get(('call', call_id))
+        if not call:
+            continue
+        if call['payload'].get('vessel_id'):
+            vessel_ids.add(call['payload']['vessel_id'])
+        if call['payload'].get('berth_id'):
+            berth_ids.add(call['payload']['berth_id'])
+    keep |= {('vessel', value) for value in vessel_ids}
+    keep |= {('berth', value) for value in berth_ids}
+    for berth_id in berth_ids:
+        berth = by_key.get(('berth', berth_id))
+        if berth and berth['payload'].get('port_id'):
+            port_ids.add(berth['payload']['port_id'])
+    keep |= {('port', value) for value in port_ids}
+    for record in records:
+        if record['payload'].get('call_id') in call_ids:
+            keep.add((record['kind'], record['record_id']))
+            if record['kind'] == 'incident':
+                incident_ids.add(record['record_id'])
+    for record in records:
+        if record['kind'] == 'task' and record['payload'].get('incident_id') in incident_ids:
+            keep.add(('task', record['record_id']))
+        if record['kind'] == 'resource' and record['payload'].get('port_id') in port_ids:
+            keep.add(('resource', record['record_id']))
+    return keep
+
+
+def _project_records(store, connection, grant_row) -> list[dict]:
+    allowed = set(json.loads(grant_row['allowed_kinds']))
+    fields = json.loads(grant_row['field_rules'])
+    call_ids = json.loads(grant_row['call_ids'])
+    records = store.snapshot(connection)
+    scope = _call_scope(records, call_ids)
+    projected = []
+    for record in records:
+        key = (record['kind'], record['record_id'])
+        if record['kind'] not in allowed or key not in scope:
+            continue
+        permitted = fields[record['kind']]
+        projected.append({
+            'kind': record['kind'],
+            'record_id': record['record_id'],
+            'revision': record['revision'],
+            'valid_at': record['valid_at'],
+            'known_at': record['known_at'],
+            'payload': {field: record['payload'][field] for field in permitted if field in record['payload']},
+        })
+    return projected
+
+
+def _delivery_public(row) -> dict:
+    state = 'acknowledged' if row['acknowledged_at'] else ('delivered' if row['first_delivered_at'] else 'pending')
+    return {
+        'id': row['id'],
+        'grant_id': row['grant_id'],
+        'created_by': row['created_by'],
+        'created_at': row['created_at'],
+        'payload_digest': row['payload_digest'],
+        'record_count': row['record_count'],
+        'state': state,
+        'first_delivered_at': row['first_delivered_at'],
+        'last_delivered_at': row['last_delivered_at'],
+        'retrieval_count': row['retrieval_count'],
+        'acknowledged_at': row['acknowledged_at'],
+        'acknowledged_digest': row['acknowledged_digest'],
+        'acknowledgement_note': row['acknowledgement_note'] or '',
+    }
+
+
+def list_partner_deliveries(connection, actor) -> list[dict]:
+    if actor['role'] != 'admin':
+        raise HTTPException(403, 'Administrator authority required')
+    rows = connection.execute(
+        select(partner_deliveries).order_by(partner_deliveries.c.created_at.desc(), partner_deliveries.c.id.desc())
+    ).mappings()
+    return [_delivery_public(row) for row in rows]
+
+
+def create_partner_delivery(store, connection, actor, grant_id: str, key: str) -> dict:
+    if actor['role'] != 'admin':
+        raise HTTPException(403, 'Administrator authority required')
+    grant = connection.execute(select(partner_grants).where(partner_grants.c.id == grant_id)).mappings().first()
+    if not grant:
+        raise HTTPException(404, 'Partner projection grant not found')
+    if not grant['active'] or _expired(grant['expires_at']):
+        raise HTTPException(409, 'Partner projection grant is inactive or expired')
+    records = _project_records(store, connection, grant)
+    payload = canonical(records)
+    payload_digest = digest(payload)
+    intent = digest(canonical({'grant_id': grant_id, 'payload_digest': payload_digest}))
+    prior = connection.execute(select(commands).where(
+        commands.c.actor_id == actor['id'], commands.c.key == key
+    )).mappings().first()
+    if prior:
+        if prior['digest'] != intent:
+            raise HTTPException(409, 'Idempotency key already belongs to another delivery snapshot')
+        return json.loads(prior['response'])
+    delivery_id = 'delivery_' + digest(f"{actor['id']}:{key}:{payload_digest}")[:24]
+    row = {
+        'id': delivery_id,
+        'grant_id': grant_id,
+        'created_by': actor['id'],
+        'created_at': stamp(now()),
+        'payload_digest': payload_digest,
+        'payload': payload,
+        'record_count': len(records),
+        'first_delivered_at': None,
+        'last_delivered_at': None,
+        'retrieval_count': 0,
+        'acknowledged_at': None,
+        'acknowledged_digest': None,
+        'acknowledgement_note': None,
+    }
+    connection.execute(insert(partner_deliveries).values(**row))
+    response = {'delivery': _delivery_public(row), 'records': records}
+    connection.execute(insert(commands).values(
+        actor_id=actor['id'], key=key, digest=intent, response=canonical(response)
+    ))
+    store.add_audit(connection, actor['id'], 'connection.partner_delivery.created', {
+        'id': delivery_id,
+        'grant_id': grant_id,
+        'payload_digest': payload_digest,
+        'record_count': len(records),
+    })
+    return response
+
+
+def partner_delivery_queue(connection, request: Request) -> list[dict]:
+    grant = _authenticated_grant(connection, request)
+    rows = connection.execute(
+        select(partner_deliveries)
+        .where(partner_deliveries.c.grant_id == grant['id'])
+        .order_by(partner_deliveries.c.created_at, partner_deliveries.c.id)
+    ).mappings()
+    return [_delivery_public(row) for row in rows]
+
+
+def pull_partner_delivery(store, connection, request: Request, delivery_id: str) -> dict:
+    grant = _authenticated_grant(connection, request)
+    row = connection.execute(select(partner_deliveries).where(
+        partner_deliveries.c.id == delivery_id,
+        partner_deliveries.c.grant_id == grant['id'],
+    )).mappings().first()
+    if not row:
+        raise HTTPException(404, 'Partner delivery not found')
+    delivered_at = stamp(now())
+    first_delivered_at = row['first_delivered_at'] or delivered_at
+    retrieval_count = row['retrieval_count'] + 1
+    connection.execute(update(partner_deliveries).where(partner_deliveries.c.id == delivery_id).values(
+        first_delivered_at=first_delivered_at,
+        last_delivered_at=delivered_at,
+        retrieval_count=retrieval_count,
+    ))
+    connection.execute(update(partner_grants).where(partner_grants.c.id == grant['id']).values(
+        last_used_at=delivered_at,
+        access_count=partner_grants.c.access_count + 1,
+    ))
+    refreshed = {
+        **row,
+        'first_delivered_at': first_delivered_at,
+        'last_delivered_at': delivered_at,
+        'retrieval_count': retrieval_count,
+    }
+    store.add_audit(connection, f"partner:{grant['id']}", 'connection.partner_delivery.retrieved', {
+        'id': delivery_id,
+        'grant_id': grant['id'],
+        'payload_digest': row['payload_digest'],
+        'retrieval_count': retrieval_count,
+    })
+    return {'delivery': _delivery_public(refreshed), 'records': json.loads(row['payload'])}
+
+
+def acknowledge_partner_delivery(store, connection, request: Request, delivery_id: str,
+                                 body: PartnerDeliveryAck, key: str) -> dict:
+    grant = _authenticated_grant(connection, request)
+    row = connection.execute(select(partner_deliveries).where(
+        partner_deliveries.c.id == delivery_id,
+        partner_deliveries.c.grant_id == grant['id'],
+    )).mappings().first()
+    if not row:
+        raise HTTPException(404, 'Partner delivery not found')
+    actor_id = f"partner:{grant['id']}"
+    intent = digest(canonical({
+        'delivery_id': delivery_id,
+        'payload_digest': body.payload_digest,
+        'note': body.note,
+    }))
+    prior = connection.execute(select(commands).where(
+        commands.c.actor_id == actor_id, commands.c.key == key
+    )).mappings().first()
+    if prior:
+        if prior['digest'] != intent:
+            raise HTTPException(409, 'Idempotency key already belongs to another partner acknowledgement')
+        return json.loads(prior['response'])
+    if not row['first_delivered_at']:
+        raise HTTPException(409, 'Retrieve the delivery before acknowledging it')
+    if body.payload_digest != row['payload_digest']:
+        raise HTTPException(409, 'Acknowledgement digest does not match the delivered snapshot')
+    if row['acknowledged_at']:
+        if row['acknowledged_digest'] != body.payload_digest or (row['acknowledgement_note'] or '') != body.note:
+            raise HTTPException(409, 'Delivery already has a different acknowledgement')
+        response = _delivery_public(row)
+    else:
+        acknowledged_at = stamp(now())
+        connection.execute(update(partner_deliveries).where(partner_deliveries.c.id == delivery_id).values(
+            acknowledged_at=acknowledged_at,
+            acknowledged_digest=body.payload_digest,
+            acknowledgement_note=body.note,
+        ))
+        response = _delivery_public({
+            **row,
+            'acknowledged_at': acknowledged_at,
+            'acknowledged_digest': body.payload_digest,
+            'acknowledgement_note': body.note,
+        })
+        store.add_audit(connection, actor_id, 'connection.partner_delivery.acknowledged', {
+            'id': delivery_id,
+            'grant_id': grant['id'],
+            'payload_digest': body.payload_digest,
+        })
+    connection.execute(insert(commands).values(
+        actor_id=actor_id, key=key, digest=intent, response=canonical(response)
+    ))
+    return response
+
+
+def reconcile_partner_delivery(store, connection, actor, delivery_id: str) -> dict:
+    if actor['role'] != 'admin':
+        raise HTTPException(403, 'Administrator authority required')
+    delivery = connection.execute(
+        select(partner_deliveries).where(partner_deliveries.c.id == delivery_id)
+    ).mappings().first()
+    if not delivery:
+        raise HTTPException(404, 'Partner delivery not found')
+    if not delivery['acknowledged_at']:
+        raise HTTPException(409, 'Delivery must be acknowledged before reconciliation')
+    grant = connection.execute(
+        select(partner_grants).where(partner_grants.c.id == delivery['grant_id'])
+    ).mappings().first()
+    if not grant:
+        raise HTTPException(409, 'Partner grant no longer exists')
+    delivered_records = json.loads(delivery['payload'])
+    current_records = _project_records(store, connection, grant)
+    current_digest = digest(canonical(current_records))
+
+    def keyed(records):
+        return {f"{record['kind']}:{record['record_id']}": canonical(record) for record in records}
+
+    frozen = keyed(delivered_records)
+    current = keyed(current_records)
+    added = sorted(set(current) - set(frozen))
+    removed = sorted(set(frozen) - set(current))
+    changed = sorted(key for key in set(frozen) & set(current) if frozen[key] != current[key])
+    return {
+        'delivery_id': delivery_id,
+        'grant_id': delivery['grant_id'],
+        'state': 'in_sync' if not (added or removed or changed) else 'drifted',
+        'delivered_digest': delivery['payload_digest'],
+        'current_digest': current_digest,
+        'acknowledged_at': delivery['acknowledged_at'],
+        'added': added,
+        'removed': removed,
+        'changed': changed,
+    }
+
+
+def partner_projection(store, connection, request: Request) -> dict:
+    row = _authenticated_grant(connection, request)
+    projected = _project_records(store, connection, row)
+    used_at = stamp(now())
+    connection.execute(update(partner_grants).where(partner_grants.c.id == row['id']).values(
+        last_used_at=used_at, access_count=partner_grants.c.access_count + 1))
+    grant = _grant_public({**row, 'last_used_at': used_at, 'access_count': row['access_count'] + 1})
+    return {'grant': {'id': grant['id'], 'name': grant['name'], 'expires_at': grant['expires_at'],
+                      'call_ids': grant['call_ids']},
+            'read_at': used_at, 'records': projected}
