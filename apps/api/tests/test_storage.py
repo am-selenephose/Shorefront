@@ -415,7 +415,13 @@ def test_recorded_weather_ingest_replaces_weather_provenance(tmp_path):
     assert sim.weather.wind_knots == 23.0
     assert sim.weather.gust_knots == 31.0
     source = next(item for item in sim.data_sources if item.domain.value == "weather_tide")
-    assert source.freshness_seconds == 42
+    # The simulator refreshes freshness against wall-clock time. A second can
+    # elapse between fixture creation and the subsequent provenance read;
+    # assert the observed age stays bounded by the actual observation clock.
+    assert snapshot.provenance.freshness_seconds <= source.freshness_seconds <= max(
+        snapshot.provenance.freshness_seconds,
+        int((datetime.now(timezone.utc) - source.observed_at).total_seconds()),
+    )
     assert source.health.value == "healthy"
 
 
