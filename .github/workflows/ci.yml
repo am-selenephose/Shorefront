@@ -3,7 +3,7 @@ name: CI
 on:
   workflow_dispatch:
   push:
-    branches: [main]
+    branches: [main, feat/shorefront-v2-convergence]
   pull_request:
 
 concurrency:
