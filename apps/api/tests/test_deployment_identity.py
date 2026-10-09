@@ -67,6 +67,23 @@ def test_upgrade_requires_explicit_external_volume_and_existing_database(tmp_pat
         assert render(tmp_path, missing, upgrade=True).returncode != 0
 
 
+def test_missing_database_password_never_invents_a_default(tmp_path):
+    result = render(tmp_path, {})
+    if result.returncode == 0:
+        config = json.loads(result.stdout)
+        assert config['services']['postgres']['environment']['POSTGRES_PASSWORD'] == ''
+        assert ':@postgres:5432/' in config['services']['api']['environment']['DATABASE_URL']
+
+
+def test_empty_canonical_password_does_not_reactivate_legacy(tmp_path):
+    result = render(tmp_path, {'SHOREFRONT_DB_PASSWORD': '',
+                               'PORTFLOW_DB_PASSWORD': 'legacy-secret',
+                               'SHOREFRONT_APPROVERS_JSON': '[]'})
+    assert result.returncode == 0, result.stderr
+    config = json.loads(result.stdout)
+    assert config['services']['postgres']['environment']['POSTGRES_PASSWORD'] == ''
+
+
 def test_empty_canonical_value_does_not_resurrect_legacy_credential(tmp_path):
     result = render(tmp_path, {'SHOREFRONT_DB_PASSWORD': 'test-only',
                                'SHOREFRONT_APPROVERS_JSON': '', 'PORTFLOW_APPROVERS_JSON': '["legacy"]'})

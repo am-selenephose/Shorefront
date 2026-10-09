@@ -4,7 +4,7 @@ services:
     environment:
       POSTGRES_DB: ${SHOREFRONT_DB_NAME:-shorefront}
       POSTGRES_USER: ${SHOREFRONT_DB_USER:-shorefront}
-      POSTGRES_PASSWORD: ${SHOREFRONT_DB_PASSWORD-${PORTFLOW_DB_PASSWORD:?PORTFLOW_DB_PASSWORD is required}}
+      POSTGRES_PASSWORD: ${SHOREFRONT_DB_PASSWORD-${PORTFLOW_DB_PASSWORD-}}
     volumes:
       - shorefront_prod_pg:/var/lib/postgresql/data
     healthcheck:
@@ -18,7 +18,7 @@ services:
     image: shorefront-api:${SHOREFRONT_IMAGE_TAG-${PORTFLOW_IMAGE_TAG:-local}}
     environment:
       SHOREFRONT_RUNTIME_MODE: training
-      DATABASE_URL: postgresql+psycopg://${SHOREFRONT_DB_USER:-shorefront}:${SHOREFRONT_DB_PASSWORD-${PORTFLOW_DB_PASSWORD:?PORTFLOW_DB_PASSWORD is required}}@postgres:5432/${SHOREFRONT_DB_NAME:-shorefront}
+      DATABASE_URL: postgresql+psycopg://${SHOREFRONT_DB_USER:-shorefront}:${SHOREFRONT_DB_PASSWORD-${PORTFLOW_DB_PASSWORD-}}@postgres:5432/${SHOREFRONT_DB_NAME:-shorefront}
     depends_on:
       postgres:
         condition: service_healthy
@@ -39,9 +39,9 @@ services:
       context: ./apps/api
     environment:
       SHOREFRONT_RUNTIME_MODE: training
-      DATABASE_URL: postgresql+psycopg://${SHOREFRONT_DB_USER:-shorefront}:${SHOREFRONT_DB_PASSWORD-${PORTFLOW_DB_PASSWORD:?PORTFLOW_DB_PASSWORD is required}}@postgres:5432/${SHOREFRONT_DB_NAME:-shorefront}
+      DATABASE_URL: postgresql+psycopg://${SHOREFRONT_DB_USER:-shorefront}:${SHOREFRONT_DB_PASSWORD-${PORTFLOW_DB_PASSWORD-}}@postgres:5432/${SHOREFRONT_DB_NAME:-shorefront}
       SHOREFRONT_SCHEMA_MODE: verify
-      SHOREFRONT_APPROVERS_JSON: ${SHOREFRONT_APPROVERS_JSON-${PORTFLOW_APPROVERS_JSON:?PORTFLOW_APPROVERS_JSON is required}}
+      SHOREFRONT_APPROVERS_JSON: ${SHOREFRONT_APPROVERS_JSON-${PORTFLOW_APPROVERS_JSON-}}
       SHOREFRONT_INTEGRATIONS_JSON: ${SHOREFRONT_INTEGRATIONS_JSON-${PORTFLOW_INTEGRATIONS_JSON:-[]}}
       SHOREFRONT_AIS_URL: ${SHOREFRONT_AIS_URL-${PORTFLOW_AIS_URL:-}}
       SHOREFRONT_AIS_PROVIDER: ${SHOREFRONT_AIS_PROVIDER-${PORTFLOW_AIS_PROVIDER:-}}

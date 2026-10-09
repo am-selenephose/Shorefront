@@ -1,11 +1,11 @@
 services:
   web:
     environment:
-      SHOREFRONT_PUBLIC_HTTPS_ORIGIN: ${SHOREFRONT_PUBLIC_HTTPS_ORIGIN-${PORTFLOW_PUBLIC_HTTPS_ORIGIN:?PORTFLOW_PUBLIC_HTTPS_ORIGIN is required}}
+      SHOREFRONT_PUBLIC_HTTPS_ORIGIN: ${SHOREFRONT_PUBLIC_HTTPS_ORIGIN-${PORTFLOW_PUBLIC_HTTPS_ORIGIN-}}
     volumes:
       - ./apps/web/nginx.tls.conf.template:/etc/nginx/templates/default.conf.template:ro
-      - ${SHOREFRONT_TLS_CERT_FILE-${PORTFLOW_TLS_CERT_FILE:?PORTFLOW_TLS_CERT_FILE is required}}:/etc/nginx/tls/tls.crt:ro
-      - ${SHOREFRONT_TLS_KEY_FILE-${PORTFLOW_TLS_KEY_FILE:?PORTFLOW_TLS_KEY_FILE is required}}:/etc/nginx/tls/tls.key:ro
+      - ${SHOREFRONT_TLS_CERT_FILE-${PORTFLOW_TLS_CERT_FILE-}}:/etc/nginx/tls/tls.crt:ro
+      - ${SHOREFRONT_TLS_KEY_FILE-${PORTFLOW_TLS_KEY_FILE-}}:/etc/nginx/tls/tls.key:ro
     ports:
       - "${SHOREFRONT_HTTPS_PORT-${PORTFLOW_HTTPS_PORT:-8443}}:443"
     healthcheck:

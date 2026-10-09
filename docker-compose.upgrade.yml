@@ -6,10 +6,10 @@ services:
       POSTGRES_USER: ${SHOREFRONT_DB_USER:?Set the existing database user for upgrade}
   migrate:
     environment:
-      DATABASE_URL: postgresql+psycopg://${SHOREFRONT_DB_USER:?Set existing database user}:${SHOREFRONT_DB_PASSWORD-${PORTFLOW_DB_PASSWORD:?Set database password}}@postgres:5432/${SHOREFRONT_DB_NAME:?Set existing database name}
+      DATABASE_URL: postgresql+psycopg://${SHOREFRONT_DB_USER:?Set existing database user}:${SHOREFRONT_DB_PASSWORD-${PORTFLOW_DB_PASSWORD-}}@postgres:5432/${SHOREFRONT_DB_NAME:?Set existing database name}
   api:
     environment:
-      DATABASE_URL: postgresql+psycopg://${SHOREFRONT_DB_USER:?Set existing database user}:${SHOREFRONT_DB_PASSWORD-${PORTFLOW_DB_PASSWORD:?Set database password}}@postgres:5432/${SHOREFRONT_DB_NAME:?Set existing database name}
+      DATABASE_URL: postgresql+psycopg://${SHOREFRONT_DB_USER:?Set existing database user}:${SHOREFRONT_DB_PASSWORD-${PORTFLOW_DB_PASSWORD-}}@postgres:5432/${SHOREFRONT_DB_NAME:?Set existing database name}
 volumes:
   shorefront_prod_pg:
     external: true
