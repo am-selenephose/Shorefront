@@ -25,6 +25,7 @@ export default function ProductHarborMap({facts,focusedCallId,writable,onCreate,
   const container = useRef<HTMLElement|null>(null)
   const node = useRef<HTMLDivElement|null>(null)
   const mapRef = useRef<Map|null>(null)
+  const fittedGeography = useRef<string|null>(null)
   const markers = useRef<Marker[]>([])
   const [showBerths,setShowBerths]=useState(true)
   const [showCalls,setShowCalls]=useState(true)
@@ -131,7 +132,7 @@ export default function ProductHarborMap({facts,focusedCallId,writable,onCreate,
       map.on('load',()=>setMapReady(true))
       if(map.loaded()) setMapReady(true)
       mapRef.current=map
-      return()=>{markers.current.forEach(marker=>marker.remove());markers.current=[];map.remove();mapRef.current=null}
+      return()=>{markers.current.forEach(marker=>marker.remove());markers.current=[];map.remove();mapRef.current=null;fittedGeography.current=null}
     } catch(error) {
       const detail=error instanceof Error&&error.message ? error.message : 'The map renderer could not start.'
       setMapUnavailable(detail)
@@ -173,12 +174,21 @@ export default function ProductHarborMap({facts,focusedCallId,writable,onCreate,
           markers.current.push(new maplibregl.Marker({element:callEl,anchor:'top-left',offset:[14,16+(index*46)]}).setLngLat([location.lon,location.lat]).addTo(map))
         })
       }
-      if(points.length===0){map.jumpTo({center:[0,20],zoom:1.35})}
-      else if(points.length===1){map.jumpTo({center:[points[0].lon,points[0].lat],zoom:13})}
-      else {
-        const bounds=new maplibregl.LngLatBounds()
-        points.forEach(p=>bounds.extend([p.lon,p.lat]))
-        map.fitBounds(bounds,{padding:90,maxZoom:13,duration:0})
+      // A call focus, record refresh, theme change or map layer toggle
+      // must not overwrite the operator's current zoom/pan. Refit only when
+      // verified geographic coordinates actually change.
+      const geographyKey=[...geoPorts,...geoBerths]
+        .map(record=>record.kind+':'+record.record_id+':'+record.payload.longitude+':'+record.payload.latitude)
+        .sort().join('|')
+      if(fittedGeography.current!==geographyKey){
+        fittedGeography.current=geographyKey
+        if(points.length===0){map.jumpTo({center:[0,20],zoom:1.35})}
+        else if(points.length===1){map.jumpTo({center:[points[0].lon,points[0].lat],zoom:13})}
+        else {
+          const bounds=new maplibregl.LngLatBounds()
+          points.forEach(p=>bounds.extend([p.lon,p.lat]))
+          map.fitBounds(bounds,{padding:90,maxZoom:13,duration:0})
+        }
       }
       map.resize()
       node.current!.style.setProperty('--map-marker',token('--teal','#2b7477'))

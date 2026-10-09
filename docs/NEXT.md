@@ -61,12 +61,12 @@ privacy-minimized normalized events and produces advisory coordination. Do not
 introduce physical actuation, crew-private records or a competing semantic
 contract here.
 
-## Optional US water-level context (new local implementation)
+## Optional US water-level context (deployed; off by default)
 
-The local branch adds operator-selected NOAA CO-OPS station data as a separate read-only
-context panel, disabled by default unless `SHOREFRONT_NOAA_ENABLED=1` is configured.
-The 7-digit station is recorded on a Port; provider data is time-labeled,
-source-attributed, and can become stale/unavailable. This is not navigational
-clearance and cannot authorize a berth movement. The workspace now also offers
-an explicit Refresh control for out-of-band record changes. These additions
-are local development work until release verification and an approved cutover.
+The 2026-10-09 release ships a read-only operator-selected NOAA CO-OPS panel
+and manual Refresh. The NOAA reader remains OFF unless explicitly enabled
+through SHOREFRONT_NOAA_ENABLED=1 in the production Compose environment.
+This public U.S. observation source is not vessel clearance or a substitute
+for an actual contracted AIS/TOS/PCS/port-authority feed. No customer station
+record was invented or automatically linked.
+See RELEASE_NOAA_CONTEXT_2026_10_09.md for verification.
