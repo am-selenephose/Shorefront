@@ -52,15 +52,36 @@ function readSetupToken() {
   return decodeURIComponent(location.hash.slice('#setup='.length))
 }
 
+function readInvitationToken() {
+  if (!location.hash.startsWith('#invite=')) return ''
+  try { return decodeURIComponent(location.hash.slice('#invite='.length)) }
+  catch { return '' }
+}
 
 function SignIn({setup, onSession}: {setup: boolean; onSession: (value: Session) => void}) {
-  const [invite, setInvite] = useState(false)
+  const [inviteToken,setInviteToken] = useState(() => setup ? '' : readInvitationToken())
+  const [invite, setInvite] = useState(Boolean(inviteToken))
   const [setupToken] = useState(() => setup ? readSetupToken() : '')
-  useEffect(() => {
-    if (setupToken && location.hash.startsWith('#setup=')) history.replaceState(null, '', location.pathname + location.search)
-  }, [setupToken])
   const [showPassword, setShowPassword] = useState(false)
   const [error, setError] = useState('')
+  useEffect(() => {
+    const consume = () => {
+      const token = setup ? '' : readInvitationToken()
+      if (token) {
+        setInviteToken(token)
+        setInvite(true)
+        setError('')
+      }
+      if ((setupToken && location.hash.startsWith('#setup=')) ||
+          (token && location.hash.startsWith('#invite='))) {
+        // Keep single-use credentials out of browser history and address bar.
+        history.replaceState(null, '', location.pathname + location.search)
+      }
+    }
+    consume()
+    window.addEventListener('hashchange', consume)
+    return () => window.removeEventListener('hashchange', consume)
+  }, [setup, setupToken])
   const [busy, setBusy] = useState(false)
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault(); setBusy(true); setError('')
@@ -75,14 +96,22 @@ function SignIn({setup, onSession}: {setup: boolean; onSession: (value: Session)
       <section className="product-login-form"><p className="eyebrow">{setup ? 'INSTALLATION SETUP' : invite ? 'INVITATION' : 'SECURE ACCESS'}</p><form onSubmit={submit} aria-busy={busy}><fieldset disabled={busy}>
         {setup && !setupToken && <label>Setup token<input name="bootstrap_token" type="password" required autoComplete="off"/><small>Use the one-time setup link from your installation operator, or enter its recovery token here.</small></label>}
         {setup && setupToken && <div className="product-setup-verified"><b>Installation access verified</b><span>Create the first administrator. The setup secret has been removed from the address bar.</span></div>}
-        {invite && !setup && <label>Invitation token<input name="invitation_token" type="password" required autoComplete="off"/></label>}
+        {invite && !setup && <label>Invitation token<input name="invitation_token" type="password" required autoComplete="off" value={inviteToken} onChange={event=>setInviteToken(event.target.value)}/><small>This is the single-use token issued by your Shorefront administrator. Your account only accesses their installation.</small></label>}
         {(setup || invite) && <label>Full name<input name="display_name" required maxLength={200} autoComplete="name"/></label>}
         <label>Email<input name="email" type="email" required autoComplete="email" maxLength={254} spellCheck={false}/></label>
         <label>Password<input name="password" aria-label="Password" aria-describedby={setup || invite ? 'password-help' : undefined} type={showPassword ? 'text' : 'password'} required minLength={setup || invite ? 15 : 1} maxLength={128} autoComplete={setup || invite ? 'new-password' : 'current-password'}/></label>{(setup || invite) && <small id="password-help">At least 15 characters. A memorable passphrase works well.</small>}
         <button className="product-quiet" type="button" onClick={() => setShowPassword(!showPassword)}>{showPassword ? 'Hide password' : 'Show password'}</button>
         {error && <p className="product-error" role="alert">{error}</p>}
         <button className="product-primary" type="submit">{busy ? 'Please wait…' : setup ? 'Create workspace' : invite ? 'Accept invitation' : 'Sign in'}</button>
-      </fieldset></form>{!setup && <button className="product-quiet" onClick={() => {setInvite(!invite); setError('')}}>{invite ? 'Back to sign in' : 'I have an invitation'}</button>}<a className="product-showcase-link" href="/?showcase=1">Explore Shorefront demo</a><p className="product-small">Access is granted by your organisation. Contact your installation operator if you need account recovery.</p></section></main>
+      </fieldset></form>{!setup && (invite ? <button className="product-quiet" onClick={() => {setInvite(false); setError('')}}>Back to sign in</button> :
+        <section className="product-register-prompt" aria-label="Create Shorefront account">
+          <b>New to Shorefront?</b>
+          <p>Create an account for your organization's workspace with a one-time invitation. This installation is private; public signup would expose operational data.</p>
+          <button type="button" className="product-register-button" onClick={() => {setInvite(true); setError('')}}>Create account with invitation <span aria-hidden="true">→</span></button>
+          <button type="button" className="product-quiet" onClick={() => {setInvite(true); setError('')}}>I have an invitation</button>
+        </section>)}
+        <a className="product-showcase-link" href="/?showcase=1">Explore Shorefront demo</a>
+        <p className="product-small">{invite ? 'No invitation? Ask your organization administrator to open Team → Invite a team member.' : 'Access is granted by your organisation. Contact your installation operator if you need account recovery.'}</p></section></main>
     </div>
 }
 
@@ -90,10 +119,17 @@ function SignIn({setup, onSession}: {setup: boolean; onSession: (value: Session)
 function Team({members, session, writable, onRefresh, onSession}: {members: User[]; session: Session; writable: boolean; onRefresh: () => Promise<void>; onSession:(value:Session)=>void}) {
   const [error, setError] = useState('')
   const [token, setToken] = useState('')
+  const [linkCopied,setLinkCopied] = useState(false)
   const [busy, setBusy] = useState(false)
+  const invitationLink = token ? location.origin + location.pathname + '#invite=' + encodeURIComponent(token) : ''
+  async function copyInvitationLink() {
+    if(!invitationLink)return
+    try{await navigator.clipboard.writeText(invitationLink);setLinkCopied(true)}
+    catch{setLinkCopied(false)}
+  }
   const [confirm, setConfirm] = useState<string|null>(null)
   async function invite(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault(); setBusy(true); setError(''); setToken('')
+    event.preventDefault(); setBusy(true); setError(''); setToken(''); setLinkCopied(false)
     const form = event.currentTarget
     try {const result = await productRequest<{invitation_token:string}>('/auth/invitations', Object.fromEntries(new FormData(form))); setToken(result.invitation_token); form.reset()}
     catch (failure) {setError(String(failure))} finally {setBusy(false)}
@@ -109,7 +145,14 @@ function Team({members, session, writable, onRefresh, onSession}: {members: User
     <div className="team-signal-strip" aria-label="Authority summary"><div><span>ACTIVE MEMBERS</span><b>{activeMembers.length}</b></div><div><span>ADMINS</span><b>{counts('admin')}</b></div><div><span>OPERATORS</span><b>{counts('operator')}</b></div><div><span>SUPERVISORS</span><b>{counts('supervisor')}</b></div><div><span>VIEWERS</span><b>{counts('viewer')}</b></div></div>
     <div className="team-control-grid"><ProductAccount writable={writable} onSession={onSession}/>
     {session.user.role==='admin'&&<section className="ops-panel team-invite-panel"><header><div><span className="product-index">MEMBERSHIP / ONE-TIME TOKEN</span><h2>Invite a team member</h2></div></header><form onSubmit={invite}><fieldset disabled={!writable||busy}><div className="product-form-grid"><label>Invitation email<input type="email" name="email" required autoComplete="email"/></label><label>Role<select name="role" aria-label="Role" defaultValue="operator">{['operator','supervisor','viewer','admin'].map(r=><option key={r}>{r}</option>)}</select></label></div><button className="product-primary">{busy?'Working…':'Create invitation'}</button></fieldset></form>
-      {token&&<div className="product-boundary"><b>One-time invitation · expires in 24 hours</b><p>No email was sent. Share this token privately with the named recipient. They select “I have an invitation” on the sign-in page.</p><code>{token}</code><button onClick={()=>setToken('')}>Hide token</button></div>}</section>}</div>
+      {token&&<div className="product-boundary"><b>Private registration invitation · expires in 24 hours</b>
+        <p>No email was sent. Send the link privately to the person whose email you invited. The link opens the account-creation form with the one-time invitation already filled in.</p>
+        <label className="product-invitation-link-label">Invitation signup link<input aria-label="Invitation signup link" type="text" readOnly value={invitationLink} onFocus={event=>event.currentTarget.select()}/></label>
+        <button type="button" onClick={()=>void copyInvitationLink()}>{linkCopied?'Invitation link copied':'Copy invitation link'}</button>
+        <p className="product-small">Treat this link like a password. Anyone with it and the invited email can redeem it before expiration.</p>
+        <details><summary>Manual token instead</summary><code>{token}</code></details>
+        <button onClick={()=>{setToken('');setLinkCopied(false)}}>Hide invitation details</button>
+      </div>}</section>}</div>
     {error&&<p role="alert" className="product-error">{error}</p>}
     <section className="ops-panel team-register"><header><div><span className="product-index">AUTHORITY REGISTER</span><h2>Members and effective roles</h2></div><b>{members.length}</b></header><div className="ops-table-scroll"><table aria-label="Team authority register"><thead><tr><th>Member</th><th>Status</th><th>Role</th><th>Operational records</th><th>Decision approval</th><th>Membership admin</th><th/></tr></thead><tbody>{members.map(member=><tr key={member.id}><td><h2>{member.name}</h2><small>{member.email}</small></td><td><span className={`team-state ${member.active?'active':'revoked'}`}>{member.active?'ACTIVE':'REVOKED'}</span></td><td><span className="team-role-badge">{member.role}</span></td><td>{member.role==='viewer'?'read only':'write'}</td><td>{member.role==='supervisor'?'approve':'no'}</td><td>{member.role==='admin'?'manage':'no'}</td><td>{session.user.role==='admin'&&member.id!==session.user.id&&!!member.active&&(confirm===member.id?<div className="team-revoke-confirm"><span>Revoke all sessions?</span><button disabled={!writable||busy} onClick={()=>void revoke(member.id)}>Confirm revocation</button><button onClick={()=>setConfirm(null)}>Cancel</button></div>:<button disabled={!writable} onClick={()=>setConfirm(member.id)}>Revoke access</button>)}</td></tr>)}</tbody></table></div></section>
   </div>

@@ -1485,3 +1485,16 @@
 @media(max-width:760px){.noaa-context-body{padding:12px}.noaa-context-panel>header{flex-wrap:wrap}}
 .product-shell .commandbar-refresh{min-height:36px;border:1px solid var(--border-strong);background:var(--surface);color:var(--foreground);font-weight:650;white-space:nowrap}
 .product-shell .commandbar-refresh:hover,.product-shell .commandbar-refresh:focus-visible{border-color:var(--teal);background:var(--surface-inset)}
+
+/* Private operational signup must be discoverable without implying public tenancy. */
+.product-register-prompt{margin:14px 0 18px;padding:16px;border:1px solid var(--border-strong);border-radius:6px;background:var(--surface-inset)}
+.product-register-prompt>b{display:block;font-size:17px;margin-bottom:6px}
+.product-register-prompt p{font-size:13px;line-height:1.65;margin:0 0 12px;color:var(--muted-foreground)}
+.product-register-prompt .product-register-button{display:flex;align-items:center;justify-content:space-between;gap:10px;width:100%;border:1px solid var(--teal);border-radius:5px;background:var(--teal);color:var(--surface);font-size:14px;font-weight:700;padding:12px 14px;text-align:left}
+.product-register-prompt .product-register-button:hover{filter:brightness(.94)}
+.product-register-prompt .product-quiet{margin-top:12px}
+.product-invitation-link-label{display:grid;gap:6px;max-width:100%;font-size:13px}
+.product-invitation-link-label input{width:100%;max-width:100%;font:13px/1.5 var(--font-mono);background:var(--surface);color:var(--foreground);border:1px solid var(--border-strong)}
+.product-boundary details{padding:10px 0;font-size:13px}
+.product-boundary summary{cursor:pointer;font-size:13px}
+.product-boundary code{display:block;overflow-wrap:anywhere}
