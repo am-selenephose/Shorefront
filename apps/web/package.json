@@ -7,10 +7,11 @@
     "dev": "vite --config vite.config.ts",
     "build": "tsc -b && vite build --config vite.config.ts",
     "typecheck": "tsc -b",
-    "test:config": "node --experimental-strip-types --test tests/runtime-config.test.mjs",
+    "test:config": "node --experimental-strip-types --test tests/runtime-config.test.mjs tests/typography.test.mjs",
     "test:delivery": "node --test tests/delivery-cache.test.mjs",
     "test:e2e": "playwright test",
     "test:product": "playwright test --config playwright.product.config.ts",
+    "test:readability": "playwright test --config playwright.quality.config.ts",
     "test:intelligence": "playwright test --config playwright.intelligence.config.ts",
     "test:quay": "playwright test --config playwright.quay.config.ts"
   },
