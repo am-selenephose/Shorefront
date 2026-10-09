@@ -3,7 +3,7 @@
 Port-call planning and shore operations coordination.
 
 **Shorefront is an active, standalone project.** Its official repository is
-[am-selenephos/shorefront](https://github.com/am-selenephos/shorefront).
+[am-selenephose/Shorefront](https://github.com/am-selenephose/Shorefront).
 This repository owns its product, runtime and release lifecycle independently.
 
 Shorefront provides a dedicated operational workspace for customer records,
