@@ -32,7 +32,7 @@ jobs:
         with:
           enable-cache: true
       - name: Install PostgreSQL client
-        run: sudo apt-get update && sudo apt-get install -y postgresql-client
+        run: sudo apt-get update && sudo apt-get install -y postgresql-client-17
       - name: Install API dependencies
         working-directory: apps/api
         run: uv sync --extra dev
@@ -140,7 +140,9 @@ jobs:
     runs-on: ubuntu-latest
     env:
       SHOREFRONT_DB_PASSWORD: ci-placeholder
+      PORTFLOW_DB_PASSWORD: ci-placeholder # Legacy Compose interpolation is evaluated by the runner.
       SHOREFRONT_APPROVERS_JSON: '[]'
+      PORTFLOW_APPROVERS_JSON: '[]'
       SHOREFRONT_IMAGE_TAG: ci
       SHOREFRONT_HTTPS_PORT: 8443
       SHOREFRONT_PUBLIC_HTTPS_ORIGIN: https://localhost:8443
