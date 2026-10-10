@@ -29,6 +29,7 @@ HUD: responsive sidebar, large branded Overview, call panel, berth timeline, res
 ## Truth and permissions
 
 - The example fictional calls are only in the explicitly selected public demonstration.
+- Authenticated **Overview, geographic/records view, Port Calls, Berth Planning, Incidents, Operations coordination and Reports** use the same source-backed workspace records, never the imported demonstration workspace. Scenario/conflict alternatives are offered through existing authorized operational controls; the Living Harbor itself issues no mutations.
 - Authenticated path **does not inject fictional calls or decorative support craft**. When spatial coordinates are unavailable, the scene is labelled *illustrative / not navigational / positions illustrative*. Its vessel arrangement is an art/schematic coordinate, **not a real-world position**.
 - The client never requests write APIs from scene controls. Operational changes, approvals, and reconciliation must be done through the existing authorized product UI and server policies.
 - Mobile and WebGL-unavailable path retains accessible operational record controls. Reduced-motion preference pauses ambient animation by default.

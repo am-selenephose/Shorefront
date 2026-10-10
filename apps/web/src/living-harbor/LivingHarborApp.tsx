@@ -1,9 +1,9 @@
 import {Suspense,lazy,useEffect,useMemo,useState} from 'react'
 import {Waves,LayoutDashboard,Ship,CalendarRange,Anchor,ClipboardList,TriangleAlert,ChartNoAxesCombined,Settings2,Compass,Eye,Pause,Play,Maximize2,MapPinned,ArrowUpRight,X,ShieldCheck,FileClock,RefreshCw,Layers,Sun,CheckCircle2,AlertCircle,Route,SlidersHorizontal} from 'lucide-react'
-import {OperationalCalls,OperationalPlan,OperationalPulse,OperationalExceptions} from '../ProductWorkspaces'
+import {OperationalCalls,OperationalPlan,OperationalPulse,OperationalExceptions,type OperationalActions} from '../ProductWorkspaces'
 import ProductCoordination from '../ProductCoordination'
 import {recordName,type Workspace,type User} from '../productClient'
-import {showcaseWorkspace,showcaseTeam,showcaseActions,showcaseConflicts} from '../ShowcaseApp'
+import {showcaseWorkspace,showcaseTeam,showcaseConflicts} from '../ShowcaseApp'
 import {deriveLivingHarbor,berthTimeline,resourceStatus,type LivingCall} from './domain'
 import './LivingHarbor.css'
 const HarborWorld=lazy(()=>import('./HarborWorld'))
@@ -11,7 +11,11 @@ type View='Overview'|'Port Calls'|'Berth Planning'|'Resources'|'Operations'|'Inc
 const views:View[]=['Overview','Port Calls','Berth Planning','Resources','Operations','Incidents','Reports','Administration']
 const icons=[LayoutDashboard,Ship,CalendarRange,Anchor,ClipboardList,TriangleAlert,ChartNoAxesCombined,Settings2]
 const fragments=['overview','port-calls','berth-planning','resources','operations','incidents','reports','administration']
-const viewFromHash=():View=>views[fragments.indexOf(location.hash.slice(1))]??'Overview'
+// Legacy inner-workspace anchors must remain meaningful under the Living Harbor shell.
+const legacyRoutes:Record<string,View>={pulse:'Overview',calls:'Port Calls',plan:'Berth Planning',readiness:'Berth Planning',coordination:'Operations',exceptions:'Incidents',recovery:'Incidents',evidence:'Reports',records:'Reports',team:'Administration',connections:'Administration'}
+const readOnlyActions:OperationalActions={writable:false,onCreate:()=>{},onEdit:()=>{}}
+
+const viewFromHash=():View=>views[fragments.indexOf(location.hash.slice(1))]??legacyRoutes[location.hash.slice(1)]??'Overview'
 const formatTime=(value:string)=>{const t=Date.parse(value);return Number.isFinite(t)?new Date(t).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}):'Unspecified'}
 const reduced=()=>typeof window.matchMedia==='function'&&window.matchMedia('(prefers-reduced-motion: reduce)').matches
 const webgl=()=>{try{const c=document.createElement('canvas');return !!(c.getContext('webgl2')||c.getContext('webgl'))}catch{return false}}
@@ -86,7 +90,7 @@ export default function LivingHarborApp({operational}:{operational?:{workspace:W
   <main className="lh-main">
    <div className="lh-sky" aria-hidden="true"/>
    {!fallback&&!geo&&<Suspense fallback={<div className="lh-loading" role="status">Building living harbor…</div>}><HarborWorld vessels={data.vessels} selected={selected} onSelect={select} moving={!paused&&visible} proposal={preview} quality={quality} onWebGLError={()=>setFallback(true)}/></Suspense>}
-   {(fallback||geo)&&<div className="lh-fallback"><div className="lh-fallback-water"><Waves size={70}/><h2>{geo?'Geo Truth / records':'Schematic fallback'}</h2><p>{geo?'Actual geographically attributed records are inspected in the standard operational map below.':'3D unavailable. Record controls remain usable.'}</p></div></div>}
+   {(fallback||geo)&&<div className="lh-fallback"><div className="lh-fallback-water"><Waves size={70}/><h2>{geo?'Geo Truth / records':'Schematic fallback'}</h2><p>{geo?'Only recorded geocoordinates are geographic. Objects without coordinates remain schematic.':'3D unavailable. Record controls remain usable.'}</p></div></div>}
    <div className="lh-scene-shade" aria-hidden="true"/>
    <div className="lh-topbar"><div className="lh-top-weather"><Sun size={25}/><div><b>GOLDEN HOUR</b><small>Illustrative environment</small></div></div><div className="lh-top-time"><b>{isDemo?'DEMO MODE':'OPERATOR RECORDS'}</b><small>{isDemo?'Scenario clock · fictional data':operational?.fresh?'Latest authenticated snapshot':'STALE / UNVERIFIED SNAPSHOT'}</small></div><div className="lh-top-profile"><span>{isDemo?"NO LIVE AIS":"POSITIONS ILLUSTRATIVE"}</span><div aria-hidden="true">S</div></div></div>
    {view==='Overview'&&!geo&&!fallback&&<section className="lh-hero"><h1>Shorefront</h1><p className="lh-hero-overline">MARITIME OPERATIONS<br/>INTELLIGENCE</p><span className="lh-cyan-rule"/><p className="lh-hero-meta">Vessels · Berths · Resources · Decisions</p></section>}
@@ -113,12 +117,12 @@ export default function LivingHarborApp({operational}:{operational?:{workspace:W
    {preview&&!geo&&<div className="lh-proposal-warning" role="status"><span/> VIOLET SCENARIO PREVIEW · VISUAL ONLY · NOT APPLIED</div>}
    {(view!=='Overview'||geo||fallback)&&<section className="lh-workspace-layer" aria-label={view+' operational workspace'}>
     <div className="lh-workspace-inner">
-    {geo||fallback?<><Heading eyebrow="GEOGRAPHIC / RECORD TRUTH" title="Verify the actual recorded port picture.">This view deliberately avoids interpreting decorative animation as navigational telemetry.</Heading><OperationalPulse workspace={showcaseWorkspace} team={team} simulated {...showcaseActions}/></>:
-    view==='Port Calls'?<><Heading eyebrow="VESSEL OPERATIONS / PORT CALLS" title="Every arrival connects to a decision.">Click a vessel, inspect its recorded berth and time window, and follow its source.</Heading><OperationalCalls workspace={showcaseWorkspace} {...showcaseActions}/></>:
-    view==='Berth Planning'?<><Heading eyebrow="QUAY STRATEGY / BERTHS" title="See the horizon before you change it.">Violet marks uncommitted proposals; the operational plan remains read only.</Heading><OperationalPlan workspace={showcaseWorkspace} conflictsOverride={showcaseConflicts} {...showcaseActions}/></>:
+    {geo||fallback?<><Heading eyebrow="GEOGRAPHIC / RECORD TRUTH" title="Verify the actual recorded port picture.">This view deliberately avoids interpreting decorative animation as navigational telemetry.</Heading><OperationalPulse workspace={source} team={team} simulated={isDemo} {...readOnlyActions}/></>:
+    view==='Port Calls'?<><Heading eyebrow="VESSEL OPERATIONS / PORT CALLS" title="Every arrival connects to a decision.">Click a vessel, inspect its recorded berth and time window, and follow its source.</Heading><OperationalCalls workspace={source} {...readOnlyActions}/></>:
+    view==='Berth Planning'?<><Heading eyebrow="QUAY STRATEGY / BERTHS" title="See the horizon before you change it.">Violet marks uncommitted proposals; the operational plan remains read only.</Heading><OperationalPlan workspace={source} conflictsOverride={isDemo?showcaseConflicts:undefined} {...readOnlyActions}/></>:
     view==='Resources'?<ResourceView resources={data.resources} isDemo={isDemo}/>:
-    view==='Operations'?<><Heading eyebrow="COORDINATION / COMMITMENTS" title="Keep every handoff accountable.">Operational work has an owner, evidence, and a recorded state.</Heading><ProductCoordination facts={data.records} team={team} writable={false} onRefresh={async()=>{}} onCreate={()=>{}} onEdit={()=>{}} itemsOverride={coordinationItems}/></>:
-    view==='Incidents'?<><Heading eyebrow="INCIDENTS / HUMAN-REVIEWED RECOVERY" title="Find the disruption. Understand the impact.">A simulated disruption may have alternatives; none may be applied from this read-only view.</Heading><OperationalExceptions workspace={showcaseWorkspace} team={team} {...showcaseActions}/><a className="lh-text-link" href={isDemo?"?showcase=1#recovery":"/#recovery"}>Inspect full simulated recovery decision packet <ArrowUpRight size={16}/></a></>:
+    view==='Operations'?<><Heading eyebrow="COORDINATION / COMMITMENTS" title="Keep every handoff accountable.">Operational work has an owner, evidence, and a recorded state.</Heading><ProductCoordination facts={data.records} team={team} writable={false} onRefresh={async()=>{}} onCreate={()=>{}} onEdit={()=>{}} itemsOverride={isDemo?coordinationItems:undefined}/></>:
+    view==='Incidents'?<><Heading eyebrow="INCIDENTS / HUMAN-REVIEWED RECOVERY" title="Find the disruption. Understand the impact.">Source-attributed disruptions and recorded context appear here. Decisions require the classic authorized console.</Heading><OperationalExceptions workspace={source} team={team} {...readOnlyActions}/><a className="lh-text-link" href={isDemo?"?showcase=1#recovery":"/#recovery"}>Inspect recovery decisions in operator console <ArrowUpRight size={16}/></a></>:
     view==='Reports'?<ReportsView data={data} isDemo={isDemo}/>:<AdminView isDemo={isDemo}/>}
     </div>
    </section>}

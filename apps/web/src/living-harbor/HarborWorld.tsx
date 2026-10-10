@@ -22,10 +22,10 @@ function Boat({record,selected,moving,onSelect}:{record:WorldVessel;selected:boo
   if(record.kind==='tug'&&moving){ref.current.position.x=record.x+Math.cos(t*.19)*4;ref.current.position.z=record.z+Math.sin(t*.19)*5;ref.current.rotation.y=Math.sin(t*.19)*.2}
   if(record.kind==='pilot'&&moving){ref.current.position.x=record.x+Math.sin(t*.15)*5;ref.current.position.z=record.z+Math.cos(t*.15)*3}
  })
- return <group ref={ref} position={[record.x,0,record.z]} onClick={event=>{event.stopPropagation();onSelect(record.id)}}>
+ return <group ref={ref} position={[record.x,0,record.z]} onClick={event=>{event.stopPropagation();onSelect(record.id)}} onPointerOver={event=>{event.stopPropagation();document.body.style.cursor="pointer"}} onPointerOut={()=>{document.body.style.cursor="auto"}}>
   <primitive object={model} scale={record.kind==='cargo'?.98:1}/>
   {selected&&<mesh rotation={[-Math.PI/2,0,0]} position={[0,-.8,0]}><ringGeometry args={[record.kind==='cargo'?12:5,record.kind==='cargo'?12.2:5.25,48]}/><meshBasicMaterial color="#27C9ED" side={THREE.DoubleSide} depthWrite={false}/></mesh>}
-  {(selected||record.kind==='cargo')&&<Html position={[0,record.kind==='cargo'?9:5,0]} center><button className={'lh-world-tag '+(selected?'active':'')} onClick={()=>onSelect(record.id)}><span className="lh-dot"/>{record.name}<small>{record.status}</small></button></Html>}
+  {selected&&<Html position={[0,record.kind==='cargo'?9:5,0]} center><button className={'lh-world-tag '+(selected?'active':'')} onClick={()=>onSelect(record.id)}><span className="lh-dot"/>{record.name}<small>{record.status}</small></button></Html>}
  </group>
 }
 function HarborLights({moving}:{moving:boolean}){
@@ -40,7 +40,7 @@ function YardCars({moving}:{moving:boolean}){
 }
 function World({vessels,selected,onSelect,moving,proposal,quality}:{vessels:WorldVessel[];selected:string|null;onSelect:(id:string)=>void;moving:boolean;proposal:boolean;quality:'high'|'balanced'}){return <><color attach="background" args={['#173C43']}/><fog attach="fog" args={['#6a7d7d',140,340]}/><ambientLight intensity={1.3} color="#dbeddf"/><hemisphereLight args={['#fff6e0','#174e59',1.1]}/><directionalLight intensity={3} position={[-45,80,-50]} color="#ffca80"/><directionalLight intensity={.6} position={[85,25,45]} color="#91d4ef"/><Water moving={moving}/><Suspense fallback={null}><Land/>{vessels.map(v=><Boat key={v.id} record={v} selected={selected===v.id} moving={moving} onSelect={onSelect}/>)}</Suspense>{quality==='high'&&<><HarborLights moving={moving}/><YardCars moving={moving}/></>}<Line points={[[-43,.12,-9],[-30,.12,3],[-8,.12,13]]} color="#3de5e5" lineWidth={1.7} dashed dashSize={.45} gapSize={.28}/>{proposal&&<Line points={[[0,.16,25],[14,.16,-9],[18,.16,-22]]} color="#ad95ff" lineWidth={2.2} dashed dashSize={.4} gapSize={.23}/>}<OrbitControls makeDefault enableRotate={false} enablePan enableZoom enableDamping target={[0,0,0]} minZoom={5} maxZoom={14}/></>}
 export default function HarborWorld(props:{vessels:WorldVessel[];selected:string|null;onSelect:(id:string)=>void;moving:boolean;proposal:boolean;quality:'high'|'balanced';onWebGLError:()=>void}){
- return <div className="lh-world"  role="img" aria-label="Interactive fictional harbor diorama. Select any vessel using the accessible call list.">
+ return <div className="lh-world"  role="img" aria-label="Illustrative harbor diorama; use the accessible call list to inspect source-attributed vessel records.">
   <Canvas orthographic camera={{position:[95,112,105],zoom:8,near:.1,far:800}} dpr={[1,1.5]} gl={{antialias:props.quality==='high',powerPreference:'high-performance'}} onCreated={({gl,camera})=>{camera.lookAt(0,0,0);gl.domElement.addEventListener('webglcontextlost',props.onWebGLError,{once:true})}}>
    <World vessels={props.vessels} selected={props.selected} onSelect={props.onSelect} moving={props.moving} proposal={props.proposal} quality={props.quality}/>
   </Canvas>
