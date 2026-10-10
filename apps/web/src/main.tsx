@@ -5,7 +5,9 @@ import {productRequest} from './productClient'
 const TrainingApp = lazy(() => import('./App'))
 const ProductApp = lazy(() => import('./ProductApp'))
 const ShowcaseApp = lazy(() => import('./ShowcaseApp'))
+const LivingHarborApp = lazy(() => import('./living-harbor/LivingHarborApp'))
 function Runtime() {
+  if (new URLSearchParams(location.search).get('showcase') === '1' && new URLSearchParams(location.search).get('living') === '1') return <Suspense fallback={<div className="boot">SHOREFRONT<span>Opening Living Harbor…</span></div>}><LivingHarborApp/></Suspense>
   if (new URLSearchParams(location.search).get('showcase') === '1') return <Suspense fallback={<div className="boot">SHOREFRONT<span>Opening showcase…</span></div>}><ShowcaseApp/></Suspense>
   const [runtime, setRuntime] = useState<{runtime_mode: string; needs_setup: boolean}|null>(null)
   const [error, setError] = useState('')

@@ -120,3 +120,5 @@ export default function ShowcaseApp(){
     {view==='Evidence'&&<ShowcaseEvidence/>}
   </main></div>
 }
+
+export {workspace as showcaseWorkspace, team as showcaseTeam, conflicts as showcaseConflicts, actions as showcaseActions}
