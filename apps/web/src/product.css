@@ -1498,3 +1498,7 @@
 .product-boundary details{padding:10px 0;font-size:14px}
 .product-boundary summary{cursor:pointer;font-size:14px}
 .product-boundary code{display:block;overflow-wrap:anywhere}
+/* Optional animated command view: keep classic operator toolbar within mobile viewport. */
+@media (max-width: 760px) {
+  .product-commandbar .product-living-harbor-entry { display: none !important; }
+}

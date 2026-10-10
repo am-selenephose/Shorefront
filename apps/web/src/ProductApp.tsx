@@ -1,4 +1,4 @@
-import {useCallback, useEffect, useRef, useState, type FormEvent} from 'react'
+import {lazy,Suspense,useCallback, useEffect, useRef, useState, type FormEvent} from 'react'
 import ProductRecords, {RecordEditor} from './ProductRecords'
 import ProductCoordination from './ProductCoordination'
 import ProductEvidence from './ProductEvidence'
@@ -11,6 +11,7 @@ import ProductReadiness from './ProductReadiness'
 import ProductWhatIf from './ProductWhatIf'
 import {ProductError, productRequest, setSession, validateWorkspace, type Fact, type Session, type User, type Workspace} from './productClient'
 import './product.css'
+const LivingHarborApp=lazy(()=>import('./living-harbor/LivingHarborApp'))
 
 const views = ['Pulse', 'Readiness', 'Plan', 'Calls', 'Exceptions', 'Coordination', 'Recovery', 'Connections', 'Records', 'Evidence', 'Team'] as const
 type View = typeof views[number]
@@ -213,6 +214,7 @@ export default function ProductApp({needsSetup}: {needsSetup: boolean}) {
   }
   if (initial) return <div className="boot" role="status">SHOREFRONT<span>Checking workspace access…</span></div>
   if (!session) return <>{error && <p className="product-error" role="alert">{error}</p>}<SignIn setup={setup} onSession={value => {epoch.current++; lockView(false); adopt(value); void refresh().catch(() => {})}}/></>
+  if (workspace && new URLSearchParams(location.search).get("living") === "1") return <Suspense fallback={<div className="boot" role="status">SHOREFRONT<span>Opening authenticated Living Harbor…</span></div>}><LivingHarborApp operational={{workspace,team,fresh}}/></Suspense>
   const writable = fresh && session.user.role !== 'viewer'
   const actions = {writable,onCreate:(kind:string,payload?:Fact['payload'])=>setEditor({record:null,kind,payload,id:crypto.randomUUID()}),onEdit:(record:Fact)=>setEditor({record,kind:record.kind,id:crypto.randomUUID()})}
   const sessionEpoch = epoch.current
@@ -229,7 +231,7 @@ export default function ProductApp({needsSetup}: {needsSetup: boolean}) {
     Evidence:workspace?.records.length??0,
     Team:team.filter(member=>member.active).length,
   }
-  return <div className="product-shell product-shell-advanced" key={session.user.id}><aside className="product-sidebar"><a href="#pulse" className="product-wordmark">SHOREFRONT<span>PORT OPERATIONS OS</span></a><div className="product-sidebar-mode"><i className={fresh?'is-live':'is-stale'}/><span>{fresh?'CONNECTED':'NOT CURRENT'}</span><small>{workspace?.installation_id??'Loading workspace'}</small></div><nav aria-label="Workspace">{views.map((item, index) => <a key={item} href={`#${item.toLowerCase()}`} aria-current={view === item ? 'page' : undefined}><span aria-hidden="true" className="nav-index">0{index+1}</span><b>{item}</b><em aria-hidden="true">{navCounts[item]}</em></a>)}</nav><div className="product-sidebar-foot"><span className="product-index">PRIVATE INSTALLATION</span><strong>{session.user.name}</strong><small>{session.user.role}</small><button onClick={() => void signOut()}>Sign out</button></div></aside>
+  return <div className="product-shell product-shell-advanced" key={session.user.id}><aside className="product-sidebar"><a href="#pulse" className="product-wordmark">SHOREFRONT<span>PORT OPERATIONS OS</span></a><div className="product-sidebar-mode"><i className={fresh?'is-live':'is-stale'}/><span>{fresh?'CONNECTED':'NOT CURRENT'}</span><small>{workspace?.installation_id??'Loading workspace'}</small></div><nav aria-label="Workspace">{views.map((item, index) => <a key={item} href={`#${item.toLowerCase()}`} aria-current={view === item ? 'page' : undefined}><span aria-hidden="true" className="nav-index">0{index+1}</span><b>{item}</b><em aria-hidden="true">{navCounts[item]}</em></a>)}<a href="/?living=1#overview" className="product-living-harbor-nav" title="Open read-only, game-style Living Harbor"><span aria-hidden="true" className="nav-index">✦</span><b>Living Harbor</b><em aria-hidden="true">VIEW</em></a></nav><div className="product-sidebar-foot"><span className="product-index">PRIVATE INSTALLATION</span><strong>{session.user.name}</strong><small>{session.user.role}</small><button onClick={() => void signOut()}>Sign out</button></div></aside>
     <main><header className="product-topbar product-commandbar"><div className="commandbar-context"><span className="product-index">{view.toUpperCase()} / OPERATOR CONSOLE</span><b>{workspace?.installation_id??'Loading workspace'}</b></div>{workspace&&<GlobalSearch facts={workspace.records} onEdit={actions.onEdit}/>}<div className="commandbar-tools"><button type="button" className="commandbar-refresh" aria-label="Refresh records" title="Load latest recorded facts" onClick={()=>void refresh().catch(()=>{})}>Refresh</button><a className="product-showcase-entry" href="/?showcase=1#coordination" title="Explore a fictional harbor with no access to operational records">Explore simulated demo ↗</a><div className={`commandbar-health ${fresh?'is-live':'is-stale'}`}><i/><span>{fresh?'LIVE RECORD':'STALE VIEW'}</span></div><OperationalClock/><ThemeButton/></div></header>
       {error && <div className="product-error" role="alert">{error} <button onClick={() => void refresh().catch(() => {})}>Retry connection</button></div>}
       {!workspace ? <section className="product-empty product-workspace-stage" role="status"><h1>Loading your operational records…</h1><button onClick={() => void refresh().catch(() => {})}>Retry</button></section> : <section className="product-workspace-stage">

@@ -1,0 +1,107 @@
+import {expect,test} from '@playwright/test'
+const demo='/?showcase=1&living=1#overview'
+test('Living Harbor has eight functioning workspaces',async({page})=>{
+ const errors:string[]=[]
+ page.on('pageerror',e=>errors.push(e.message))
+ await page.goto(demo)
+ await expect(page.getByTestId('living-harbor')).toBeVisible()
+ const nav=page.getByRole('navigation',{name:'Living Harbor workspaces'})
+ const names=['Overview','Port Calls','Berth Planning','Resources','Operations','Incidents','Reports','Administration']
+ await expect(nav.getByRole('link')).toHaveCount(8)
+ for(const name of names){
+  await nav.getByRole('link',{name,exact:true}).click()
+  await expect(nav.getByRole('link',{name,exact:true})).toHaveAttribute('aria-current','page')
+  await expect(page.locator('.lh-workspace-layer, .lh-floating-calls').first()).toBeVisible()
+ }
+ expect(errors).toEqual([])
+})
+test('selection preserves call identity and source',async({page})=>{
+ await page.goto(demo)
+ await page.getByRole('region',{name:'Active port calls'}).getByRole('button',{name:/MV Aurora/}).click()
+ const inspector=page.getByRole('complementary',{name:/Selected vessel MV Aurora/})
+ await expect(inspector).toContainText('North Quay')
+ await expect(inspector).toContainText('SIMULATED SOURCE')
+ await expect(inspector).toContainText('Illustrative, not geolocated')
+ await inspector.getByRole('button',{name:'Close vessel inspector'}).click()
+ await expect(inspector).toHaveCount(0)
+})
+test('violet proposal and ambient controls cause no operational writes',async({page})=>{
+ const writes:string[]=[]
+ page.on('request',r=>{if(['POST','PUT','PATCH','DELETE'].includes(r.method())&&r.url().includes('/api/v1/'))writes.push(r.url())})
+ await page.goto(demo)
+ await page.getByRole('button',{name:'Preview proposal'}).click()
+ await expect(page.getByRole('status').filter({hasText:'VIOLET SCENARIO PREVIEW'})).toContainText('NOT APPLIED')
+ await page.getByRole('button',{name:'Close proposal'}).click()
+ await expect(page.getByRole('status').filter({hasText:'VIOLET SCENARIO PREVIEW'})).toHaveCount(0)
+ await page.getByRole('button',{name:/^(Pause ambiance|Resume ambiance)$/}).click()
+ await expect(page.getByRole('button',{name:/^(Pause ambiance|Resume ambiance)$/})).toBeVisible()
+ expect(writes).toEqual([])
+})
+test('mobile renders accessible schematic and records',async({page})=>{
+ await page.setViewportSize({width:390,height:844})
+ await page.goto(demo)
+ await expect(page.getByText('Schematic fallback')).toBeVisible()
+ await expect(page.locator('.lh-workspace-layer')).toBeVisible()
+ await expect(page.getByRole('navigation',{name:'Living Harbor workspaces'}).getByRole('link')).toHaveCount(8)
+ await expect(page.locator('.lh-world canvas')).toHaveCount(0)
+})
+
+test('authenticated Living Harbor uses real workspace and preserves console access',async({page})=>{
+ const runtime=await (await page.request.get('/api/v1/runtime/capabilities')).json()
+ await page.goto(runtime.needs_setup?'/#setup=test-only-bootstrap-for-local-product-browser-suite':'/')
+ if(runtime.needs_setup)await page.getByLabel('Full name').fill('Living Harbor Owner')
+ await page.getByLabel('Email',{exact:true}).fill('owner@example.test')
+ await page.getByLabel('Password').fill('test-only customer passphrase 42')
+ await page.getByRole('button',{name:runtime.needs_setup?'Create workspace':'Sign in',exact:true}).click()
+ await expect(page.getByRole('link',{name:'Living Harbor'})).toBeVisible()
+ const sessionResponse=await page.request.get('/api/v1/auth/me')
+ expect(sessionResponse.status()).toBe(200)
+ const session=await sessionResponse.json()
+ const headers={Origin:new URL(page.url()).origin,'X-CSRF-Token':session.csrf_token}
+ const navigationWrites:string[]=[]
+ page.on('request',req=>{if(['POST','PUT','PATCH','DELETE'].includes(req.method())&&req.url().includes('/api/v1/'))navigationWrites.push(req.url())})
+ const actual=[
+  ['port','lh-real-port',{name:'Actual QA Harbor',timezone:'UTC'}],
+  ['berth','lh-real-berth',{name:'Real East Terminal',port_id:'lh-real-port',max_length_m:325}],
+  ['vessel','lh-real-vessel',{name:'MV Actual Customer Record',length_m:225}],
+  ['call','lh-real-call',{vessel_id:'lh-real-vessel',berth_id:'lh-real-berth',status:'planned',eta:'2026-11-22T10:00:00Z',etd:'2026-11-22T15:00:00Z'}],
+ ] as const
+ const existing=(await (await page.request.get('/api/v1/workspace')).json()).records as {kind:string;record_id:string}[]
+ for(const [kind,id,payload] of actual){
+  if(existing.some(item=>item.kind===kind&&item.record_id===id))continue
+  const response=await page.request.post('/api/v1/records/'+kind,{headers:{...headers,'Idempotency-Key':id},data:{record_id:id,expected_revision:0,source:'Customer QA verification',payload}})
+  expect(response.status(),await response.text()).toBe(201)
+ }
+ navigationWrites.length=0
+ // Reload the authorized workspace through the canonical console before entering Living Harbor.
+ await page.reload()
+ await expect(page.getByRole('link',{name:'Living Harbor'})).toBeVisible()
+ await page.getByRole('link',{name:'Living Harbor'}).click()
+ await expect(page.getByTestId('living-harbor')).toBeVisible()
+ await expect(page.getByText('OPERATOR RECORDS')).toBeVisible()
+ await expect(page.getByText('AUTHENTICATED RECORDS',{exact:false})).toBeVisible()
+ await expect(page.getByText('POSITIONS ILLUSTRATIVE')).toBeVisible()
+ await expect(page.locator('.lh-sidebar-bottom')).toContainText('REAL RECORDS · NO GEO POSITION')
+ await expect(page.locator('.lh-call-list')).not.toContainText('MV Aurora')
+ await expect(page.locator('.lh-call-list')).toContainText('MV Actual Customer Record')
+ await page.getByRole('navigation',{name:'Living Harbor workspaces'}).getByRole('link',{name:'Port Calls'}).click()
+ await expect(page.locator('.lh-workspace-layer')).toContainText('MV Actual Customer Record')
+ await expect(page.locator('.lh-workspace-layer')).not.toContainText('MV Aurora')
+ await page.getByRole('navigation',{name:'Living Harbor workspaces'}).getByRole('link',{name:'Berth Planning'}).click()
+ await expect(page.locator('.lh-workspace-layer')).toContainText('MV Actual Customer Record')
+ await expect(page.locator('.lh-workspace-layer')).not.toContainText('MV Aurora')
+ await page.getByRole('navigation',{name:'Living Harbor workspaces'}).getByRole('link',{name:'Incidents'}).click()
+ await expect(page.locator('.lh-workspace-layer')).not.toContainText('MV Aurora')
+
+ await page.getByRole('navigation',{name:'Living Harbor workspaces'}).getByRole('link',{name:'Reports'}).click()
+ await expect(page.getByText('Every number is derived from the authenticated operational record snapshot.')).toBeVisible()
+ expect(navigationWrites,'Living Harbor must not issue operational API mutations').toEqual([])
+ await page.getByRole('link',{name:/Classic workspace/}).click()
+ await expect(page.getByRole('navigation',{name:'Workspace'})).toBeVisible()
+})
+test('operational Living Harbor requires sign-in and never discloses demo records',async({page})=>{
+ await page.goto('/?living=1#overview')
+ await expect(page.getByRole('button',{name:'Sign in',exact:true})).toBeVisible()
+ await expect(page.getByTestId('living-harbor')).toHaveCount(0)
+ await expect(page.getByText('MV Aurora',{exact:true})).toHaveCount(0)
+})

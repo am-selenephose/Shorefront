@@ -23,7 +23,7 @@ test('Pulse composes map, schematic fallback, focused call and berth horizon int
 
   const map=command.getByRole('region',{name:'Operational geographic harbor map'})
   await expectGeographicMapRenderer(page,map)
-  await expect(map.getByText('SCHEMATIC · NOT GEOGRAPHIC',{exact:true})).toBeVisible()
+  await expect(map.getByRole('region',{name:'Schematic berth digital twin'}).getByText('SCHEMATIC · NOT GEOGRAPHIC',{exact:true})).toBeVisible()
   await expect(map).toContainText('cockpit berth')
   await expect(map).toContainText('cockpit vessel')
 
