@@ -173,3 +173,10 @@
 .lh-workspace-layer .ops-workspace .product-index{color:#82dff4}
 .lh-workspace-layer .ops-workspace a{color:#6ce0f0}
 .lh-app{--lh-lavender:#9278f0}
+
+
+/* Preserve return navigation when responsive sidebar becomes icon-only. */
+@media(max-width:1450px){
+ .lh-sidebar-bottom>a{display:flex!important;justify-content:center;align-items:center;font-size:0!important;padding:9px 1px!important;min-height:36px}
+ .lh-sidebar-bottom>a::before{content:"↗";font-size:19px;color:#7ee2f0;line-height:1}
+}
